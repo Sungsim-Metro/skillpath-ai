@@ -3,6 +3,16 @@
 구간 사이를 오가는 데이터는 아래 세 형식만 씁니다. 예시 파일은 `data/sample/`에 있습니다.
 형식을 바꾸려면 코드보다 먼저 팀 채팅방에 알리고, 이 문서와 예시를 같은 PR에서 고칩니다.
 
+| 형식 | 예시 파일 | 쓰임 |
+| --- | --- | --- |
+| ① 공고 | `data/sample/posting.json` | 형식 예시 (1건) |
+| ② 추출 결과 | `data/sample/extraction.json` | 형식 예시 (1건) |
+| ③ 추천 | `data/sample/recommendation.json` | 형식 예시 (1건) |
+| ③ 추천 목록 | `data/sample/recommendations.json` | 가짜 모드에서 화면이 읽는 파일 |
+| ④ 수요 집계 | `data/sample/demand.json` | 가짜 모드에서 화면이 읽는 파일 |
+
+예시 파일의 숫자는 서로 맞춰 둡니다(공고 40건 기준).
+
 ## ① 공고 (`posting`) — pipeline → ai
 
 | 필드 | 타입 | 설명 |
