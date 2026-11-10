@@ -1,7 +1,7 @@
 # 회의록
 
 정기 회의(화·목·일 21시)와 멘토링 기록입니다. 파일 이름은 `YYYY-MM-DD.md`, 멘토링은 `YYYY-MM-DD-mentoring.md`.
-회의가 끝나면 메모를 Claude에게 주고 이 양식으로 정리한 뒤 `docs/meetings-YYYY-MM-DD` 브랜치로 PR을 올려 합칩니다.
+회의가 끝나면 메모를 Claude에게 주고 이 양식으로 정리한 뒤 `docs/meetings-YYYY-MM-DD` 브랜치로 PR을 올려 바로 합칩니다. 회의록만 바꾸는 PR은 리뷰를 기다리지 않습니다.
 
 ## 양식
 
