@@ -41,3 +41,20 @@
 | `courses[].prerequisites` | string | 선수지식 |
 | `courses[].reason` | string | 추천 이유 |
 | `courses[].match` | string | `certain` 또는 `uncertain` |
+
+## ④ 수요 집계 (`demand`) — backend → app  · 11/10 회의 승인 대기
+
+시장 수요 탭에서 직무 전체의 기술 순위를 보여주기 위한 형식입니다. 예시는 `data/sample/demand.json`.
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `job_category` | string | 직무 코드 |
+| `job_title` | string | 화면에 보여줄 직무 이름 |
+| `total_postings` | number | 분석한 전체 공고 수 |
+| `sources` | string[] | 데이터 출처 목록 |
+| `collected` | string | 수집일 또는 기간 |
+| `skills[].skill` | string | 표준 기술 이름 |
+| `skills[].postings` | number | 이 기술을 요구한 공고 수 (코드로 계산) |
+| `skills[].required` | number | 그중 필수로 표기한 공고 수 |
+| `skills[].preferred` | number | 그중 우대로 표기한 공고 수 |
+| `skills[].evidence_samples[]` | object[] | 근거 예시 `{posting_id, evidence}` 1~3개 |
