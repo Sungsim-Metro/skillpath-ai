@@ -218,3 +218,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AWS
+.aws/
+*.pem
+
+# 데이터·산출물 (원본은 올리지 않고 data/sample/ 만 공유)
+data/raw/
+outputs/
+*.faiss
+
+# OS·에디터
+.DS_Store
+.vscode/
