@@ -101,10 +101,12 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
 def extract_posting(text: str, posting_id: str = "manual-input") -> dict:
     """공고 본문에서 기술, 필수/우대, 근거 문장을 뽑는다(②).
 
-    가짜 모드에서는 키워드를 찾아 그 구절을 근거로 쓴다. 실제로는 Bedrock 추출(#9)로 교체한다.
+    가짜 모드에서는 키워드를 찾아 그 구절을 근거로 쓴다. 실제 모드는 ai.extract(#9)의 Bedrock 추출을 부른다.
     """
     if not is_mock():
-        raise NotImplementedError("실제 추출은 #9, #11 에서 구현합니다.")
+        from ai.extract import extract_skills
+
+        return extract_skills({"posting_id": posting_id, "text": text})
     vocab = {s["skill"]: s["skill"] for s in _load("demand.json")["skills"]}
     vocab.update(_MOCK_ALIASES)
     clauses = [c.strip() for c in re.split(r"[.\n,·;]", text) if c.strip()]
