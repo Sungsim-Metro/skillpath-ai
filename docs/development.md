@@ -1,0 +1,87 @@
+# 개발 내용
+
+2026-11-12 기준. 무엇을 어떤 구조로 만드는지 정리했습니다. 작업별 진행 상태는 [보드](https://github.com/orgs/Sungsim-Metro/projects/2)에서 봅니다.
+
+## 폴더와 담당
+
+| 폴더 | 내용 | 담당 |
+| --- | --- | --- |
+| `app/` | Streamlit 화면. 화면 코드만 두고 로직은 다른 폴더의 함수를 호출 | 형섭 |
+| `backend/` | Lambda, DynamoDB, 수요 집계·Gap 계산 | 일현 |
+| `pipeline/` | 공고·NCS·교육과정 수집, 전처리, 별칭 사전, 임베딩 검색 | 종훈 |
+| `ai/` | 추출·추천 프롬프트, 가드레일, 평가 | 성진 |
+| `contracts/` | 구간 사이를 오가는 JSON 형식과 예시 | 전원 합의 |
+| `data/sample/` | 개발용 가짜 데이터 | 전원 |
+
+실행 방법은 [README](../README.md#시작하기)에 있습니다. `BEDROCK_MOCK=1`이면 AWS 없이 가짜 데이터로 화면이 뜹니다.
+
+## AWS 서비스와 쓰는 이유
+
+| 서비스 | 어디에 | 왜 |
+| --- | --- | --- |
+| Amazon Bedrock (Claude) | 기술 추출, 추천 이유 생성 | 표현이 일정하지 않은 공고 문장을 읽고 설명하는 일 |
+| Titan Embeddings | 표현 표준화 | 같은 뜻의 다른 표현을 의미로 묶기 |
+| Bedrock Knowledge Base | 교육과정 검색. 안 되면 FAISS | 부족 기술에 맞는 과정 설명을 의미로 찾기 |
+| Bedrock Agents | 학습 상담 | 수요 조회와 과정 검색 함수를 도구로 불러 답 구성 |
+| Bedrock Guardrails | 추출, 학습 상담 | 주제 밖 질문과 차별 조건 차단 |
+| S3 | 공고 원본 저장 | 근거 검증, 프롬프트 재실행, 정확도 측정에 같은 원문 사용 |
+| Lambda | 수집·추출 자동 처리 | 쓰임새 확정 전. S3에 원본이 들어오면 추출을 돌리는 안 |
+| DynamoDB | 추출 결과, 사용자 정보와 대화 기록 | 사용자별 조회. 저장 항목은 미정 |
+| API Gateway | 미정 | 공고 직접 분석 탭을 넣을 때만 쓰자는 안과 빼자는 안이 있음 |
+
+서비스가 어디에 놓이는지는 [서비스 플로우](service-flow.md#2-시스템-구조)의 그림을 봅니다.
+
+## 인터페이스 계약
+
+구간 사이 데이터는 아래 형식만 씁니다. 필드 정의와 예시는 [`contracts/README.md`](../contracts/README.md)에 있습니다.
+
+| 형식 | 흐름 | 핵심 필드 |
+| --- | --- | --- |
+| ① 공고 | pipeline → ai | `posting_id`, `text`, `source`, `collected_at` |
+| ② 추출 결과 | ai → backend | `skills[].normalized`, `type`, `evidence`, `confidence` |
+| ③ 추천 | backend + ai → app | `gap_skill`, `demand`, `courses[].reason`, `match` |
+| ④ 수요 집계 | backend → app | `total_postings`, `skills[].postings`, `required`, `preferred` |
+
+형식을 바꾸는 PR은 설명 맨 위에 "인터페이스 변경"이라고 적고, 문서와 예시를 같은 PR에서 고칩니다.
+
+## 개발 원칙
+
+전문은 [`CLAUDE.md`](../CLAUDE.md)에 있습니다.
+
+1. 인터페이스 계약 우선
+2. 세기는 코드, 이해는 AI. LLM에게 숫자를 세게 하지 않는다
+3. 근거 없는 결과 금지. 추출한 기술마다 근거 문장이 있고, 그 문장이 원문에 있는지 코드로 검사한다
+4. 확신이 없으면 "불확실"
+5. 화면과 로직 분리
+6. 가장 단순한 구현
+
+## 지금 코드에 있는 것
+
+| 위치 | 내용 |
+| --- | --- |
+| `app/main.py` | 사이드바와 탭 4개(시장 수요, 부족 역량, 학습 추천, 공고 분석). 가짜 데이터로 동작 |
+| `backend/api.py` | 화면이 부르는 함수 4개: `get_demand`, `get_gap`, `get_recommendations`, `extract_posting`. 지금은 가짜 데이터를 돌려주고, 담당자가 실제 구현으로 교체 |
+| `data/sample/` | ①~④ 형식의 예시 JSON |
+| `.github/workflows/` | PR 자동 리뷰(`claude-review.yml`), 댓글 호출(`claude.yml`) |
+
+`pipeline/`과 `ai/`는 아직 README만 있습니다.
+
+## 품질 확인 계획
+
+| 확인할 것 | 방법 | 이슈 |
+| --- | --- | --- |
+| 추출 정확도 | 정답지와 비교해 정밀도·재현율·F1. 프롬프트 버전별 비교 | [#8](https://github.com/Sungsim-Metro/skillpath-ai/issues/8), [#21](https://github.com/Sungsim-Metro/skillpath-ai/issues/21) |
+| 근거 검증 | 근거 문장이 공고 원문에 있는지 코드로 검사, 통과율 기록 | [#16](https://github.com/Sungsim-Metro/skillpath-ai/issues/16) |
+| 표준화 | 같은 표현은 묶고(아마존 웹 서비스 = AWS) 다른 것은 안 묶는지(Java ≠ JavaScript) | [#13](https://github.com/Sungsim-Metro/skillpath-ai/issues/13) |
+| 과정 검색 | 부족 기술별 Top-5 적중률 | [#14](https://github.com/Sungsim-Metro/skillpath-ai/issues/14) |
+| 가드레일 | 차단해야 할 질문과 정상 질문으로 차단·오차단 수 | [#24](https://github.com/Sungsim-Metro/skillpath-ai/issues/24) |
+| 끝까지 연결 | 공고 1건이 추천까지 가는 자동 테스트 | [#38](https://github.com/Sungsim-Metro/skillpath-ai/issues/38) |
+| 사용자 테스트 | 취업 준비생 3~5명 | [#39](https://github.com/Sungsim-Metro/skillpath-ai/issues/39) |
+
+목표치는 [기획 내용](planning.md#숫자로-잡은-목표)에 있고, 측정 결과가 나오면 이 문서에 표로 더합니다.
+
+## 협업 방식
+
+- 작업은 이슈에서 시작하고, 브랜치 → PR → Claude 자동 리뷰 → 올린 사람이 병합합니다.
+- 회의록은 [`meetings/`](meetings/README.md)에 남기고 팀원이 검토합니다.
+- 데이터 출처, 수집 범위, 한계는 [`data-sources.md`](data-sources.md)에 기록합니다.
