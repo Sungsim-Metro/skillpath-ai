@@ -54,6 +54,7 @@
 
 - Python 3.11, 리전은 `ap-northeast-2`.
 - 함수와 변수는 영어, 주석과 문서와 커밋 메시지는 한국어.
+- 모델 ID는 코드에 적지 않고 `.env`의 `BEDROCK_MODEL_ID`, `EMBED_MODEL_ID`로 읽는다. 호출마다 `usage`(토큰 수)를 남긴다.
 - Bedrock 호출은 `BEDROCK_MOCK=1`일 때 `data/sample/`의 가짜 응답을 돌려주도록 해서 AWS 없이도 화면을 띄울 수 있게 한다.
 - LLM 출력은 JSON으로 받고, 파싱 실패 시 한 번 재시도한 뒤 오류를 그대로 드러낸다.
 
