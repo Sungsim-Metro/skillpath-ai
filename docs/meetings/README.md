@@ -2,6 +2,7 @@
 
 정기 회의(화·목·일 21시)와 멘토링 기록입니다. 파일 이름은 `YYYY-MM-DD.md`, 멘토링은 `YYYY-MM-DD-mentoring.md`.
 기준 자료: [`aws-topic-briefing.md`](aws-topic-briefing.md) (AWS 주제 설명 정리. 녹취 전문은 두지 않고 원본은 LMS 영상). 기획이 이 설명과 어긋나면 회의록 3번에 적습니다.
+멘토링 기록에는 멘토의 실명과 발언을 그대로 옮기지 않고 조언을 요약해 적습니다(저장소 공개 준비, #44).
 회의가 끝나면 메모를 Claude에게 주고 이 양식으로 정리한 뒤 `docs/meetings-YYYY-MM-DD` 브랜치로 PR을 올립니다.
 
 ## 팀원 검토 (권장)
