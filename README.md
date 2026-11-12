@@ -3,6 +3,28 @@
 채용공고에서 기술 수요를 추출해 부족한 역량과 AWS 교육과정을 근거와 함께 추천하는 AI 에이전트.
 AI Bootcamp Innovation Challenger 2026 · 팀 ASAP하게
 
+## 프로젝트 허브
+
+프로젝트에 관한 모든 것을 여기서 찾습니다. 팀원 누구나 고칠 수 있습니다.
+
+| 보고 싶은 것 | 위치 | 고치는 방법 |
+| --- | --- | --- |
+| 현황판 | [보드: 마일스톤 별](https://github.com/orgs/Sungsim-Metro/projects/2/views/2) · [담당자 별](https://github.com/orgs/Sungsim-Metro/projects/2/views/3) | 카드를 끌어 옮기거나 상태 칸을 수정 |
+| WBS · 일정 | [로드맵](https://github.com/orgs/Sungsim-Metro/projects/2/views/4) · [WBS 표](https://github.com/orgs/Sungsim-Metro/projects/2/views/5) · [`docs/wbs.md`](docs/wbs.md) | 보드에서 시작일·기한 수정 |
+| 서비스 플로우 | [`docs/service-flow.md`](docs/service-flow.md) | 문서 수정 (그림은 Mermaid 텍스트) |
+| 과제 내용 | [`docs/assignment.md`](docs/assignment.md) | 문서 수정 |
+| 기획 내용 | [`docs/planning.md`](docs/planning.md) | 문서 수정 |
+| 개발 내용 | [`docs/development.md`](docs/development.md) · [`contracts/`](contracts/README.md) | 문서 수정 |
+| 회의록 | [`docs/meetings/`](docs/meetings/README.md) | PR 댓글 또는 문서 수정 |
+| 데이터 출처 | [`docs/data-sources.md`](docs/data-sources.md) | 문서 수정 |
+| 할 일 전체 | [이슈](https://github.com/Sungsim-Metro/skillpath-ai/issues) · [마일스톤](https://github.com/Sungsim-Metro/skillpath-ai/milestones) | 이슈 생성·댓글 |
+
+**문서를 고치는 법.** GitHub에서 파일을 열고 오른쪽 위 연필 아이콘을 누릅니다. 고친 뒤 "Commit changes"에서
+"Create a new branch"를 골라 PR을 올립니다. 설치할 것이 없고 브라우저만 있으면 됩니다.
+
+**상태는 보드 한 곳에만 적습니다.** 진행 상태와 날짜는 보드가 원본이고, 문서에는 구조와 결정만 적습니다.
+보드는 조직 구성원만 볼 수 있습니다.
+
 ## 무엇을 하나
 
 1. 목표 직무를 고르고 보유 기술을 입력한다.
