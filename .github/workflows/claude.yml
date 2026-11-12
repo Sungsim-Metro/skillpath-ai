@@ -7,7 +7,11 @@ on:
     types: [created]
 jobs:
   claude:
-    if: contains(github.event.comment.body, '@claude')
+    # 팀원 댓글에만 반응한다. 저장소를 공개해도 외부 댓글로는 실행되지 않는다.
+    # 팀원이 바뀌면 아래 목록의 GitHub 아이디를 고친다.
+    if: >-
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["simhyeongseop","IlhyeonChoo","202202571","baeseongjin123"]'), github.event.comment.user.login)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
