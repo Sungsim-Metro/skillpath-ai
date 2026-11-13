@@ -20,6 +20,8 @@ EXISTING=()
 for p in "${PATHS[@]}"; do
   if [ -n "$(git ls-files -- "$p")" ]; then EXISTING+=("$p"); else echo "알림: $p 는 아직 커밋된 파일이 없어 건너뜀"; fi
 done
+# 경로가 하나도 없으면 git archive가 저장소 전체를 꺼내므로 여기서 멈춘다
+[ "${#EXISTING[@]}" -gt 0 ] || { echo "❌ 내보낼 경로가 없습니다. allowlist.txt를 확인하세요."; exit 1; }
 git archive --format=tar HEAD -- "${EXISTING[@]}" | tar -x -C "$OUT"
 
 SHA="$(git rev-parse --short HEAD)"
@@ -43,8 +45,8 @@ if ! "$GITLEAKS" dir "$OUT" --redact --no-banner --exit-code 1 > /tmp/gitleaks.t
 fi
 
 # 2-3. 계정 ID, AWS 키, 이메일, 전화번호, 공개하지 않기로 한 자료
-check() { # 이름 정규식
-  local hits; hits="$(grep -rnIE "$2" "$OUT" | sed "s|^$OUT/||" | grep -vE "$ALLOW" || true)"
+check() { # 이름 정규식. 걸린 값이 로그에 남지 않게 "파일:줄번호"만 출력한다
+  local hits; hits="$(grep -rnIE "$2" "$OUT" | sed "s|^$OUT/||" | grep -vE "$ALLOW" | cut -d: -f1,2 || true)"
   [ -n "$hits" ] && fail "$1"$'\n'"$hits"
   return 0
 }
