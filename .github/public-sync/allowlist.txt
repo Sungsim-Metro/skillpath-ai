@@ -1,0 +1,14 @@
+# Public 레포로 내보낼 경로 (한 줄에 하나). 여기 적지 않은 것은 절대 나가지 않는다.
+# 폴더는 끝에 / 없이 적는다. 추가·삭제는 PR로 하고 형섭이 확인한다.
+# 내보내지 않는 것: CLAUDE.md, docs/meetings/, 기획·과제·WBS 문서(교안·녹취·멘토링 인용), .github/
+.env.example
+.gitignore
+requirements.txt
+app
+backend
+pipeline
+ai
+contracts
+data/sample
+docs/service-flow.md
+docs/data-sources.md

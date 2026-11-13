@@ -17,6 +17,7 @@ AI Bootcamp Innovation Challenger 2026 · 팀 ASAP하게
 | 개발 내용 | [`docs/development.md`](docs/development.md) · [`contracts/`](contracts/README.md) | 문서 수정 |
 | 회의록 | [`docs/meetings/`](docs/meetings/README.md) | PR 댓글 또는 문서 수정 |
 | 데이터 출처 | [`docs/data-sources.md`](docs/data-sources.md) | 문서 수정 |
+| 공개용 저장소 | [skillpath-ai-public](https://github.com/Sungsim-Metro/skillpath-ai-public) · [`docs/public-sync.md`](docs/public-sync.md) | 형섭이 Actions에서 게시 |
 | 할 일 전체 | [이슈](https://github.com/Sungsim-Metro/skillpath-ai/issues) · [마일스톤](https://github.com/Sungsim-Metro/skillpath-ai/milestones) | 이슈 생성·댓글 |
 
 **문서를 고치는 법.** GitHub에서 파일을 열고 오른쪽 위 연필 아이콘을 누릅니다. 고친 뒤 "Commit changes"에서
