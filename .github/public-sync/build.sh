@@ -2,6 +2,7 @@
 # 공개 파일 추출과 보안 검사.
 # 사용법: .github/public-sync/build.sh 출력폴더
 # - allowlist.txt에 적힌 경로만, 커밋된 파일만(git archive) 꺼낸다. 커밋 기록은 나가지 않는다.
+# - 공개용 README, Pages 설정, 협업 문서(collab.py)를 더한다.
 # - 검사에 하나라도 걸리면 종료 코드 1. 이때는 Public 레포에 아무것도 올리지 않는다.
 set -euo pipefail
 
@@ -27,6 +28,8 @@ git archive --format=tar HEAD -- "${EXISTING[@]}" | tar -x -C "$OUT"
 SHA="$(git rev-parse --short HEAD)"
 DATE="$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
 sed "s|{{SYNC_INFO}}|$DATE (개발 저장소 커밋 $SHA)|" "$HERE/README.public.md" > "$OUT/README.md"
+cp "$HERE/pages/_config.yml" "$OUT/_config.yml"   # GitHub Pages 설정
+python3 "$HERE/collab.py" "$OUT"                  # 협업 기록 요약, 회의 결정 사항 발췌
 
 FILES="$(cd "$OUT" && find . -type f | sed 's|^\./||' | sort)"
 echo "추출한 파일 $(echo "$FILES" | wc -l)개"

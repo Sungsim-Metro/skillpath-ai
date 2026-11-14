@@ -1,31 +1,38 @@
-# Private(개발) → Public(공개용) 반자동 동기화
-# - main에 병합될 때마다: 공개 파일 추출 + 보안 검사만 한다. 게시하지 않는다.
-# - 형섭이 Actions 탭에서 "Run workflow"를 누를 때만 검사를 다시 통과한 뒤 Public 레포에 올린다.
-# - 아래 게시 조건은 실수 방지용이다. 쓰기 권한이 있는 팀원은 이 파일을 고쳐 우회할 수 있다(팀원 신뢰 전제).
-#   무료 조직의 비공개 저장소는 Environment 보호 규칙(승인자 지정)을 쓸 수 없어서 이렇게 했다.
-# 설정 방법과 공개 범위: docs/public-sync.md
+# Private(개발) → Public(공개용) 동기화
+# - PR이 열리거나 바뀔 때: 공개 파일 추출 + 보안 검사만 한다. 걸리면 PR에 ❌가 뜬다(병합 전에 고친다).
+# - main에 병합될 때: 검사를 다시 하고, 통과하면 공개용 저장소에 자동으로 게시한다.
+# - 수동: Actions 탭에서 Run workflow(main) → publish 입력. 지금 상태로 다시 게시한다.
+# 검사에 걸리면 게시하지 않는다. 공개 범위·설정·공유 방법: docs/public-sync.md
+#
+# 병합하면 곧 공개된다. `.github/public-sync/`와 이 파일을 바꾸는 PR은 형섭이 확인한다.
+# 쓰기 권한이 있는 팀원은 이 파일을 고쳐 검사를 우회할 수 있다(팀원 신뢰 전제).
 name: Public Sync
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
     inputs:
       confirm:
-        description: "검사 결과(파일 목록)를 확인했으면 publish 라고 입력"
+        description: "지금 main 상태로 다시 게시하려면 publish 라고 입력"
         required: true
         default: ""
 concurrency:
-  group: public-sync
-  cancel-in-progress: false
+  group: public-sync-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   PUBLIC_REPO: Sungsim-Metro/skillpath-ai-public
   GITLEAKS_VERSION: 8.28.0
 jobs:
   sync:
+    name: 공개 검사
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -37,47 +44,48 @@ jobs:
           tar -xzf /tmp/gl.tgz -C /tmp gitleaks
 
       - name: 공개 파일 추출과 보안 검사
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: GITLEAKS=/tmp/gitleaks bash .github/public-sync/build.sh "$RUNNER_TEMP/public"
 
-      - name: 게시 조건 확인 (형섭이 main에서 publish 입력)
+      - name: 게시할지 정하기
         id: gate
         env:
           CONFIRM: ${{ inputs.confirm }}
-          # 다시 실행(Re-run)하면 actor는 처음 실행한 사람으로 남으므로, 실제로 누른 사람도 확인한다
-          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          DEPLOY_KEY: ${{ secrets.PUBLIC_REPO_DEPLOY_KEY }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] \
-             && [ "$GITHUB_REF" = "refs/heads/main" ] \
-             && [ "$GITHUB_ACTOR" = "simhyeongseop" ] \
-             && [ "$TRIGGERING_ACTOR" = "simhyeongseop" ] \
-             && [ "$CONFIRM" = "publish" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "검사만 했습니다. 게시는 형섭이 main에서 Run workflow에 publish를 입력해야 합니다." | tee -a "$GITHUB_STEP_SUMMARY"
+          publish=false
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "push" ]; then publish=true; fi
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$CONFIRM" = "publish" ]; then publish=true; fi
           fi
+          if [ "$publish" = true ] && [ -z "$DEPLOY_KEY" ]; then
+            publish=false
+            echo "⚠️ 배포 키(PUBLIC_REPO_DEPLOY_KEY)가 없어 게시하지 않았습니다. docs/public-sync.md의 처음 설정을 하세요." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          [ "$publish" = true ] || echo "검사만 했습니다(게시 안 함)." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-      - name: Public 레포에 게시
+      - name: 공개용 저장소에 게시
         if: steps.gate.outputs.publish == 'true'
         env:
           DEPLOY_KEY: ${{ secrets.PUBLIC_REPO_DEPLOY_KEY }}
         run: |
           set -euo pipefail
-          [ -n "$DEPLOY_KEY" ] || { echo "PUBLIC_REPO_DEPLOY_KEY 시크릿이 없습니다. docs/public-sync.md를 보세요."; exit 1; }
           mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           PUB="$RUNNER_TEMP/pubrepo"
-          if ! git clone --depth 1 "git@github.com:${PUBLIC_REPO}.git" "$PUB" 2>/dev/null || [ ! -d "$PUB/.git" ]; then
-            rm -rf "$PUB" && git init -q -b main "$PUB" && git -C "$PUB" remote add origin "git@github.com:${PUBLIC_REPO}.git"
-          fi
-          # Public 레포 내용을 추출본으로 통째로 바꾼다(.git만 유지)
-          find "$PUB" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          # 공개용 저장소의 최신 커밋 위에 쌓는다. 빈 저장소(첫 게시)면 첫 커밋이 된다
+          git init -q -b main "$PUB"
+          git -C "$PUB" remote add origin "git@github.com:${PUBLIC_REPO}.git"
+          if git -C "$PUB" fetch -q --depth 1 origin main 2>/dev/null; then git -C "$PUB" reset -q --soft FETCH_HEAD; fi
+          # 내용은 추출본으로 통째로 바꾼다(추출본에 없는 파일은 지워진다)
           cp -a "$RUNNER_TEMP/public/." "$PUB/"
           cd "$PUB"
           git add -A
           if git diff --cached --quiet; then echo "바뀐 파일이 없어 게시하지 않습니다." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
           git -c user.name="skillpath-ai sync" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "동기화: 개발 저장소 ${GITHUB_SHA::7}"
-          git push origin HEAD:main
+          git push -q origin HEAD:main
           echo "✅ https://github.com/${PUBLIC_REPO} 에 게시했습니다." | tee -a "$GITHUB_STEP_SUMMARY"
-          rm -f ~/.ssh/deploy_key
