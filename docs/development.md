@@ -21,13 +21,15 @@
 | --- | --- | --- |
 | Amazon Bedrock (Claude) | 기술 추출, 추천 이유 생성 | 표현이 일정하지 않은 공고 문장을 읽고 설명하는 일 |
 | Titan Embeddings | 표현 표준화 | 같은 뜻의 다른 표현을 의미로 묶기 |
-| Bedrock Knowledge Base | 교육과정 검색. 안 되면 FAISS | 부족 기술에 맞는 과정 설명을 의미로 찾기 |
-| Bedrock Agents | 학습 상담 | 수요 조회와 과정 검색 함수를 도구로 불러 답 구성. 팀 계정에서 생성이 막히면 AgentCore나 Converse API 도구 호출로 대체([AWS 안내](https://docs.aws.amazon.com/bedrock/latest/userguide/agents-classic-maintenance-mode.html)) |
+| Bedrock Knowledge Base (S3 Vectors) | 교육과정 검색. 수업 6주차 CloudFormation 템플릿 재사용, 실패하면 FAISS | 부족 기술에 맞는 과정 설명을 의미로 찾기. S3 Vectors는 저장·질의한 만큼만 과금 |
+| Bedrock Agents | 학습 상담 | 수요 조회와 과정 검색 함수를 도구로 불러 답 구성. 팀 계정에서 Bedrock 사용 확인(11/13). 생성이 막히면 AgentCore나 Converse API 도구 호출로 대체([AWS 안내](https://docs.aws.amazon.com/bedrock/latest/userguide/agents-classic-maintenance-mode.html)) |
 | Bedrock Guardrails | 추출, 학습 상담 | 주제 밖 질문과 차별 조건 차단 |
 | S3 | API 응답 JSON 저장 | 요약 정보와 원본 공고 링크. 근거 검증, 프롬프트 재실행, 정확도 측정에 같은 데이터 사용. 웹페이지 원문 전체는 저장하지 않음 |
 | Lambda | 수집·추출 자동 처리 | 쓰임새 확정 전. S3에 원본이 들어오면 추출을 돌리는 안 |
-| DynamoDB | 추출 결과, 사용자 정보와 대화 기록 | 사용자별 조회. 저장 항목은 미정 |
-| API Gateway | 미정 | 공고 직접 분석 탭을 넣을 때만 쓰자는 안과 빼자는 안이 있음 |
+| DynamoDB | 추출 결과, 사용자 정보와 대화 기록 | 닉네임별 학습 계획·대화 기록 조회. 로그인 없음. 저장 항목은 미정 |
+| CloudWatch | Lambda·Bedrock 로그와 대시보드 | E2E 7단계의 마지막 단계. 호출 수·오류·토큰 확인 |
+
+API Gateway는 쓰지 않습니다(2026-11-13). 수업 교안에 없고, 화면은 `backend/api.py` 함수를 직접 부릅니다.
 
 서비스가 어디에 놓이는지는 [서비스 플로우](service-flow.md#2-시스템-구조)의 그림을 봅니다.
 
@@ -76,12 +78,14 @@
 
 | 확인할 것 | 방법 | 이슈 |
 | --- | --- | --- |
-| 추출 정확도 | 정답지와 비교해 정밀도·재현율·F1. 프롬프트 버전별 비교 | [#8](https://github.com/Sungsim-Metro/skillpath-ai/issues/8), [#21](https://github.com/Sungsim-Metro/skillpath-ai/issues/21) |
+| 추출 정확도 | 정답셋 20건과 비교해 정밀도·재현율·F1(목표 F1 0.7). 규칙 기반·v2·v3 비교표 | [#8](https://github.com/Sungsim-Metro/skillpath-ai/issues/8), [#21](https://github.com/Sungsim-Metro/skillpath-ai/issues/21) |
 | 근거 검증 | 근거 문장이 공고 원문에 있는지 코드로 검사, 통과율 기록 | [#16](https://github.com/Sungsim-Metro/skillpath-ai/issues/16) |
 | 표준화 | 같은 표현은 묶고(아마존 웹 서비스 = AWS) 다른 것은 안 묶는지(Java ≠ JavaScript) | [#13](https://github.com/Sungsim-Metro/skillpath-ai/issues/13) |
 | 과정 검색 | 부족 기술별 Top-5 적중률 | [#14](https://github.com/Sungsim-Metro/skillpath-ai/issues/14) |
+| NCS 매칭 | 기술 → 능력단위 hit@5, 설명을 붙인 질의 | [#20](https://github.com/Sungsim-Metro/skillpath-ai/issues/20) |
+| 공정성 | 속성 하나만 바꿔 추천 겹침(Jaccard) 비교 | [#24](https://github.com/Sungsim-Metro/skillpath-ai/issues/24) |
 | 가드레일 | 차단해야 할 질문과 정상 질문으로 차단·오차단 수 | [#24](https://github.com/Sungsim-Metro/skillpath-ai/issues/24) |
-| 끝까지 연결 | 공고 1건이 추천까지 가는 자동 테스트 | [#38](https://github.com/Sungsim-Metro/skillpath-ai/issues/38) |
+| 끝까지 연결 | 공고 1건이 추천까지 가는 자동 테스트와 실제 AWS 7단계 표 | [#38](https://github.com/Sungsim-Metro/skillpath-ai/issues/38) |
 | 사용자 테스트 | 취업 준비생 3~5명 | [#39](https://github.com/Sungsim-Metro/skillpath-ai/issues/39) |
 
 목표치는 [기획 내용](planning.md#숫자로-잡은-목표)에 있고, 측정 결과가 나오면 이 문서에 표로 더합니다.
