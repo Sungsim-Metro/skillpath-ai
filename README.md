@@ -1,57 +1,82 @@
 # skillpath-ai
 
-채용공고에서 기술 수요를 추출해 부족한 역량과 AWS 교육과정을 근거와 함께 추천하는 AI 에이전트.
-AI Bootcamp Innovation Challenger 2026 · 팀 ASAP하게
+채용공고에서 기술 수요를 근거 문장과 함께 뽑고, 내 보유 기술과 비교해 부족한 역량과 AWS 교육과정을 추천 이유와 함께 보여주는 AI 에이전트.
 
-## 프로젝트 허브
+AI Bootcamp Innovation Challenger 2026 · 팀 ASAP하게 · 발표 11/25(수)
 
-프로젝트에 관한 모든 것을 여기서 찾습니다. 팀원 누구나 고칠 수 있습니다.
+## 30초 요약
 
-| 보고 싶은 것 | 위치 | 고치는 방법 |
-| --- | --- | --- |
-| 현황판 | [보드: 마일스톤 별](https://github.com/orgs/Sungsim-Metro/projects/2/views/2) · [담당자 별](https://github.com/orgs/Sungsim-Metro/projects/2/views/3) | 카드를 끌어 옮기거나 상태 칸을 수정 |
-| WBS · 일정 | [로드맵](https://github.com/orgs/Sungsim-Metro/projects/2/views/4) · [WBS 표](https://github.com/orgs/Sungsim-Metro/projects/2/views/5) · [`docs/wbs.md`](docs/wbs.md) | 보드에서 시작일·기한 수정 |
-| 서비스 플로우 | [`docs/service-flow.md`](docs/service-flow.md) | 문서 수정 (그림은 Mermaid 텍스트) |
-| 과제 내용 | [`docs/assignment.md`](docs/assignment.md) | 문서 수정 |
-| 기획 내용 | [`docs/planning.md`](docs/planning.md) | 문서 수정 |
-| 개발 내용 | [`docs/development.md`](docs/development.md) · [`contracts/`](contracts/README.md) | 문서 수정 |
-| 회의록 | [`docs/meetings/`](docs/meetings/README.md) | PR 댓글 또는 문서 수정 |
-| 데이터 출처 | [`docs/data-sources.md`](docs/data-sources.md) | 문서 수정 |
-| 공개용 저장소 | [skillpath-ai-public](https://github.com/Sungsim-Metro/skillpath-ai-public) · [`docs/public-sync.md`](docs/public-sync.md) | 형섭이 Actions에서 게시 |
-| 할 일 전체 | [이슈](https://github.com/Sungsim-Metro/skillpath-ai/issues) · [마일스톤](https://github.com/Sungsim-Metro/skillpath-ai/milestones) | 이슈 생성·댓글 |
+- **누구를 위한 것인가.** 클라우드·AI 엔지니어를 준비하는 취업 준비생. 공고가 실제로 무엇을 요구하는지, 그래서 무엇부터 공부할지 모르는 사람.
+- **무엇을 보여주나.** 실제 공고 30건 이상에서 뽑은 요구 기술 순위, 내 기술과의 차이(Gap), 부족한 기술별 AWS 교육과정.
+- **발표에서 답할 세 질문.** 우리가 만드는 모든 기능은 이 셋 중 하나에 답합니다.
+  1. 어떤 데이터를 분석했나
+  2. 어떤 근거로 필요하다고 판단했나
+  3. 왜 이 과정을 추천했나
 
-**문서를 고치는 법.** GitHub에서 파일을 열고 오른쪽 위 연필 아이콘을 누릅니다. 고친 뒤 "Commit changes"에서
-"Create a new branch"를 골라 PR을 올립니다. 설치할 것이 없고 브라우저만 있으면 됩니다.
+## 어떻게 동작하나
 
-**상태는 보드 한 곳에만 적습니다.** 진행 상태와 날짜는 보드가 원본이고, 문서에는 구조와 결정만 적습니다.
-보드는 조직 구성원만 볼 수 있습니다.
-
-## 무엇을 하나
+사용자가 보는 순서:
 
 1. 목표 직무를 고르고 보유 기술을 입력한다.
-2. 해당 직무 채용공고에서 뽑은 요구 기술을 빈도순으로 본다. 기술마다 필수/우대 구분과 근거 문장이 붙는다.
-3. 보유 기술과 비교한 부족 역량(Skills Gap)을 본다.
-4. 부족 역량별 AWS 교육과정을 추천 이유, 링크, 난이도, 선수지식과 함께 본다.
+2. 공고에서 뽑은 요구 기술을 수요가 높은 순으로 본다. 기술을 누르면 근거 문장이 나온다.
+3. 보유 기술과 비교한 부족 역량(Gap)을 본다.
+4. 부족 역량별 AWS 교육과정을 추천 이유, 링크, 난이도와 함께 본다.
 
-## 구조
+데이터가 흐르는 순서와 담당:
 
 ```
-공고 수집 → 기술 추출 → 표현 표준화 → 분석·Gap → 교육과정 추천
-(pipeline)    (ai)      (pipeline)   (backend)     (ai + pipeline)
-                                                        ↓
-                                                   화면 (app)
+공고 수집 → 기술 추출 → 표현 표준화 → 분석·Gap → 교육과정 추천 → 화면
+(pipeline)    (ai)      (pipeline)   (backend)   (ai + pipeline)   (app)
+   종훈        성진        종훈         일현         성진·종훈        형섭
 ```
 
 | 폴더 | 내용 | 담당 |
 | --- | --- | --- |
 | `app/` | Streamlit 화면 | 형섭 |
-| `backend/` | Lambda, DynamoDB, 집계·Gap 계산 | 일현 |
+| `backend/` | Lambda, DynamoDB, 수요 집계와 Gap 계산 | 일현 |
 | `pipeline/` | 데이터 수집, 전처리, 별칭 사전, 임베딩 검색 | 종훈 |
-| `ai/` | 추출·추천 프롬프트, 가드레일, 평가 | 성진 |
-| `contracts/` | 구간 사이 JSON 형식 | 전원 |
+| `ai/` | 추출·추천 프롬프트, 에이전트, 가드레일, 정확도 평가 | 성진 |
+| `contracts/` | 구간 사이를 오가는 JSON 형식. 이것만 맞추면 각자 따로 만들어도 이어진다 | 전원 합의 |
 | `data/sample/` | 개발용 가짜 데이터 | 전원 |
 
-## 시작하기
+AWS 서비스를 어디에 왜 쓰는지는 [`docs/development.md`](docs/development.md#aws-서비스와-쓰는-이유), 그림은 [`docs/service-flow.md`](docs/service-flow.md)에 있습니다.
+
+## 일정
+
+| 날짜 | 마일스톤 |
+| --- | --- |
+| 11/12 (목) | M1 가짜 데이터로 화면까지 연결 |
+| 11/15 (일) | M2 실제 공고 1건 → 추천 1건 |
+| 11/17 (화) | M3 MVP 완성 (공고 30건 이상, Gap, 추천) |
+| 11/19 (목) | M4 기능 동결. 이후에는 버그 수정만 |
+| 11/22 (일) | 구현 제출 (팀 내부 마감 18시) |
+| 11/25 (수) | 발표 |
+
+## 꼭 지킬 것
+
+자세한 설명과 명령어는 **[팀 가이드](docs/team-guide.md)** 에 있습니다. 처음이면 팀 가이드부터 읽습니다.
+
+1. `main`에 직접 푸시하지 않습니다. 브랜치 → PR → 자동 검사 2개 확인 → 병합.
+2. 키, `.env`, 수집한 공고 원본(`data/raw/`)은 커밋하지 않습니다.
+3. `contracts/`의 JSON 형식을 바꾸면 같은 PR에서 예시와 README를 함께 고치고, PR 맨 위에 "인터페이스 변경"이라고 적습니다.
+4. `main`에 병합하면 공개용 저장소에 자동으로 올라갑니다. 공개되는 파일에는 "녹취", "교안", "멘토"를 쓰지 않습니다.
+5. 진행 상태와 날짜는 보드(Dev Map)에만 적습니다.
+
+## 바로 가기
+
+| 보고 싶은 것 | 위치 |
+| --- | --- |
+| 일하는 법, 저장소 규칙 | [`docs/team-guide.md`](docs/team-guide.md) |
+| 현황판 (Dev Map) | [마일스톤 별](https://github.com/orgs/Sungsim-Metro/projects/2/views/2) · [담당자 별](https://github.com/orgs/Sungsim-Metro/projects/2/views/3) · [로드맵](https://github.com/orgs/Sungsim-Metro/projects/2/views/4) · [WBS 표](https://github.com/orgs/Sungsim-Metro/projects/2/views/5) |
+| 할 일 전체 | [이슈](https://github.com/Sungsim-Metro/skillpath-ai/issues) · [마일스톤](https://github.com/Sungsim-Metro/skillpath-ai/milestones) |
+| 과제 내용, 기획, 개발 | [`docs/assignment.md`](docs/assignment.md) · [`docs/planning.md`](docs/planning.md) · [`docs/development.md`](docs/development.md) |
+| JSON 형식 | [`contracts/`](contracts/README.md) |
+| 회의록 | [`docs/meetings/`](docs/meetings/README.md) |
+| 데이터 출처와 한계 | [`docs/data-sources.md`](docs/data-sources.md) |
+| 공개용 저장소 | [skillpath-ai-public](https://github.com/Sungsim-Metro/skillpath-ai-public) · 게시와 공유 방법은 [`docs/public-sync.md`](docs/public-sync.md) |
+| 작업 원칙, 리뷰 기준 | [`CLAUDE.md`](CLAUDE.md) |
+
+## 실행
 
 ```bash
 python -m venv .venv
@@ -61,37 +86,4 @@ cp .env.example .env             # 값 채우기. .env는 커밋하지 않습니
 streamlit run app/main.py
 ```
 
-`BEDROCK_MOCK=1`이면 AWS 없이 `data/sample/`의 가짜 데이터로 화면이 뜹니다.
-
-## 일하는 방식
-
-- 작업은 이슈에서 시작합니다. 이슈마다 담당자, 마일스톤, 완료 기준이 있습니다.
-- `main`에 직접 푸시하지 않고 브랜치 → PR로 합칩니다. PR 본문에 `Closes #이슈번호`를 적습니다.
-- 구간 사이 데이터 형식은 [`contracts/`](contracts/README.md)를 따릅니다. 바꾸려면 먼저 팀에 알립니다.
-- 작업 원칙과 리뷰 기준은 [`CLAUDE.md`](CLAUDE.md)에 있습니다.
-
-### PR 올리는 순서
-
-1. 맡은 이슈를 확인하고 `main`에서 브랜치를 만듭니다. 예: `git switch -c feat/extract-prompt`
-2. 작업한 뒤 `BEDROCK_MOCK=1 streamlit run app/main.py`로 화면이 뜨는지 확인합니다.
-3. 푸시하고 PR을 엽니다. 본문에 `Closes #이슈번호`를 적습니다.
-4. Claude가 `CLAUDE.md`의 "PR 리뷰 기준" 6가지로 자동 리뷰합니다. 지적이 있으면 고치거나, 고치지 않는 이유를 댓글로 남깁니다.
-5. 리뷰를 확인한 뒤 PR을 올린 사람이 병합합니다(11/10 회의 결정). 회의록만 바꾸는 PR은 팀원 검토를 권장하되 승인을 기다리지 않고 합칩니다([절차](docs/meetings/README.md)).
-
-이 저장소는 `main` 브랜치 보호가 걸려 있지 않습니다. 직접 푸시가 막히지 않으니 위 순서를 약속으로 지킵니다.
-사람 리뷰가 없으므로 협업 근거는 이슈, PR 설명, 회의록으로 남깁니다. 결정이 바뀌면 관련 이슈에 한 줄 적습니다.
-
-## 일정
-
-| 날짜 | 마일스톤 |
-| --- | --- |
-| 11/12 (목) | M1 가짜 데이터로 화면까지 연결 |
-| 11/15 (일) | M2 실제 공고 1건 → 추천 1건 |
-| 11/17 (화) | M3 MVP 완성 |
-| 11/19 (목) | M4 기능 동결 |
-| 11/22 (일) | 구현 제출 |
-| 11/25 (수) | 발표 |
-
-## 데이터 출처
-
-활용한 데이터의 출처, 수집 범위, 한계는 [`docs/data-sources.md`](docs/data-sources.md)에 기록합니다. 발표 자료에 그대로 들어갑니다.
+`.env`에 `BEDROCK_MOCK=1`이 있으면 AWS 없이 `data/sample/`의 가짜 데이터로 화면이 뜹니다.

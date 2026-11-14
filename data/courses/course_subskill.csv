@@ -1,0 +1,181 @@
+﻿course_id,subskill_id,area_id,area,subskill,search_text,search_level,search_rank,match,matched_term,evidence,evidence_field
+V59J92TZE2,C1-1,C1,컴퓨팅·서버,가상 서버 구성·운영,Amazon EC2,기초,1,certain,EC2,Identify the different families of EC2 instances and the target workload for each family,objectives
+2JS8J94MC5,C1-1,C1,컴퓨팅·서버,가상 서버 구성·운영,Amazon EC2,기초,2,certain,EC2,Identify the purpose of Amazon EC2.,objectives
+PS5DRXQ5FQ,C1-1,C1,컴퓨팅·서버,가상 서버 구성·운영,Amazon EC2,기초,3,certain,EC2,Understand what EC2 instance attestation is,objectives
+DMG1BSGQNN,C1-1,C1,컴퓨팅·서버,가상 서버 구성·운영,Amazon EC2,중급,1,certain,EC2,Describe the components of an Amazon EC2 instance,objectives
+NVQMVRTS5H,C1-1,C1,컴퓨팅·서버,가상 서버 구성·운영,Amazon EC2,중급,2,certain,EC2,Define observability and its role in the health of your EC2 instances,objectives
+3FDW7B71FQ,C1-1,C1,컴퓨팅·서버,가상 서버 구성·운영,Amazon EC2,중급,3,certain,EC2,Evaluate current Amazon EC2 instances to determine if they are rightsized.,objectives
+MJE2XM96SY,C1-2,C1,컴퓨팅·서버,운영체제(Linux) 운영,Linux,기초,1,uncertain,Linux,"Bottlerocket is a Linux-based, open-source operating system that is purpose-built by Amazon Web Services (AWS) for running containers.",description
+1N5AK7HB4P,C1-2,C1,컴퓨팅·서버,운영체제(Linux) 운영,Linux,기초,2,uncertain,Linux,It provides secure Windows or Linux desktops that users can access from anywhere with an internet connection.,description
+FNHWUEUT7S,C1-2,C1,컴퓨팅·서버,운영체제(Linux) 운영,Linux,기초,3,uncertain,Linux,"This foundational course introduces what AWS Emulator is, how it differs from a mocking library, and the four ways to get started: with an AI coding agent using the aws-emulator skill, Linux packages (RPM or Debian), Docker on macOS and Windows with an image you build from the Dockerfile, and embedded mode for tests written in Rust with the AWS SDK for Rust.",description
+CUCA1DK47V,C1-2,C1,컴퓨팅·서버,운영체제(Linux) 운영,Linux,중급,1,uncertain,,,
+5KYPN7B8TQ,C1-2,C1,컴퓨팅·서버,운영체제(Linux) 운영,Linux,중급,2,uncertain,,,
+NVQMVRTS5H,C1-2,C1,컴퓨팅·서버,운영체제(Linux) 운영,Linux,중급,3,uncertain,,,
+U1SN4M74JS,C1-3,C1,컴퓨팅·서버,용량 산정·확장,Auto Scaling,기초,1,certain,Auto Scaling,Introduction to AWS Auto Scaling,title
+TJEB1ETGC2,C1-3,C1,컴퓨팅·서버,용량 산정·확장,Auto Scaling,기초,2,certain,Auto Scaling,Getting Started with AWS Auto Scaling,title
+ZPVXQA47A4,C1-3,C1,컴퓨팅·서버,용량 산정·확장,Auto Scaling,기초,3,certain,Auto Scaling,Introduction to EC2 Auto Scaling,title
+TB39X2N274,C1-3,C1,컴퓨팅·서버,용량 산정·확장,Auto Scaling,중급,1,certain,auto scaling,Configure ECS task resource limits for cost-optimized auto scaling,objectives
+C4F4Y6N8MN,C1-3,C1,컴퓨팅·서버,용량 산정·확장,Auto Scaling,중급,2,uncertain,,,
+4JTD9JKY7J,C1-3,C1,컴퓨팅·서버,용량 산정·확장,Auto Scaling,중급,3,uncertain,,,
+WU72QMK76B,C1-4,C1,컴퓨팅·서버,컨테이너,containers,기초,1,certain,container,Understand why you would use containers,objectives
+JV8N39BFYH,C1-4,C1,컴퓨팅·서버,컨테이너,containers,기초,2,certain,container,Explain the primary business benefits of container adoption,objectives
+3EU3GFYDGG,C1-4,C1,컴퓨팅·서버,컨테이너,containers,기초,3,certain,Container,Containers Learning Series for Amazon ECS Overview,title
+CUCA1DK47V,C1-4,C1,컴퓨팅·서버,컨테이너,containers,중급,1,certain,container,"Describe the history, technology and terminology behind containers",objectives
+XQRQFUBFMB,C1-4,C1,컴퓨팅·서버,컨테이너,containers,중급,2,certain,container,Explain the business and technical value of developing games workloads using containers,objectives
+PT6R6CVEFP,C1-4,C1,컴퓨팅·서버,컨테이너,containers,중급,3,certain,container,"Create and manage Amazon ECR repositories to store, manage, and deploy container images securely",objectives
+XHRS91KKK6,C1-5,C1,컴퓨팅·서버,서버리스,AWS Lambda,기초,1,certain,Lambda,Define how Lambda works,objectives
+HRUXDCCSKE,C1-5,C1,컴퓨팅·서버,서버리스,AWS Lambda,기초,2,certain,Lambda,Introduction to AWS Lambda MicroVMs,title
+S6YE1Z74TX,C1-5,C1,컴퓨팅·서버,서버리스,AWS Lambda,기초,3,certain,Lambda,Identify the purpose of Lambda,objectives
+F1MH4GQSG8,C1-5,C1,컴퓨팅·서버,서버리스,AWS Lambda,중급,1,uncertain,,,
+9S5YV821UE,C1-5,C1,컴퓨팅·서버,서버리스,AWS Lambda,중급,2,certain,Lambda,Provide an overview of Lambda and describe its key components.,objectives
+2QQ6VBRFUQ,C1-5,C1,컴퓨팅·서버,서버리스,AWS Lambda,중급,3,certain,Lambda,AWS Lambda Function Security & Defense in Depth,title
+H99Y6PR2F7,C2-1,C2,스토리지·데이터베이스,객체·블록·파일 스토리지,Amazon S3,기초,1,certain,S3,Identify the purpose of Amazon S3.,objectives
+6QPAC2M1HT,C2-1,C2,스토리지·데이터베이스,객체·블록·파일 스토리지,Amazon S3,기초,2,certain,S3,Amazon S3 Files: Native File System Access for Your S3 Data,title
+YG8P4T8Z4U,C2-1,C2,스토리지·데이터베이스,객체·블록·파일 스토리지,Amazon S3,기초,3,certain,S3,Amazon S3 Vectors Getting Started,title
+W25H4RKV21,C2-1,C2,스토리지·데이터베이스,객체·블록·파일 스토리지,Amazon S3,중급,1,certain,S3,Introduction to Amazon S3 Files,title
+AY7UZS9UHU,C2-1,C2,스토리지·데이터베이스,객체·블록·파일 스토리지,Amazon S3,중급,2,certain,S3,Recognize and resolve issues with Amazon S3,objectives
+531665225Z,C2-1,C2,스토리지·데이터베이스,객체·블록·파일 스토리지,Amazon S3,중급,3,certain,S3,Use AWS CloudTrail and Amazon S3 access logging to monitor API callsx,objectives
+WQTG8AM8XJ,C2-2,C2,스토리지·데이터베이스,스토리지 용량·가용성 설계,storage,기초,1,uncertain,,,
+X4NX8D6XAJ,C2-2,C2,스토리지·데이터베이스,스토리지 용량·가용성 설계,storage,기초,2,uncertain,,,
+V1GBCT11W1,C2-2,C2,스토리지·데이터베이스,스토리지 용량·가용성 설계,storage,기초,3,uncertain,,,
+7GG4CVEE98,C2-2,C2,스토리지·데이터베이스,스토리지 용량·가용성 설계,storage,중급,1,certain,storage class,Describe Amazon S3 storage class characteristics and use cases,objectives
+FUM4DZ68DT,C2-2,C2,스토리지·데이터베이스,스토리지 용량·가용성 설계,storage,중급,2,uncertain,,,
+7HBCR9Z77G,C2-2,C2,스토리지·데이터베이스,스토리지 용량·가용성 설계,storage,중급,3,uncertain,,,
+5AS1GHZ5YF,C2-3,C2,스토리지·데이터베이스,데이터베이스,Amazon RDS,기초,1,certain,RDS,Amazon RDS Service Primer,title
+YV5RHEG365,C2-3,C2,스토리지·데이터베이스,데이터베이스,Amazon RDS,기초,2,certain,RDS,Describe how Amazon RDS for MySQL works.,objectives
+WSV85JHZFF,C2-3,C2,스토리지·데이터베이스,데이터베이스,Amazon RDS,기초,3,certain,RDS,Describe how Amazon RDS for SQL Server works.,objectives
+AK479CRG5K,C2-3,C2,스토리지·데이터베이스,데이터베이스,Amazon RDS,중급,1,certain,RDS,Explain the key differences between self-managed and RDS-managed PostgreSQL databases,objectives
+UNAUKTYU63,C2-3,C2,스토리지·데이터베이스,데이터베이스,Amazon RDS,중급,2,certain,Aurora,"Set up, configure, and use MySQL in Aurora and Amazon RDS",objectives
+P99CFGE4HQ,C2-3,C2,스토리지·데이터베이스,데이터베이스,Amazon RDS,중급,3,certain,Aurora,List the key learning objectives of the complete PostgreSQL for Amazon Aurora and RDS (Core) Learning Plan,objectives
+AJT74B5N5V,C3-1,C3,네트워크,가상 네트워크·라우팅,Amazon VPC,기초,1,certain,VPC,Explain the benefits of Amazon VPC Lattice,objectives
+MU4KD6CAFP,C3-1,C3,네트워크,가상 네트워크·라우팅,Amazon VPC,기초,2,certain,VPC,Design Amazon VPC IPv6 connectivity,objectives
+C3143GSTSV,C3-1,C3,네트워크,가상 네트워크·라우팅,Amazon VPC,기초,3,certain,routing,Recognize key routing concepts and constructs in Amazon Connect,objectives
+YHWW7BTY89,C3-1,C3,네트워크,가상 네트워크·라우팅,Amazon VPC,중급,1,certain,VPC,Recognize and resolve issues with Amazon VPC,objectives
+4HWA8PME5S,C3-1,C3,네트워크,가상 네트워크·라우팅,Amazon VPC,중급,2,certain,VPC,"Describe how to deploy and configure Amazon VPCs, subnets, internet gateways, and route tables",objectives
+5U63SY74U7,C3-1,C3,네트워크,가상 네트워크·라우팅,Amazon VPC,중급,3,certain,VPC,Stream Amazon CloudWatch metrics to VPC-based OpenTelemetry collectors using AWS Lambda transformation functions and Amazon Data Firehose,objectives
+2Q7X7W6V7G,C3-2,C3,네트워크,부하 분산,Elastic Load Balancing,기초,1,certain,ELB,Identify the core functionality of ELB.,objectives
+DWYSUVJ5RQ,C3-2,C3,네트워크,부하 분산,Elastic Load Balancing,기초,2,certain,Load Balanc,Network Load Balancer (NLB) Getting Started,title
+72MYSKW681,C3-2,C3,네트워크,부하 분산,Elastic Load Balancing,기초,3,certain,Load Balanc,Understand how Amazon Application Load Balancer works.,objectives
+3FDW7B71FQ,C3-2,C3,네트워크,부하 분산,Elastic Load Balancing,중급,1,uncertain,,,
+5R5Q9TN3H4,C3-2,C3,네트워크,부하 분산,Elastic Load Balancing,중급,2,certain,load balanc,"Distinguish between the different load balancer types: application, network, gateway, and classic.",objectives
+TYAAKGU914,C3-2,C3,네트워크,부하 분산,Elastic Load Balancing,중급,3,certain,Load Balanc,Examine how Elastic Load Balancers distribute traffic to applications running on Amazon EKS,objectives
+H99Y6PR2F7,C3-3,C3,네트워크,DNS·콘텐츠 전송,Amazon CloudFront,기초,1,uncertain,,,
+5ER4A2FQNV,C3-3,C3,네트워크,DNS·콘텐츠 전송,Amazon CloudFront,기초,2,certain,CloudFront,Identify the purpose of CloudFront.,objectives
+BV947W27Y6,C3-3,C3,네트워크,DNS·콘텐츠 전송,Amazon CloudFront,기초,3,certain,CloudFront,"Familiarize users with Amazon CloudFront, usecases, applicability and how to configure CloudFront in the AWS Management console",objectives
+YHWW7BTY89,C3-3,C3,네트워크,DNS·콘텐츠 전송,Amazon CloudFront,중급,1,uncertain,,,
+DWXS69HSC5,C3-3,C3,네트워크,DNS·콘텐츠 전송,Amazon CloudFront,중급,2,certain,CloudFront,Explain how Amazon CloudFront delivers content through its global edge network architecture,objectives
+E75NMW2Y16,C3-3,C3,네트워크,DNS·콘텐츠 전송,Amazon CloudFront,중급,3,certain,CloudFront,Recognize and resolve issues with CloudFront,objectives
+X7ZG24DFGM,C3-4,C3,네트워크,트래픽 분석,VPC Flow Logs,기초,1,uncertain,,,
+H5K7BTCH6K,C3-4,C3,네트워크,트래픽 분석,VPC Flow Logs,기초,2,uncertain,,,
+AJT74B5N5V,C3-4,C3,네트워크,트래픽 분석,VPC Flow Logs,기초,3,uncertain,,,
+FEMWU43RRW,C3-4,C3,네트워크,트래픽 분석,VPC Flow Logs,중급,1,certain,traffic,Implement centralized ingress and egress traffic inspection with Network Firewall stateful rule groups.,objectives
+19ZS89RSVP,C3-4,C3,네트워크,트래픽 분석,VPC Flow Logs,중급,2,uncertain,Flow Logs,"• Correlates findings across Amazon GuardDuty, AWS CloudTrail, and Amazon VPC Flow Logs",description
+5U63SY74U7,C3-4,C3,네트워크,트래픽 분석,VPC Flow Logs,중급,3,uncertain,,,
+M1QWQ1MURQ,C4-1,C4,보안,계정·권한 관리,IAM,기초,1,certain,Identity and Access Management,Introduction to AWS Identity and Access Management (IAM),title
+5NE13TJ71P,C4-1,C4,보안,계정·권한 관리,IAM,기초,2,certain,IAM,Event-Driven Updates with IAM Identity Center Identity Store,title
+JUU8UTHZAC,C4-1,C4,보안,계정·권한 관리,IAM,기초,3,certain,IAM,Define IAM users and groups,objectives
+S2N5PM41ZK,C4-1,C4,보안,계정·권한 관리,IAM,중급,1,uncertain,,,
+GA3DQ7F9CS,C4-1,C4,보안,계정·권한 관리,IAM,중급,2,certain,IAM,Enable and use AWS IAM role manager to automate IAM role creation and attachment when building resources in supported AWS service consoles,objectives
+ESGHTNXQFZ,C4-1,C4,보안,계정·권한 관리,IAM,중급,3,certain,IAM,Recognize and resolve issues with IAM,objectives
+MQ6PTVMC8A,C4-2,C4,보안,네트워크 보안·접근제어,AWS WAF,기초,1,certain,WAF,Describe how AWS WAF works,objectives
+SCHET2RANZ,C4-2,C4,보안,네트워크 보안·접근제어,AWS WAF,기초,2,certain,Firewall,Identify the purpose of Firewall Manager.,objectives
+PNY21MPT84,C4-2,C4,보안,네트워크 보안·접근제어,AWS WAF,기초,3,certain,Shield,Identify the purpose and benefits of AWS Shield.,objectives
+ZGYN8CTUMD,C4-2,C4,보안,네트워크 보안·접근제어,AWS WAF,중급,1,certain,WAF,Implement Web Bot Authentication (WBA) with AWS WAF Bot Control to cryptographically verify legitimate AI agent traffic using HTTP Message Signatures (RFC 9421),objectives
+HY49QJDZR3,C4-2,C4,보안,네트워크 보안·접근제어,AWS WAF,중급,2,certain,WAF,"Estimate combined AWS WAF and AWS Shield Advanced costs using AWS Pricing Calculator, Cost Explorer, and CUR data queries",objectives
+Z49MNMEKVQ,C4-2,C4,보안,네트워크 보안·접근제어,AWS WAF,중급,3,certain,Shield,Understand the transition from AWS Shield Advanced application-layer automatic mitigation to the AWS WAF Anti-DDoS managed rule group and prepare a migration plan,objectives
+DK3DA5PWKE,C4-3,C4,보안,데이터 암호화·키 관리,AWS KMS,기초,1,certain,KMS,Describe how AWS KMS works.,objectives
+94T2BEN85A,C4-3,C4,보안,데이터 암호화·키 관리,AWS KMS,기초,2,uncertain,,,
+6MN63XU1T3,C4-3,C4,보안,데이터 암호화·키 관리,AWS KMS,기초,3,uncertain,,,
+7EU58V3SE3,C4-3,C4,보안,데이터 암호화·키 관리,AWS KMS,중급,1,certain,KMS,Explain how AWS KMS is used to protect device data,objectives
+U89MJTNSM8,C4-3,C4,보안,데이터 암호화·키 관리,AWS KMS,중급,2,uncertain,,,
+S2N5PM41ZK,C4-3,C4,보안,데이터 암호화·키 관리,AWS KMS,중급,3,certain,encrypt,Understand the different data encryption methods to secure sensitive data,objectives
+BAUSUK26QC,C4-4,C4,보안,위협 탐지·로그 감사,Amazon GuardDuty,기초,1,certain,GuardDuty,Describe the purpose of Amazon GuardDuty,objectives
+U5EG7VSYUT,C4-4,C4,보안,위협 탐지·로그 감사,Amazon GuardDuty,기초,2,uncertain,,,
+FD6Y5TJ6CR,C4-4,C4,보안,위협 탐지·로그 감사,Amazon GuardDuty,기초,3,uncertain,,,
+YFACXFGBSJ,C4-5,C4,보안,컴플라이언스,compliance,기초,1,certain,governance,Identify and describe common governance and compliance considerations for AI systems.,objectives
+TGH9PVGYDX,C4-5,C4,보안,컴플라이언스,compliance,기초,2,certain,compliance,A leader's guide to achieving compliance through software excellence - AWS re:Invent 2025,title
+51PQQSFV4Y,C4-5,C4,보안,컴플라이언스,compliance,기초,3,certain,compliance,Explore how to improve the effectiveness of risk management and compliance programs.,objectives
+QMPBCPWUMA,C4-5,C4,보안,컴플라이언스,compliance,중급,1,certain,Compliance,Streamlining Your Audit Process: Automated Compliance Management in AWS,title
+UC4GA8QGSH,C4-5,C4,보안,컴플라이언스,compliance,중급,2,certain,compliance,Design and implement a production-grade AI agent system using Amazon Bedrock for financial compliance workflows that maintains human oversight and auditability,objectives
+AE4SPC23S2,C4-5,C4,보안,컴플라이언스,compliance,중급,3,certain,compliance,"Describe the integration of compliance, control, and continuity in creating a sovereign-by-design workload.",objectives
+R4B13K95YQ,C5-1,C5,배포 자동화(DevOps),CI/CD 파이프라인,CI/CD,기초,1,certain,continuous integration,Identify the AWS services used to automate the continuous integration and continuous delivery (CI/CD) process,objectives
+6BP61KB1FJ,C5-1,C5,배포 자동화(DevOps),CI/CD 파이프라인,CI/CD,기초,2,certain,pipeline,Recognize how to orchestrate and automate data pipelines using AWS services.,objectives
+YXGVR2SN6A,C5-1,C5,배포 자동화(DevOps),CI/CD 파이프라인,CI/CD,기초,3,uncertain,CI/CD,"Learners will configure online evaluation, build custom evaluators, integrate CI/CD regression testing, read evaluation dashboards, interpret LLMaJ reasoning, and diagnose real production issues across multiple domains.",description
+V5JJ52N44R,C5-1,C5,배포 자동화(DevOps),CI/CD 파이프라인,CI/CD,중급,1,certain,CI/CD,Drive organizational growth with Amazon Lex multi-developer CI/CD pipeline,title
+PPJUWYAFF6,C5-1,C5,배포 자동화(DevOps),CI/CD 파이프라인,CI/CD,중급,2,uncertain,,,
+TXYJ7YH7EU,C5-1,C5,배포 자동화(DevOps),CI/CD 파이프라인,CI/CD,중급,3,certain,CI/CD,Explain different strategies for deploying applications to EKS including basic deployments and CI/CD pipelines,objectives
+HNQT94X934,C5-2,C5,배포 자동화(DevOps),스크립트·자동화,AWS CLI,기초,1,certain,CLI,Identify the core functionality of AWS CLI.,objectives
+VZ6UJAWE63,C5-2,C5,배포 자동화(DevOps),스크립트·자동화,AWS CLI,기초,2,certain,Command Line,[RETIRING - 2026-11-19] AWS Command Line Interface (CLI) Basics,title
+DH893V2JQ2,C5-2,C5,배포 자동화(DevOps),스크립트·자동화,AWS CLI,기초,3,certain,Command Line,Amazon Q Developer Command Line Interface (CLI),title
+AVW7M7MTWY,C5-2,C5,배포 자동화(DevOps),스크립트·자동화,AWS CLI,중급,1,certain,CLI,Understand the basic structure and functionality of AWS CLI commands.,objectives
+5B63UJ2KNE,C5-2,C5,배포 자동화(DevOps),스크립트·자동화,AWS CLI,중급,2,certain,CLI,Set up and configure Amazon Q Developer CLI with AWS Pricing MCP Server,objectives
+DCV54DCMW2,C5-2,C5,배포 자동화(DevOps),스크립트·자동화,AWS CLI,중급,3,certain,CLI,Configure Amazon Q Developer CLI with AWS Serverless MCP server for development workflows,objectives
+7PHF3KYJQ4,C5-3,C5,배포 자동화(DevOps),형상관리,Git,기초,1,certain,Git,"In this course, you'll explore the partnership between Amazon AWS and GitLab.",objectives
+TGH9PVGYDX,C5-3,C5,배포 자동화(DevOps),형상관리,Git,기초,2,uncertain,Git,Through integrated tooling and practices—including Git version control and automated testing—organizations can maximize developer productivity while naturally producing documentary proof that serves as compliance evidence.,description
+KB9MZUXHSF,C5-3,C5,배포 자동화(DevOps),형상관리,Git,중급,1,certain,Git,Explain the fundamentals of GitOps,objectives
+RH22P2RXU4,C5-4,C5,배포 자동화(DevOps),코드형 인프라(IaC),AWS CloudFormation,기초,1,certain,CloudFormation,Explain the purpose and functionality of CloudFormation.,objectives
+RXN7Y5H87R,C5-4,C5,배포 자동화(DevOps),코드형 인프라(IaC),AWS CloudFormation,기초,2,certain,CloudFormation,Explain the value of using JSON and YAML validators to troubleshoot CloudFormation issues,objectives
+V8MQ93JRH6,C5-4,C5,배포 자동화(DevOps),코드형 인프라(IaC),AWS CloudFormation,기초,3,certain,CloudFormation,Faster and Safer Infrastructure Deployment with AWS CloudFormation and CDK,title
+KE11JMZA26,C5-4,C5,배포 자동화(DevOps),코드형 인프라(IaC),AWS CloudFormation,중급,1,certain,CloudFormation,Design and implement a multi-Region active-active architecture for AWS CloudFormation custom resource processing that eliminates single points of failure,objectives
+Z6HHPS84T8,C5-4,C5,배포 자동화(DevOps),코드형 인프라(IaC),AWS CloudFormation,중급,2,uncertain,,,
+26GG98NGPH,C5-4,C5,배포 자동화(DevOps),코드형 인프라(IaC),AWS CloudFormation,중급,3,uncertain,,,
+H5K7BTCH6K,C6-1,C6,운영·모니터링,모니터링·로그,Amazon CloudWatch,기초,1,certain,CloudWatch,Introduction to Amazon CloudWatch Logs,title
+HS1HSVQRHK,C6-1,C6,운영·모니터링,모니터링·로그,Amazon CloudWatch,기초,2,certain,CloudWatch,Understand the basic technical concepts of CloudWatch.,objectives
+NZDASJ5FBZ,C6-1,C6,운영·모니터링,모니터링·로그,Amazon CloudWatch,기초,3,certain,CloudWatch,Introduction to Amazon CloudWatch Omni,title
+H8VEF842SZ,C6-1,C6,운영·모니터링,모니터링·로그,Amazon CloudWatch,중급,1,certain,CloudWatch,Recognize and resolve issues with CloudWatch,objectives
+82HRXHP1SM,C6-1,C6,운영·모니터링,모니터링·로그,Amazon CloudWatch,중급,2,certain,CloudWatch,"Use CloudWatch to ingest OpenTelemetry metrics and query them with PromQL for unified observability across infrastructure, containers, and applications.",objectives
+G6QHSA5MWH,C6-1,C6,운영·모니터링,모니터링·로그,Amazon CloudWatch,중급,3,certain,CloudWatch,"Design and implement Amazon CloudWatch alarms that dynamically adapt to changing environments, carry actionable context, and trigger appropriate automated responses",objectives
+1AG8ZGZN4Z,C6-2,C6,운영·모니터링,장애 대응,AWS Systems Manager,기초,1,certain,Systems Manager,Understand how Systems Manager works and familiarize yourself with technical concepts,objectives
+WCQH9KVXSQ,C6-2,C6,운영·모니터링,장애 대응,AWS Systems Manager,기초,2,uncertain,,,
+SCHET2RANZ,C6-2,C6,운영·모니터링,장애 대응,AWS Systems Manager,기초,3,uncertain,,,
+QMPBCPWUMA,C6-2,C6,운영·모니터링,장애 대응,AWS Systems Manager,중급,1,uncertain,Systems Manager,"Gain practical expertise in AWS Config, Security Hub CSPM, AWS Security Hub , AWS Systems Manager,  Amazon EventBridge , and AWS Control Tower .",description
+ESGHTNXQFZ,C6-2,C6,운영·모니터링,장애 대응,AWS Systems Manager,중급,2,certain,troubleshoot,Employ best-practice troubleshooting methodologies when investigating IAM issues,objectives
+X4VAXF3SJB,C6-2,C6,운영·모니터링,장애 대응,AWS Systems Manager,중급,3,uncertain,,,
+JSSVDND9W3,C6-3,C6,운영·모니터링,백업·복구·DR,AWS Backup,기초,1,certain,Backup,Identify the purpose of AWS Backup,objectives
+A7VGD6QG78,C6-3,C6,운영·모니터링,백업·복구·DR,AWS Backup,기초,2,certain,Backup,Discuss AWS Backup service,objectives
+C441JQQB8V,C6-3,C6,운영·모니터링,백업·복구·DR,AWS Backup,기초,3,uncertain,,,
+PJ22B4GNCA,C6-3,C6,운영·모니터링,백업·복구·DR,AWS Backup,중급,1,certain,Backup,Identify the advantages of using AWS Backup over service-native data protection options,objectives
+WWZYRCKSF8,C6-3,C6,운영·모니터링,백업·복구·DR,AWS Backup,중급,2,certain,backup,"Implement multi-layered backup security using AWS Backup Vault Lock, air-gapped vaults, and multi-party approval to protect data against malicious, non-malicious, and infra threats",objectives
+5KYPN7B8TQ,C6-3,C6,운영·모니터링,백업·복구·DR,AWS Backup,중급,3,certain,backup,Differentiate between logical and physical backup strategies in PostgreSQL,objectives
+1T4NVMTY58,C6-4,C6,운영·모니터링,성능·품질 관리,AWS Trusted Advisor,기초,1,certain,Trusted Advisor,Introduction to AWS Trusted Advisor,title
+U8JSZPHHZG,C6-4,C6,운영·모니터링,성능·품질 관리,AWS Trusted Advisor,기초,2,uncertain,,,
+UAV311ZRHM,C6-4,C6,운영·모니터링,성능·품질 관리,AWS Trusted Advisor,기초,3,uncertain,,,
+TZRYT5WHF4,C6-4,C6,운영·모니터링,성능·품질 관리,AWS Trusted Advisor,중급,1,uncertain,,,
+9B8PYZCARN,C6-4,C6,운영·모니터링,성능·품질 관리,AWS Trusted Advisor,중급,2,uncertain,,,
+JDENZUBGWD,C6-4,C6,운영·모니터링,성능·품질 관리,AWS Trusted Advisor,중급,3,uncertain,,,
+8HSSZJVGAE,C7-1,C7,아키텍처 설계,고가용성 설계,high availability,기초,1,uncertain,,,
+BRZU3SNJT6,C7-1,C7,아키텍처 설계,고가용성 설계,high availability,기초,2,uncertain,,,
+FPD37ZDEBU,C7-1,C7,아키텍처 설계,고가용성 설계,high availability,기초,3,certain,high availability,Define high availability in Aurora,objectives
+FJBQWNJBV1,C7-1,C7,아키텍처 설계,고가용성 설계,high availability,중급,1,uncertain,,,
+N51992VAXT,C7-1,C7,아키텍처 설계,고가용성 설계,high availability,중급,2,uncertain,,,
+AK479CRG5K,C7-1,C7,아키텍처 설계,고가용성 설계,high availability,중급,3,certain,high availability,Design high availability solutions using Multi-AZ deployments,objectives
+6MCV5DBF5N,C7-2,C7,아키텍처 설계,MSA·서버리스·컨테이너 아키텍처,microservices,기초,1,uncertain,microservice,You learn about a wide range of use cases customers are enabling with flexible autoscalers like Karpenter ranging from Internal Developer Platforms (IDP) that enable microservices to training foundational models and running ML frameworks.,description
+UUUPY8N52J,C7-2,C7,아키텍처 설계,MSA·서버리스·컨테이너 아키텍처,microservices,기초,2,certain,architect,Explain architecture and use cases for Refactor Spaces,objectives
+GQA6FHWPJD,C7-2,C7,아키텍처 설계,MSA·서버리스·컨테이너 아키텍처,microservices,기초,3,certain,decoupl,Identify initial use cases where API Gateway and Lambda can decouple a larger monolith.,objectives
+TXYJ7YH7EU,C7-2,C7,아키텍처 설계,MSA·서버리스·컨테이너 아키텍처,microservices,중급,1,certain,microservice,Deploy microservices to an EKS cluster using raw Kubernetes manifests,objectives
+RYDRR2YBGZ,C7-2,C7,아키텍처 설계,MSA·서버리스·컨테이너 아키텍처,microservices,중급,2,certain,architect,Use tool-based workload migration to help customers get into agile macroservices architecture.,objectives
+CUCA1DK47V,C7-2,C7,아키텍처 설계,MSA·서버리스·컨테이너 아키텍처,microservices,중급,3,uncertain,microservice,"It will teach you the history and concepts behind containerization, provide an introduction to specific technologies used within the container ecosystem and discuss the importance of containers in microservice architectures.",description
+NJZ1PF9DJV,C7-3,C7,아키텍처 설계,클라우드 전환,migration,기초,1,certain,Migrat,Migrate a production database,objectives
+5BKT7UWR9C,C7-3,C7,아키텍처 설계,클라우드 전환,migration,기초,2,certain,migrat,Describe the benefits of migrating to the AWS Cloud using Application Migration Service,objectives
+ND246G8Y3W,C7-3,C7,아키텍처 설계,클라우드 전환,migration,기초,3,certain,migrat,"Familiarize yourself with the technical concepts to envision, plan, and launch database migration.",objectives
+5A42TJWZDQ,C7-3,C7,아키텍처 설계,클라우드 전환,migration,중급,1,certain,Migrat,Recognize the key concepts and benefits of Migration Evaluator,objectives
+PJWG7QAR83,C7-3,C7,아키텍처 설계,클라우드 전환,migration,중급,2,certain,Migrat,Amazon WorkSpaces Migrations - Migration Approaches & Strategy,title
+RXGR5K6PEG,C7-3,C7,아키텍처 설계,클라우드 전환,migration,중급,3,certain,Migrat,Identify the features and benefits of using Migration Hub,objectives
+PHA18463XB,C8-1,C8,비용 최적화,과금 체계 이해,AWS pricing,기초,1,certain,pricing,The course will emphasize the importance of regularly reviewing and updating your pricing and packaging decisions to ensure they continually align with and support your customers' needs.,objectives
+ZZGNNXBU4W,C8-1,C8,비용 최적화,과금 체계 이해,AWS pricing,기초,2,certain,pricing,Design effective pricing models,objectives
+94T2BEN85A,C8-1,C8,비용 최적화,과금 체계 이해,AWS pricing,기초,3,certain,Pricing,"Describe fundamental concepts, services, and features of AWS Pricing and AWS Support.",objectives
+5B63UJ2KNE,C8-1,C8,비용 최적화,과금 체계 이해,AWS pricing,중급,1,certain,Pricing,Set up and configure Amazon Q Developer CLI with AWS Pricing MCP Server,objectives
+HY49QJDZR3,C8-1,C8,비용 최적화,과금 체계 이해,AWS pricing,중급,2,certain,cost,"Estimate combined AWS WAF and AWS Shield Advanced costs using AWS Pricing Calculator, Cost Explorer, and CUR data queries",objectives
+ZJH589YJHQ,C8-1,C8,비용 최적화,과금 체계 이해,AWS pricing,중급,3,certain,pricing,Explain AWS PrivateLink pricing,objectives
+W3YRDANMY5,C8-2,C8,비용 최적화,비용 추적·태깅·예산 알람,AWS Cost Explorer,기초,1,certain,Cost Explorer,Identify the purpose of Cost Explorer.,objectives
+6C7NMN4A8X,C8-2,C8,비용 최적화,비용 추적·태깅·예산 알람,AWS Cost Explorer,기초,2,certain,Cost Explorer,"Use Amazon Q Developer in AWS Cost Explorer to analyze spending, identify cost drivers, and find optimization opportunities through intelligent cost explanations.",objectives
+J59SS92GUN,C8-2,C8,비용 최적화,비용 추적·태깅·예산 알람,AWS Cost Explorer,기초,3,certain,Cost Explorer,Recognize AWS Cost Explorer and the AWS Cost and Usage Reports as tools to examine cloud spending,objectives
+4JTD9JKY7J,C8-2,C8,비용 최적화,비용 추적·태깅·예산 알람,AWS Cost Explorer,중급,1,certain,Cost Explorer,"Design and implement a multi-cloud FinOps platform using AWS Cost Explorer and serverless analytics services to normalize cost data across AWS, Azure, and Google Cloud",objectives
+H4T5WWRGGC,C8-2,C8,비용 최적화,비용 추적·태깅·예산 알람,AWS Cost Explorer,중급,2,uncertain,tags,"The course covers cost attribution across different access patterns -- including IAM users, IAM roles, federated authentication, and LLM gateways -- and how to use principal tags and session tags for aggregation.",description
+3P26XYYBM8,C8-2,C8,비용 최적화,비용 추적·태깅·예산 알람,AWS Cost Explorer,중급,3,uncertain,,,
+6TE7YUPVG8,C8-3,C8,비용 최적화,할인 모델,Savings Plans,기초,1,certain,Savings Plans,Identify the core functionality of AWS Savings Plans.,objectives
+GVZ97Y7P5R,C8-3,C8,비용 최적화,할인 모델,Savings Plans,기초,2,uncertain,,,
+JJBP2D35RG,C8-3,C8,비용 최적화,할인 모델,Savings Plans,기초,3,uncertain,,,
+RE6C7ZPAHN,C8-3,C8,비용 최적화,할인 모델,Savings Plans,중급,1,certain,Savings Plans,Determine when to use Savings Plans vs Reserved Instances,objectives
+3P26XYYBM8,C8-3,C8,비용 최적화,할인 모델,Savings Plans,중급,2,uncertain,,,
+M8KE2XHTMG,C8-3,C8,비용 최적화,할인 모델,Savings Plans,중급,3,uncertain,,,
