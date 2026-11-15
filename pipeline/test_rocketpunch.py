@@ -28,7 +28,15 @@ def demo():
     assert p["title"] == "클라우드 & 백엔드 엔지니어"
     empty = to_posting({**RAW, "seniorities": [], "startAt": None, "webUrl": None})
     assert empty["career"] is None and empty["posted_at"] is None and empty["url"] is None  # 값이 없으면 null
-    assert p["text"] == "AWS 운영\nPython 개발 경험\nLinux 이해\nDocker 우대", p["text"]
+    # 칸마다 제목을 한 줄에 단독으로 쓰고, 빈 칸(duty, benefit)은 제목도 쓰지 않는다
+    assert p["text"] == (
+        "[포지션소개]\nAWS 운영\n[자격요건]\nPython 개발 경험\nLinux 이해\n[우대사항]\nDocker 우대"
+    ), p["text"]
+    # ai/sections.py 가 이 제목으로 칸을 찾는다
+    from ai.sections import find_section
+    assert find_section(p["text"], "Python 개발 경험") == "qualification"
+    assert find_section(p["text"], "Docker 우대") == "preference"
+    assert find_section(p["text"], "AWS 운영") == "other"  # 포지션소개는 표에 없는 칸이라 other
     assert not re.search(r"<[^>]+>|&\w+;", p["text"])
     assert matched_terms(p) == ["aws"]
     assert matched_terms(p, ["aws", "클라우드"]) == ["aws", "클라우드"]  # 제목의 '클라우드'

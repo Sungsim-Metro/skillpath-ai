@@ -27,8 +27,16 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
 KST = timezone(timedelta(hours=9))
 BASE = "https://openapi.rocketpunch.com/v1"  # 문서의 /api/v1 은 404 라서 /v1 을 쓴다
-# 본문 필드 순서. 필드 이름과 내용이 다른 공고가 있어 라벨 없이 본문만 잇는다.
-TEXT_FIELDS = ("description", "duty", "minimumQualification", "preferredQualification", "benefit")
+# 본문 필드와 칸 제목. text 에는 칸마다 제목을 한 줄에 단독으로 쓰고 다음 줄부터 본문을 쓴다.
+# ai/sections.py 가 이 제목으로 칸(자격요건·주요업무·우대사항)을 찾아 가중치를 건다(실습 노트북의 [주요업무] 방식).
+# 주의: 로켓펀치는 필드 이름과 내용이 다른 공고가 있다(예: 159625 는 duty 에 회사 소개). 그런 공고는 칸이 틀릴 수 있다.
+SECTIONS = (
+    ("description", "포지션소개"),
+    ("duty", "주요업무"),
+    ("minimumQualification", "자격요건"),
+    ("preferredQualification", "우대사항"),
+    ("benefit", "혜택및복지"),
+)
 DEFAULT_TERMS = ("aws",)  # 본문 필터 기본 단어(소문자 비교). 서비스가 AWS 교육 추천이라 aws 만 쓴다. "클라우드"는 게임 공고도 통과시켜 뺐다.
 
 
@@ -78,6 +86,16 @@ def clean(text: str | None) -> str:
     return re.sub(r"\n\s*\n+", "\n", text).strip()
 
 
+def _text(raw: dict) -> str:
+    """칸마다 `[제목]` 한 줄 + 본문. 내용이 빈 칸은 제목도 쓰지 않는다."""
+    blocks = []
+    for field, heading in SECTIONS:
+        body = clean(raw.get(field))
+        if body:
+            blocks.append(f"[{heading}]\n{body}")
+    return "\n".join(blocks)
+
+
 def to_posting(raw: dict, role: str = "클라우드 엔지니어") -> dict:
     """로켓펀치 상세 응답 → posting(실습 노트북의 표준 필드 + url). role 은 직무가 하나(M2)라 인자로 받는다."""
     company = raw.get("company") or {}
@@ -94,7 +112,7 @@ def to_posting(raw: dict, role: str = "클라우드 엔지니어") -> dict:
             datetime.fromisoformat(started.replace("Z", "+00:00")).astimezone(KST).date().isoformat()
             if started else None
         ),
-        "text": "\n".join(p for p in (clean(raw.get(f)) for f in TEXT_FIELDS) if p),
+        "text": _text(raw),
         "url": raw.get("webUrl"),
     }
 
