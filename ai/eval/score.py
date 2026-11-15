@@ -4,7 +4,7 @@
   가짜 모드:  $env:BEDROCK_MOCK="1"; .venv\\Scripts\\python -m ai.eval.score --runs 1
   실제 모드:  $env:BEDROCK_MOCK="0"; .venv\\Scripts\\python -m ai.eval.score --runs 3
               (공고 10건 x 3회 = Bedrock 호출 30번 이상. 재시도가 있으면 더 늘어남)
-  프롬프트:   --prompt v1(기본) 또는 v2
+  프롬프트:   --prompt v1(기본), v2, v2.1 (#21 채점용 공고로 판단할 버전은 v2.1)
   채점용(#21): $env:BEDROCK_MOCK="0"; .venv\\Scripts\\python -m ai.eval.score --split test --final
               - 공고는 data/raw/eval_test/postings/, 정답지는 data/raw/eval_test/gold_test.json (커밋 안 함)
               - 프롬프트는 v2.1 고정, 1회만. 확인표(ai/eval/test_manifest.json)의 sha256 과 본문이 다르면 멈춘다
