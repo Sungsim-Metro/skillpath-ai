@@ -140,8 +140,76 @@ def export_eval():
             rp.RAW_DIR, rp.EVAL_DIR, rp.TUNING_FILE = old
 
 
+def collect_and_process():
+    """collect 의 제목 선판정(상세 호출 절약)과 process 의 예전 파일 삭제. 목록과 상세 호출은 가짜로 바꾸고 호출 횟수를 센다."""
+    import contextlib
+    import io
+    import json
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import pipeline.rocketpunch as rp
+
+    def job(job_id, title):
+        return {"jobId": job_id, "title": title, "company": {"name": f"회사{job_id}"}, "description": "AWS 운영",
+                "webUrl": f"https://example.com/{job_id}"}
+
+    listing = [{"jobId": 1, "title": "클라우드 엔지니어"},      # 제목이 직무 단어에 맞다
+               {"jobId": 2, "title": "프론트엔드 개발자"}]      # 안 맞다
+    old = rp.RAW_DIR, rp.list_page, rp.load_or_fetch
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        calls: list[str] = []
+
+        def fake_fetch(job_id):  # 실제 호출 대신 횟수만 센다
+            calls.append(job_id)
+            return job(int(job_id), {"1": "클라우드 엔지니어", "2": "프론트엔드 개발자"}[job_id])
+
+        rp.RAW_DIR, rp.list_page, rp.load_or_fetch = tmp, lambda params: listing, fake_fetch
+        base = dict(keyword=None, codes=None, sort="DATE_DESC", size=10, pages=1, n=999,
+                    role="클라우드 엔지니어", terms=list(rp.ROLE_TERMS))
+        try:
+            def run(**kw):
+                calls.clear()
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    rp.cmd_collect(SimpleNamespace(**{**base, **kw}))
+                return out.getvalue()
+
+            # 제목이 안 맞는 공고는 상세를 받지 않는다(호출 0회). 맞는 공고만 받는다
+            out = run(any_title=False)
+            assert calls == ["1"], calls
+            assert "건너뜀" in out and "호출 1회 절약" in out, out
+            # --any-title 이면 제목이 안 맞아도 상세를 받는다(필터는 process 가 한다)
+            run(any_title=True)
+            assert calls == ["1", "2"], calls
+            # 이미 받은 원본이 있으면 호출이 들지 않으니 제목이 안 맞아도 그대로 처리한다
+            (tmp / "rp-2.raw.json").write_text("{}", encoding="utf-8")
+            run(any_title=False)
+            assert calls == ["1", "2"], calls
+            (tmp / "rp-2.raw.json").unlink()
+
+            # process: 통과하면 새 이름으로 저장하고, 같은 공고의 예전 이름(옛 규칙, 옛 제목)은 지운다. 번호가 앞부분만 같은 다른 공고는 남긴다
+            (tmp / "rp-1.posting.json").write_text("{}", encoding="utf-8")                 # 예전 규칙의 이름
+            (tmp / "rp-1_옛회사_옛제목.posting.json").write_text("{}", encoding="utf-8")   # 제목이 바뀌기 전 이름
+            (tmp / "rp-10.posting.json").write_text("{}", encoding="utf-8")                # 다른 공고(번호 앞부분이 같음)
+            terms = list(rp.ROLE_TERMS)
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert rp.process(1, "클라우드 엔지니어", terms) is True
+            files = sorted(p.name for p in tmp.glob("*.posting.json"))
+            assert files == ["rp-10.posting.json", "rp-1_회사1_클라우드-엔지니어.posting.json"], files
+            # 필터에서 탈락하면 예전 파일도 남기지 않는다(필터 기준이 바뀌었을 때)
+            (tmp / "rp-2_회사2_예전.posting.json").write_text("{}", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert rp.process(2, "클라우드 엔지니어", terms) is False
+            assert not list(tmp.glob("rp-2*.posting.json"))
+        finally:
+            rp.RAW_DIR, rp.list_page, rp.load_or_fetch = old
+
+
 if __name__ == "__main__":
     demo()
     names()
     export_eval()
+    collect_and_process()
     print("통과")
