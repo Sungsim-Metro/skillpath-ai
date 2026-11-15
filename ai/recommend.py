@@ -1,8 +1,9 @@
 """부족 기술 → 추천(③) (#15). LLM 은 reason 만 쓴다.
 
-- 과정 후보: pipeline.search.search_courses(skill) (#14). 반환 [{"course_id", "subskill_id"}]
-- match: data/courses/course_subskill.csv 의 (course_id, subskill_id) 행 값을 코드가 그대로 쓴다.
-  subskill_id 가 None 이면(AWS 처럼 넓은 기술에 지정한 과정) 규칙으로 찾은 연결이 아니므로 uncertain 으로 둔다
+- 과정 후보: pipeline.search.search_courses(skill) (#14). 반환 [{"course_id", "subskill_id", "match"}]
+- match: search_courses 가 돌려준 값을 그대로 쓴다(그 과정이 '이 기술'을 다루는지를 search 가 판단한다).
+  course_subskill.csv 의 match 는 '세부 능력'을 다룬다는 증거라 쓰지 않는다.
+  subskill_id 가 None 이면(AWS 처럼 넓은 기술에 지정한 과정 등) 규칙으로 찾은 연결이 아니므로 uncertain 으로 둔다
 - retiring 과정과 학습 목표(objectives)가 빈 과정은 제외한다 (근거로 삼을 내용이 없음)
 - 입력 숫자는 ③ demand 그대로. 지금은 건수로 가정한다 (건수인지 가중 합인지 미정: docs/development.md)
 - 공고 원문과 근거 문장은 넣지 않는다 (CLAUDE.md 원칙 3, 2026-11-12)
@@ -23,7 +24,6 @@ from pipeline.search import search_courses
 
 ROOT = Path(__file__).resolve().parent.parent
 COURSES_CSV = ROOT / "data" / "courses" / "courses.csv"
-LINKS_CSV = ROOT / "data" / "courses" / "course_subskill.csv"
 MOCK_FILE = "mock_bedrock_recommend.json"
 PROMPT_VERSION = prompt.VERSION
 NO_PREREQ = "표기 없음"
@@ -45,10 +45,7 @@ def _courses() -> dict[str, dict]:
         return {r["course_id"]: r for r in csv.DictReader(f)}
 
 
-@lru_cache(maxsize=1)
-def _subskill_links() -> dict[tuple[str, str], dict]:
-    with LINKS_CSV.open(encoding="utf-8-sig", newline="") as f:
-        return {(r["course_id"], r["subskill_id"]): r for r in csv.DictReader(f)}
+MATCHES = ("certain", "uncertain")
 
 
 def candidate_courses(skill: str) -> list[dict]:
@@ -62,10 +59,9 @@ def candidate_courses(skill: str) -> list[dict]:
         if sid is None:
             match = "uncertain"  # 세부 능력 규칙으로 찾은 연결이 아니라 지정한 과정
         else:
-            row = _subskill_links().get((cid, sid))
-            if row is None:
-                raise KeyError(f"course_subskill.csv 에 ({cid}, {sid}) 연결이 없습니다")
-            match = row["match"]
+            match = link.get("match")
+            if match not in MATCHES:
+                raise ValueError(f"search_courses 가 준 {cid} 의 match 가 {match!r} 입니다")
         objectives = [o.strip() for o in re.split(r"\s+/\s+|\n", course["objectives"]) if o.strip()]
         if course["retiring"].strip() or not objectives:
             continue

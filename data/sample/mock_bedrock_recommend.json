@@ -3,14 +3,14 @@
   "default": {"reasons": []},
   "Kubernetes": [
     {"reasons": [
-      {"course_id": "WU72QMK76B", "reason": "목표 직무 공고 40건 중 17건이 Kubernetes를 요구하고, 그중 8건이 필수입니다. 이 과정은 컨테이너의 기본 개념을 다룹니다."},
-      {"course_id": "CUCA1DK47V", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 컨테이너와 다른 가상화 방식의 차이를 다룹니다."},
-      {"course_id": "JV8N39BFYH", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 컨테이너 이미지를 만드는 방법을 다룹니다."}
+      {"course_id": "6MCV5DBF5N", "reason": "목표 직무 공고 40건 중 17건이 Kubernetes를 요구하고, 그중 8건이 필수입니다. 이 과정은 AWS에서 Kubernetes를 운영하는 이유를 설명합니다."},
+      {"course_id": "TYAAKGU914", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 Amazon EKS 네트워킹을 다룹니다."},
+      {"course_id": "WU72QMK76B", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 컨테이너의 기본 개념을 다룹니다."}
     ]},
     {"reasons": [
-      {"course_id": "WU72QMK76B", "reason": "목표 직무 공고 40건 중 17건이 Kubernetes를 요구하고, 그중 47%는 필수입니다. 이 과정은 컨테이너를 쓰는 이유와 기본 개념, 애플리케이션을 컨테이너로 만드는 방법을 다룹니다."},
-      {"course_id": "CUCA1DK47V", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 컨테이너의 역사와 용어, 다른 가상화 방식과의 차이를 다룹니다."},
-      {"course_id": "JV8N39BFYH", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 Linux에서 Docker Engine으로 컨테이너 격리를 실습하고 Dockerfile로 이미지를 만드는 방법을 다룹니다."}
+      {"course_id": "6MCV5DBF5N", "reason": "목표 직무 공고 40건 중 17건이 Kubernetes를 요구하고, 그중 47%는 필수입니다. 이 과정은 AWS에서 Kubernetes를 운영하는 이유와 AWS 서비스와의 연동을 설명합니다."},
+      {"course_id": "TYAAKGU914", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 Amazon EKS 네트워킹의 핵심 구성 요소, Amazon VPC 설계, Ingress와 NetworkPolicies를 다룹니다."},
+      {"course_id": "WU72QMK76B", "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 컨테이너를 쓰는 이유와 기본 개념, 애플리케이션을 컨테이너로 만드는 방법을 다룹니다."}
     ]}
   ],
   "Docker": "```json\n{\"reasons\": [{\"course_id\": \"JV8N39BFYH\", \"reason\": \"목표 직무 공고 40건 중 20건이 Docker를 요구하고, 그중 45%는 필수입니다. 이 과정은 Linux에서 Docker Engine으로 컨테이너 격리를 실습하고 Dockerfile과 multi-stage 빌드로 이미지를 만드는 방법을 다룹니다.\"}, {\"course_id\": \"WU72QMK76B\", \"reason\": \"공고 40건 중 20건이 Docker를 요구합니다. 이 과정은 컨테이너를 쓰는 이유와 기본 개념, 애플리케이션을 컨테이너로 만드는 방법을 다룹니다.\"}, {\"course_id\": \"CUCA1DK47V\", \"reason\": \"공고 40건 중 20건이 Docker를 요구합니다. 이 과정은 컨테이너의 역사와 용어, 다른 가상화 방식과의 차이를 다룹니다.\"}]}\n```",
