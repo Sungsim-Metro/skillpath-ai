@@ -1,7 +1,8 @@
 """부족 기술 → 추천(③) (#15). LLM 은 reason 만 쓴다.
 
-- 과정 후보: data/sample/skill_courses_temp.json (임시, #14 search_courses 로 교체)
-- match: data/courses/course_subskill.csv 의 (course_id, subskill_id) 행 값을 코드가 그대로 쓴다
+- 과정 후보: pipeline.search.search_courses(skill) (#14). 반환 [{"course_id", "subskill_id"}]
+- match: data/courses/course_subskill.csv 의 (course_id, subskill_id) 행 값을 코드가 그대로 쓴다.
+  subskill_id 가 None 이면(AWS 처럼 넓은 기술에 지정한 과정) 규칙으로 찾은 연결이 아니므로 uncertain 으로 둔다
 - retiring 과정과 학습 목표(objectives)가 빈 과정은 제외한다 (근거로 삼을 내용이 없음)
 - 입력 숫자는 ③ demand 그대로. 지금은 건수로 가정한다 (건수인지 가중 합인지 미정: docs/development.md)
 - 공고 원문과 근거 문장은 넣지 않는다 (CLAUDE.md 원칙 3, 2026-11-12)
@@ -11,7 +12,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -19,11 +19,11 @@ from typing import Optional
 
 from ai.bedrock import ConverseResult, converse_json
 from ai.prompts import recommend_v1 as prompt
+from pipeline.search import search_courses
 
 ROOT = Path(__file__).resolve().parent.parent
 COURSES_CSV = ROOT / "data" / "courses" / "courses.csv"
 LINKS_CSV = ROOT / "data" / "courses" / "course_subskill.csv"
-TEMP_LINKS = ROOT / "data" / "sample" / "skill_courses_temp.json"
 MOCK_FILE = "mock_bedrock_recommend.json"
 PROMPT_VERSION = prompt.VERSION
 NO_PREREQ = "표기 없음"
@@ -51,22 +51,21 @@ def _subskill_links() -> dict[tuple[str, str], dict]:
         return {(r["course_id"], r["subskill_id"]): r for r in csv.DictReader(f)}
 
 
-@lru_cache(maxsize=1)
-def _temp_links() -> dict[str, list[dict]]:
-    return json.loads(TEMP_LINKS.read_text(encoding="utf-8"))["links"]
-
-
 def candidate_courses(skill: str) -> list[dict]:
-    """임시 연결표에서 기술의 과정 후보를 고른다. 연결표가 데이터와 맞지 않으면 오류를 낸다."""
+    """search_courses 결과에서 과정 후보를 고른다. 결과가 과정 데이터와 맞지 않으면 오류를 낸다."""
     out = []
-    for link in _temp_links().get(skill, []):
+    for link in search_courses(skill):
         cid, sid = link["course_id"], link["subskill_id"]
         course = _courses().get(cid)
         if course is None:
-            raise KeyError(f"임시 연결표의 과정 {cid} 가 courses.csv 에 없습니다")
-        row = _subskill_links().get((cid, sid))
-        if row is None:
-            raise KeyError(f"course_subskill.csv 에 ({cid}, {sid}) 연결이 없습니다")
+            raise KeyError(f"search_courses 가 준 과정 {cid} 가 courses.csv 에 없습니다")
+        if sid is None:
+            match = "uncertain"  # 세부 능력 규칙으로 찾은 연결이 아니라 지정한 과정
+        else:
+            row = _subskill_links().get((cid, sid))
+            if row is None:
+                raise KeyError(f"course_subskill.csv 에 ({cid}, {sid}) 연결이 없습니다")
+            match = row["match"]
         objectives = [o.strip() for o in re.split(r"\s+/\s+|\n", course["objectives"]) if o.strip()]
         if course["retiring"].strip() or not objectives:
             continue
@@ -77,7 +76,7 @@ def candidate_courses(skill: str) -> list[dict]:
             "level": course["level"],
             "prerequisites": course["prerequisites"].strip() or NO_PREREQ,
             "objectives": objectives,
-            "match": row["match"],
+            "match": match,
             "subskill_id": sid,
         })
     return out
