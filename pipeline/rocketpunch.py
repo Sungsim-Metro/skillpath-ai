@@ -229,6 +229,9 @@ def cmd_collect(args) -> None:
             cached = (RAW_DIR / f"rp-{it['jobId']}.raw.json").exists()
             if not args.any_title and not cached and not matched_terms({"title": it["title"]}, args.terms):
                 skipped += 1
+                # 예전 기준으로 통과해 저장된 posting 이 원본 없이 남아 있어도 이제는 탈락이므로 같이 지운다
+                for stale in _posting_files(f"rp-{it['jobId']}"):
+                    stale.unlink()
                 print(f"건너뜀\trp-{it['jobId']}\t제목이 직무 단어에 안 맞아 상세를 받지 않음\t{it['title'][:40]}")
                 continue
             kept += process(it["jobId"], args.role, args.terms)

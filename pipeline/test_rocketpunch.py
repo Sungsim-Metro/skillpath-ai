@@ -177,9 +177,13 @@ def collect_and_process():
                 return out.getvalue()
 
             # 제목이 안 맞는 공고는 상세를 받지 않는다(호출 0회). 맞는 공고만 받는다
+            # 원본 없이 posting 만 남은 예전 통과본(원본을 지웠거나 posting 만 복사해 온 경우)은 건너뛰면서 같이 지운다
+            stale = tmp / "rp-2_회사2_예전통과.posting.json"
+            stale.write_text("{}", encoding="utf-8")
             out = run(any_title=False)
             assert calls == ["1"], calls
             assert "건너뜀" in out and "호출 1회 절약" in out, out
+            assert not stale.exists() and not list(tmp.glob("rp-2*.posting.json")), "건너뛴 공고의 예전 posting 이 남았다"
             # --any-title 이면 제목이 안 맞아도 상세를 받는다(필터는 process 가 한다)
             run(any_title=True)
             assert calls == ["1", "2"], calls
