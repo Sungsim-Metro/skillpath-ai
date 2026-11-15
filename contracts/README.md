@@ -22,7 +22,7 @@
 | `company` | string | 회사명 |
 | `job_category` | string | 직무 코드. 예: `cloud_engineer` |
 | `text` | string | 공고 본문 전체. 근거 문장 검사의 기준 |
-| `source` | string | 데이터 출처. 예: `work24`, `manual` |
+| `source` | string | 데이터 출처. 예: `rocketpunch`, `manual` |
 | `collected_at` | string | 수집일 `YYYY-MM-DD` |
 
 ## ② 추출 결과 (`extraction`) — ai → backend
