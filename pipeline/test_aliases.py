@@ -21,6 +21,13 @@ def demo():
                        ("Hyper-V", "Hyper-V"), ("HyperV", "Hyper-V"), ("pfsense", "pfSense"), ("시스코", "Cisco"),
                        ("Amazon API Gateway", "API Gateway"), ("Infrastructure as Code", "IaC")):
         assert normalize_skill(raw) == canon, raw
+    # 성진님 사전 후보 34개 중 클라우드·인프라·데이터 도구. 웹 프론트엔드 용어·AI 도구 제품명·Argo 는 보류라 아직 없다
+    for raw, canon in (("ECS", "ECS"), ("Amazon ECS", "ECS"), ("amazon cloudfront", "CloudFront"),
+                       ("Amazon Redshift", "Redshift"), ("Google BigQuery", "BigQuery"), ("Atlantis", "atlantis"),
+                       ("Windows", "Windows"), ("Xen", "Xen")):
+        assert normalize_skill(raw) == canon, raw
+    for held in ("Argo", "Claude API", "GitHub Copilot", "CSS", "jQuery", "웹팩"):
+        assert normalize_skill(held) is None, held
     for concept in ("클라우드", "DevOps", "메시지 큐"):
         assert normalize_skill(concept) is None, concept
     assert normalize_skill("IaC") == "IaC" != normalize_skill("Terraform")  # IaC 는 Terraform 과 합치지 않는다
