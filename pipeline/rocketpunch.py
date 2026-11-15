@@ -6,7 +6,9 @@
   python -m pipeline.rocketpunch fetch 159620 159227 ...     # 상세를 받아 본문 필터 후 posting 저장
   python -m pipeline.rocketpunch collect --codes <코드> -n 10  # 목록 → 상세 → 본문 필터, 통과 10건까지
 
-- 원본 응답은 data/raw/rp-<jobId>.raw.json 에 저장한다(저장소에 올리지 않는다).
+- 원본 응답은 data/raw/ 에 저장한다(저장소에 올리지 않는다).
+- ROCKETPUNCH_S3_BUCKET 이 있으면 목록·상세·전처리 JSON을 구분해 S3에도 저장한다.
+- python -m pipeline.rocketpunch upload --dry-run 으로 기존 파일 업로드를 확인한다.
 - 이미 받은 공고는 API 를 다시 부르지 않는다. 429 가 오면 멈추고, 다시 실행하면 이어서 받는다.
 """
 from __future__ import annotations
@@ -22,6 +24,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from pipeline.storage import S3Target, maybe_upload, target_from_env, upload_json
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
@@ -106,24 +110,37 @@ def load_or_fetch(job_id: str) -> dict:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     path = RAW_DIR / f"rp-{job_id}.raw.json"
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    raw = api_get(f"/jobs/{job_id}")
-    path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        raw = api_get(f"/jobs/{job_id}")
+        path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+    maybe_upload(path)
     return raw
 
 
-def list_page(params: dict) -> list:
-    """목록 1쪽. 목록 호출도 job.read 한도를 쓰므로 받은 결과를 저장해 두고 다시 쓴다.
+def load_listing(params: dict) -> dict:
+    """목록 응답 전체를 캐시한다. 예전에 저장한 items 배열 형식도 그대로 읽는다.
+
+    목록 호출도 job.read 한도를 쓰므로 받은 결과를 저장해 두고 다시 쓴다.
     새로 받으려면 data/raw/list-*.json 을 지운다."""
     name = "-".join(f"{k}={'+'.join(map(str, v)) if isinstance(v, list) else v}" for k, v in sorted(params.items()))
     path = RAW_DIR / f"list-{name}.json"
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    res = api_get("/jobs", params)
+        res = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        RAW_DIR.mkdir(parents=True, exist_ok=True)
+        res = api_get("/jobs", params)
+        path.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+    maybe_upload(path)
+    return {"items": res} if isinstance(res, list) else res
+
+
+def list_page(params: dict) -> list:
+    """수집기에 필요한 items만 돌려준다. 전체 응답 저장은 load_listing이 맡는다."""
+    res = load_listing(params)
     items = res["items"]
-    print(f"[목록] 전체 {res['totalItems']}건 중 {len(items)}건 ({params})", file=sys.stderr)
-    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    total = res.get("totalItems", "미상(기존 캐시)")
+    print(f"[목록] 전체 {total}건 중 {len(items)}건 ({params})", file=sys.stderr)
     return items
 
 
@@ -138,8 +155,10 @@ def cmd_search(args) -> None:
         params["keyword"] = args.keyword
     if args.codes:
         params["jobCategories"] = args.codes
-    listing = api_get("/jobs", params)
-    print(f"전체 {listing['totalItems']}건 / {listing['totalPages']}쪽, 이번 {len(listing['items'])}건 (요청 {params})")
+    listing = load_listing(params)
+    total = listing.get("totalItems", "미상(기존 캐시)")
+    pages = listing.get("totalPages", "미상")
+    print(f"전체 {total}건 / {pages}쪽, 이번 {len(listing['items'])}건 (요청 {params})")
     for it in listing["items"]:
         print(f"{it['jobId']}\t{it.get('jobCategory')}\t{it['company']['name']}\t{it['title'][:40]}")
     print("\njobId:", " ".join(str(it["jobId"]) for it in listing["items"]))
@@ -152,6 +171,7 @@ def process(job_id, role: str, terms) -> bool:
     out = RAW_DIR / f"{posting['id']}.posting.json"
     if hits:
         out.write_text(json.dumps(posting, ensure_ascii=False, indent=2), encoding="utf-8")
+        maybe_upload(out)
     else:
         out.unlink(missing_ok=True)  # 필터 기준이 바뀌었을 때 예전 통과본을 지운다
     print(f"{'통과' if hits else '탈락'}\t{posting['id']}\t필터 {hits or '없음'}\t본문 {len(posting['text'])}자\t{posting['title'][:40]}")
@@ -183,6 +203,33 @@ def cmd_collect(args) -> None:
     print(f"\n후보 {seen}건 확인, 통과 {kept}건, 탈락 {seen - kept}건 (목표 {args.n}건)")
 
 
+def cmd_upload(args) -> None:
+    """API를 다시 부르지 않고 기존 로컬 공고 JSON을 S3에 올린다."""
+    configured = target_from_env()
+    bucket = args.bucket or (configured.bucket if configured else None)
+    if not bucket:
+        raise SystemExit("--bucket 또는 ROCKETPUNCH_S3_BUCKET으로 대상 버킷을 지정하세요.")
+    prefix = args.prefix
+    if prefix is None:
+        prefix = configured.prefix if configured else S3Target(bucket).prefix
+    target = S3Target(bucket, prefix)
+    patterns = ("list-*.json", "rp-*.raw.json", "rp-*.posting.json")
+    paths = sorted({path for pattern in patterns for path in RAW_DIR.glob(pattern)})
+    uploaded = existing = 0
+    for path in paths:
+        result = upload_json(path, target, dry_run=args.dry_run)
+        if args.dry_run:
+            print(f"{path.name} -> s3://{bucket}/{result.key}")
+        elif result.uploaded:
+            uploaded += 1
+        else:
+            existing += 1
+    if args.dry_run:
+        print(f"\n업로드 예정 {len(paths)}개 (실제 업로드 없음)")
+    else:
+        print(f"\nS3 동기화 완료: 업로드 {uploaded}개, 이미 있음 {existing}개, 대상 {len(paths)}개")
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -206,6 +253,11 @@ def main() -> None:
     c.add_argument("--size", type=int, default=10, help="문서는 50이라지만 실제 최대는 10")
     c.add_argument("--pages", type=int, default=1)
     c.add_argument("-n", type=int, default=10, help="통과 목표 건수")
+    u = sub.add_parser("upload", help="기존 로컬 공고 JSON을 S3에 업로드 (API 재호출 없음)")
+    u.add_argument("--bucket", help="대상 S3 버킷. 기본값은 ROCKETPUNCH_S3_BUCKET")
+    u.add_argument("--prefix", help="S3 경로 접두사. 기본값은 ROCKETPUNCH_S3_PREFIX 또는 skillpath/rocketpunch")
+    u.add_argument("--dry-run", action="store_true", help="업로드 경로만 확인")
+    u.set_defaults(run=cmd_upload)
     for sp, run in ((f, cmd_fetch), (c, cmd_collect)):
         sp.add_argument("--role", default="클라우드 엔지니어", help="posting 의 role(직무 이름)")
         sp.add_argument("--terms", nargs="+", default=list(DEFAULT_TERMS), help="본문 필터 단어")
