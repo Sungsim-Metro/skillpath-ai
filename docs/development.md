@@ -39,7 +39,7 @@ API Gateway는 쓰지 않습니다(2026-11-13). 수업 교안에 없고, 화면�
 
 | 형식 | 흐름 | 핵심 필드 |
 | --- | --- | --- |
-| ① 공고 | pipeline → ai | `posting_id`, `text`, `source`, `collected_at` |
+| ① 공고 | pipeline → ai | `id`, `title`, `company`, `role`, `text`, `url` |
 | ② 추출 결과 | ai → backend | `skills[].normalized`, `type`, `evidence`, `confidence` |
 | ③ 추천 | backend + ai → app | `gap_skill`, `demand`, `courses[].reason`, `match` |
 | ④ 수요 집계 | backend → app | `total_postings`, `skills[].postings`, `required`, `preferred` |
