@@ -18,6 +18,7 @@
     "Linux": "C1",
     "Docker": "C1",
     "Kubernetes": "C1",
+    "EKS": "C1",
     "EC2": "C1",
     "Lambda": "C1",
     "S3": "C2",

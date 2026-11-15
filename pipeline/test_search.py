@@ -6,8 +6,8 @@ def demo():
     courses = _course_text()
     links = {(r["course_id"], sid) for sid, rows in _links_by_subskill().items() for r in rows}
 
-    for skill, subskill in (("Docker", "C1-4"), ("Kubernetes", "C1-4"), ("EC2", "C1-1"), ("Terraform", "C5-4"),
-                            ("CI/CD", "C5-1"), ("IAM", "C4-1"), ("S3", "C2-1")):
+    for skill, subskill in (("Docker", "C1-4"), ("Kubernetes", "C1-4"), ("EKS", "C1-4"), ("EC2", "C1-1"),
+                            ("Terraform", "C5-4"), ("IaC", "C5-4"), ("CI/CD", "C5-1"), ("IAM", "C4-1"), ("S3", "C2-1")):
         found = search_courses(skill)
         assert 0 < len(found) <= 3, (skill, found)
         assert all(f["subskill_id"] == subskill for f in found), (skill, found)
