@@ -2,11 +2,14 @@
 
 Bedrock 을 부르지 않는다. search_courses 를 잠깐 바꿔 끼워 받는 쪽만 본다.
 """
+import os
+
 import ai.recommend as rec
 
 
 def demo():
     original = rec.search_courses
+    mock_before = os.environ.get("BEDROCK_MOCK")
     try:
         # search_courses 가 돌려준 match 를 그대로 쓴다 (course_subskill.csv 의 값이 아니라)
         rec.search_courses = lambda skill, k=3: [
@@ -19,9 +22,10 @@ def demo():
         # subskill_id 가 None 이면 search 가 certain 이라고 해도 uncertain (지정한 과정은 규칙으로 찾은 연결이 아니다)
         rec.search_courses = lambda skill, k=3: [
             {"course_id": "94T2BEN85A", "subskill_id": None, "match": "uncertain"},
-            {"course_id": "94T2BEN85A", "subskill_id": None, "match": "certain"},
+            {"course_id": "RH22P2RXU4", "subskill_id": None, "match": "certain"},
         ]
-        assert [c["match"] for c in rec.candidate_courses("AWS")] == ["uncertain", "uncertain"]
+        assert [(c["course_id"], c["match"]) for c in rec.candidate_courses("AWS")] == [
+            ("94T2BEN85A", "uncertain"), ("RH22P2RXU4", "uncertain")]
 
         # 과정 데이터에 없는 course_id, 정해지지 않은 match 는 오류를 그대로 낸다
         rec.search_courses = lambda skill, k=3: [{"course_id": "NOPE", "subskill_id": "C1-4", "match": "certain"}]
@@ -41,8 +45,23 @@ def demo():
         rec.search_courses = lambda skill, k=3: []
         recommendation, result = rec.build_recommendation("Go", {"postings": 4, "of": 40, "required_ratio": 0.25})
         assert recommendation["courses"] == [] and result is None
+
+        # 가짜 모드에서 기술별 가짜 응답이 없는 기술도 오류 없이 추천이 나온다 (화면 연결·시연용)
+        os.environ["BEDROCK_MOCK"] = "1"
+        assert "Terraform" not in rec._mock_skills()
+        rec.search_courses = lambda skill, k=3: [
+            {"course_id": "RH22P2RXU4", "subskill_id": "C5-4", "match": "uncertain"},
+            {"course_id": "KE11JMZA26", "subskill_id": "C5-4", "match": "uncertain"},
+        ]
+        recommendation, result = rec.build_recommendation("Terraform", {"postings": 14, "of": 40, "required_ratio": 0.36})
+        assert [c["reason"] for c in recommendation["courses"]] == [rec.MOCK_FALLBACK_REASON] * 2
+        assert result.attempts == 1 and result.usage["totalTokens"] == 0
     finally:
         rec.search_courses = original
+        if mock_before is None:
+            os.environ.pop("BEDROCK_MOCK", None)
+        else:
+            os.environ["BEDROCK_MOCK"] = mock_before
 
 
 if __name__ == "__main__":

@@ -13,18 +13,21 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from ai.bedrock import ConverseResult, converse_json
+from ai.bedrock import SAMPLE_DIR, USAGE_KEYS, ConverseResult, converse_json, is_mock
 from ai.prompts import recommend_v1 as prompt
 from pipeline.search import search_courses
 
 ROOT = Path(__file__).resolve().parent.parent
 COURSES_CSV = ROOT / "data" / "courses" / "courses.csv"
 MOCK_FILE = "mock_bedrock_recommend.json"
+# 가짜 모드에서 기술별 가짜 응답이 없을 때 과정마다 쓰는 문장. 숫자·영문 이름이 없어 reason 검사를 늘 통과한다
+MOCK_FALLBACK_REASON = "이 과정은 부족한 역량을 보완하는 데 도움이 되는 내용을 다룹니다."
 PROMPT_VERSION = prompt.VERSION
 NO_PREREQ = "표기 없음"
 # 모든 과정이 AWS Skill Builder 과정이라 reason 에 써도 지어낸 것으로 보지 않는 영문 낱말
@@ -131,24 +134,42 @@ def validate_reasons(data: dict, llm_input: dict) -> None:
             raise ValueError(f"{c['course_id']} reason 이 한국어가 아닙니다")
 
 
+@lru_cache(maxsize=1)
+def _mock_skills() -> frozenset[str]:
+    table = json.loads((SAMPLE_DIR / MOCK_FILE).read_text(encoding="utf-8"))
+    return frozenset(k for k in table if k not in ("_note", "default"))
+
+
+def _mock_fallback(llm_input: dict) -> ConverseResult:
+    """가짜 모드에서 기술별 가짜 응답이 없을 때: 받은 과정마다 정해진 문장 하나. 검사는 실제 응답과 똑같이 한다."""
+    data = {"reasons": [{"course_id": c["course_id"], "reason": MOCK_FALLBACK_REASON} for c in llm_input["courses"]]}
+    validate_reasons(data, llm_input)
+    return ConverseResult(data, 1, {k: 0 for k in USAGE_KEYS}, ({"attempt": 1, **{k: 0 for k in USAGE_KEYS}},))
+
+
 def build_recommendation(skill: str, demand: dict) -> tuple[dict, Optional[ConverseResult]]:
     """③ 추천 1건과 LLM 호출 결과(시도 횟수·usage)를 돌려준다. 과정이 없으면 LLM 을 부르지 않는다.
 
     demand 는 ③ 의 demand 형식 {"postings", "of", "required_ratio"} 이다.
+    가짜 모드에서 mock_bedrock_recommend.json 에 그 기술의 응답이 없으면 _mock_fallback 을 쓴다
+    (화면 연결과 시연을 가짜 모드로 할 때 어떤 기술이 와도 오류가 나지 않게).
     """
     rec = {"gap_skill": skill, "demand": dict(demand), "courses": []}
     courses = candidate_courses(skill)
     if not courses:
         return rec, None
     llm_input = llm_input_of(skill, demand, courses)
-    result = converse_json(
-        prompt.SYSTEM,
-        prompt.user_message(llm_input),
-        mock_file=MOCK_FILE,
-        mock_key=skill,
-        validate=lambda data: validate_reasons(data, llm_input),
-        max_tokens=2048,
-    )
+    if is_mock() and skill not in _mock_skills():
+        result = _mock_fallback(llm_input)
+    else:
+        result = converse_json(
+            prompt.SYSTEM,
+            prompt.user_message(llm_input),
+            mock_file=MOCK_FILE,
+            mock_key=skill,
+            validate=lambda data: validate_reasons(data, llm_input),
+            max_tokens=2048,
+        )
     reasons = {r["course_id"]: r["reason"].strip() for r in result.data["reasons"]}
     rec["courses"] = [
         {
