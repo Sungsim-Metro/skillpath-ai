@@ -75,6 +75,20 @@ class RealRecommendationsTest(unittest.TestCase):
         api.get_recommendations("cloud_engineer", GAP)
         self.assertEqual(self.build.call_count, 6)
 
+    def test_cache_keeps_only_recent_entries(self) -> None:
+        with patch.object(api, "RECOMMEND_CACHE_MAX", 2):
+            for total in (12, 13, 14):  # 수요 숫자가 달라 서로 다른 키 3개
+                self.demand.return_value = {**DEMAND, "total_postings": total}
+                api.get_recommendations("cloud_engineer", GAP)
+            self.assertEqual(len(api._recommend_cache), 2)
+            self.assertEqual(self.build.call_count, 9)
+            api.get_recommendations("cloud_engineer", GAP)  # 14: 남아 있음 → 다시 안 부름
+            self.assertEqual(self.build.call_count, 9)
+            self.demand.return_value = DEMAND  # 12: 가장 오래돼 버려짐 → 다시 부름
+            api.get_recommendations("cloud_engineer", GAP)
+            self.assertEqual(self.build.call_count, 12)
+            self.assertEqual(len(api._recommend_cache), 2)
+
     def test_failure_is_not_cached(self) -> None:
         self.build.side_effect = [RuntimeError("ThrottlingException")] + [fake_build(s, {}) for s in GAP[:3]]
         with self.assertRaises(RuntimeError):

@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+from collections import OrderedDict
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
@@ -35,8 +36,10 @@ _demand_cache: dict[tuple[str, str, str, str], tuple[float, dict]] = {}
 _demand_cache_lock = Lock()
 # 실제 모드 추천: 부족 기술 중 앞(수요 높은 순)에서 몇 개만 Bedrock 으로 추천할지. 기술마다 호출 1번(비용·화면 길이)
 RECOMMEND_TOP_N = 3
-# (직무, (기술, postings, of, required_ratio)...) → ③ 목록. 수요 숫자가 바뀌면 키가 달라져 다시 부른다
-_recommend_cache: dict[tuple, list[dict]] = {}
+# (직무, (기술, postings, of, required_ratio)...) → ③ 목록. 수요 숫자가 바뀌면 키가 달라져 다시 부른다.
+# 최근에 쓴 RECOMMEND_CACHE_MAX 개만 두고, 넘으면 가장 오래 안 쓴 것부터 버린다
+RECOMMEND_CACHE_MAX = 32
+_recommend_cache: OrderedDict[tuple, list[dict]] = OrderedDict()
 _recommend_cache_lock = Lock()
 
 logger = logging.getLogger(__name__)
@@ -230,6 +233,8 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
     key = (job_category, tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
     with _recommend_cache_lock:
         cached = _recommend_cache.get(key)
+        if cached is not None:
+            _recommend_cache.move_to_end(key)  # 방금 쓴 것으로 표시
     if cached is not None:
         return deepcopy(cached)
 
@@ -243,6 +248,9 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
             logger.info("추천 %s: 시도 %d회, 토큰 %s", skill, result.attempts, result.usage.get("totalTokens", 0))
     with _recommend_cache_lock:  # 실패하면 여기까지 오지 않으므로 오류는 캐시하지 않는다
         _recommend_cache[key] = deepcopy(out)
+        _recommend_cache.move_to_end(key)
+        while len(_recommend_cache) > RECOMMEND_CACHE_MAX:
+            _recommend_cache.popitem(last=False)
     return out
 
 
