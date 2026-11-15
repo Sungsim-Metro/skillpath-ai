@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -122,8 +124,8 @@ class RocketpunchStorageTest(unittest.TestCase):
     def test_only_filter_matches_publish_normalized_postings(self) -> None:
         with patch.object(rocketpunch, "load_or_fetch", return_value=self.detail):
             with redirect_stdout(io.StringIO()):
-                self.assertTrue(rocketpunch.process("1", "Cloud Engineer", ["aws"]))
-        path = self.root / "rp-1.posting.json"
+                self.assertTrue(rocketpunch.process("1", "Cloud Engineer", ["cloud"]))
+        path = rocketpunch.posting_path(rocketpunch.to_posting(self.detail, "Cloud Engineer"))
         self.assertTrue(path.exists())
         self.upload.assert_called_once_with(path)
         self.upload.reset_mock()
@@ -143,13 +145,12 @@ class RocketpunchStorageTest(unittest.TestCase):
         rocketpunch.load_listing(self.params)
         rocketpunch.load_or_fetch("1")
         with redirect_stdout(io.StringIO()):
-            rocketpunch.process("1", "Cloud Engineer", ["aws"])
+            rocketpunch.process("1", "Cloud Engineer", ["cloud"])
+        posting = rocketpunch.to_posting(self.detail, "Cloud Engineer")
         saved = {
             self.cache: self.listing,
             self.root / "rp-1.raw.json": self.detail,
-            self.root / "rp-1.posting.json": rocketpunch.to_posting(
-                self.detail, "Cloud Engineer"
-            ),
+            rocketpunch.posting_path(posting): posting,
         }
         for path, data in saved.items():
             with self.subTest(path=path.name):
@@ -177,6 +178,34 @@ class RocketpunchStorageTest(unittest.TestCase):
         self.assertIn("test/raw/details/", output.getvalue())
         self.assertIn("test/processed/postings/", output.getvalue())
         self.assertNotIn("unrelated.json", output.getvalue())
+
+    def test_upload_failure_preserves_legacy_posting_until_retry_succeeds(self) -> None:
+        legacy = self.root / "rp-1.posting.json"
+        legacy.write_text('{"id":"rp-1","text":"previous"}', encoding="utf-8")
+        self.upload.side_effect = RuntimeError("S3 unavailable")
+        with patch.object(rocketpunch, "load_or_fetch", return_value=self.detail):
+            with self.assertRaises(RuntimeError):
+                rocketpunch.process("1", "Cloud Engineer", ["cloud"])
+            self.assertTrue(legacy.exists())
+            self.upload.side_effect = None
+            with redirect_stdout(io.StringIO()):
+                self.assertTrue(rocketpunch.process("1", "Cloud Engineer", ["cloud"]))
+        self.assertFalse(legacy.exists())
+        posting = rocketpunch.to_posting(self.detail, "Cloud Engineer")
+        self.assertTrue(rocketpunch.posting_path(posting).exists())
+
+    def test_cli_help_exposes_collection_and_storage_commands(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "pipeline.rocketpunch", "--help"],
+            cwd=rocketpunch.ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        self.assertIn("collect", result.stdout)
+        self.assertIn("upload", result.stdout)
+        self.assertIn("export-eval", result.stdout)
 
 
 if __name__ == "__main__":

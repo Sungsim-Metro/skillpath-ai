@@ -30,7 +30,7 @@ class RocketpunchDynamoDBTest(unittest.TestCase):
             "DYNAMODB_DEMAND_TABLE": "test-demand",
         }).start()
         self.args = Namespace(
-            ids=["1"], role="클라우드 엔지니어", terms=["aws"],
+            ids=["1"], role="클라우드 엔지니어", terms=["cloud"],
             job_category="cloud_engineer", collected="2026-11-15",
             force=False, exclude=[], selection_version=None,
         )
@@ -41,12 +41,13 @@ class RocketpunchDynamoDBTest(unittest.TestCase):
         rocketpunch.write_json(existing, {"id": "rp-2"})
 
         def check_saved(paths, **options):
-            self.assertEqual(paths, [self.root / "rp-1.posting.json", existing])
+            current = rocketpunch.posting_path(rocketpunch.to_posting(self.detail))
+            self.assertEqual(paths, [current, existing])
             self.assertEqual(
                 json.loads((self.root / "rp-1.raw.json").read_bytes()), self.detail
             )
             posting = json.loads(paths[0].read_bytes())
-            self.assertEqual(posting["text"], "AWS operations")
+            self.assertEqual(posting["text"], "[포지션소개]\nAWS operations")
             self.assertEqual(options["collected"], "2026-11-15")
             return {"published": True}
 
@@ -64,7 +65,8 @@ class RocketpunchDynamoDBTest(unittest.TestCase):
         self.args.size = 10
         self.args.pages = 2
         self.args.n = 2
-        with patch.object(rocketpunch, "list_page", return_value=[{"jobId": 1}, {"jobId": 2}]):
+        listing = [{"jobId": 1, "title": "Cloud Engineer"}, {"jobId": 2, "title": "Cloud Engineer"}]
+        with patch.object(rocketpunch, "list_page", return_value=listing):
             with patch.object(rocketpunch, "process", return_value=True) as process:
                 with patch("pipeline.extraction_batch.run_batch", return_value={"published": True}) as run:
                     with redirect_stdout(io.StringIO()):
@@ -139,7 +141,7 @@ class RocketpunchDynamoDBTest(unittest.TestCase):
                     with redirect_stdout(io.StringIO()):
                         rocketpunch.cmd_fetch(self.args)
                     run.assert_not_called()
-        self.assertTrue((self.root / "rp-1.posting.json").exists())
+        self.assertTrue(rocketpunch.posting_path(rocketpunch.to_posting(self.detail)).exists())
 
     def test_unpublished_batch_sets_failure_exit_and_prints_summary_once(self) -> None:
         output = io.StringIO()

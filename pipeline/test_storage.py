@@ -31,12 +31,21 @@ class StorageTest(unittest.TestCase):
             ),
             "rp-1.raw.json": ("raw/details", "rp-1"),
             "rp-1.posting.json": ("processed/postings", "rp-1"),
+            "rp-1_회사_Cloud-Engineer.posting.json": ("processed/postings", "rp-1"),
         }
         for filename, expected in cases.items():
             with self.subTest(filename=filename):
                 self.assertEqual(storage.classify_file(Path(filename)), expected)
         with self.assertRaises(ValueError):
             storage.classify_file(Path("unrelated.json"))
+
+    def test_readable_posting_name_keeps_the_same_identity_and_content_key(self) -> None:
+        legacy = self.root / "rp-1.posting.json"
+        readable = self.root / "rp-1_회사_Cloud-Engineer.posting.json"
+        self.assertEqual(
+            storage.object_key(legacy, self.content, self.target.prefix),
+            storage.object_key(readable, self.content, self.target.prefix),
+        )
 
     def test_unchanged_content_reuses_key_and_changes_get_new_keys(self) -> None:
         digest = hashlib.sha256(self.content).hexdigest()

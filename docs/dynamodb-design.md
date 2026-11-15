@@ -289,7 +289,7 @@ fingerprint가 이번 배치의 입력과 다른 항목은 세지 않으므로 �
     "uncertain_skills": [{"skill": "Terraform", "postings": 1}]
   },
   "policy": {
-    "selection_version": "cloud-aws-v1",
+    "selection_version": "cloud-role-title-v1",
     "aggregation_version": "demand-v1",
     "count_confidence": "high"
   }

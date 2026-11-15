@@ -41,8 +41,9 @@ def classify_file(path: Path) -> tuple[str, str]:
         return "raw/lists", name.removesuffix(".json")
     if re.fullmatch(r"rp-\d+\.raw\.json", name):
         return "raw/details", name.removesuffix(".raw.json")
-    if re.fullmatch(r"rp-\d+\.posting\.json", name):
-        return "processed/postings", name.removesuffix(".posting.json")
+    posting = re.fullmatch(r"(rp-\d+)(?:_.+)?\.posting\.json", name)
+    if posting:
+        return "processed/postings", posting.group(1)
     raise ValueError(f"지원하지 않는 공고 파일 이름: {name}")
 
 

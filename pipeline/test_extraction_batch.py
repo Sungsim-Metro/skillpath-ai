@@ -106,6 +106,7 @@ class ExtractionBatchTest(unittest.TestCase):
         if posting["text"]:
             skills.append({
                 "raw": "AWS", "normalized": "AWS", "type": "required",
+                "section": None,
                 "evidence": posting["text"], "confidence": "high", "ncs_unit": None,
             })
         extraction = {"posting_id": posting["id"], "skills": skills}
@@ -257,12 +258,48 @@ class ExtractionBatchTest(unittest.TestCase):
         self.assertEqual(self.extractor.call_args.args[0]["text"], "AWS operations")
 
     def test_empty_success_counts_in_denominator(self):
-        self.write_posting("rp-1", text="", title="AWS Cloud Engineer")
+        self.write_posting("rp-1", text="")
         result = self.run_batch()
         self.assertTrue(result["published"])
         self.assertEqual(self.store.snapshot["demand"]["total_postings"], 1)
         self.assertEqual(self.store.snapshot["demand"]["skills"], [])
         self.assertEqual(self.store.snapshot["quality"]["empty_extraction_postings"], 1)
+
+    def test_zero_targets_preserve_snapshot_without_creating_aws_clients(self):
+        self.run_batch()
+        snapshot = copy.deepcopy(self.store.snapshot)
+        filtered = self.write_posting("rp-2", title="Backend Engineer")
+        self.extractor.reset_mock()
+        cases = (
+            ("empty", [], {}),
+            ("filtered", [filtered], {}),
+            ("excluded", [self.path], {"rp-1": "manual review"}),
+        )
+        for name, paths, exclusions in cases:
+            with self.subTest(case=name):
+                with (
+                    patch.object(
+                        batch.DynamoDBStore, "from_env", return_value=self.store,
+                    ) as create_store,
+                    patch.object(
+                        batch.storage, "_client", return_value=self.s3,
+                    ) as create_s3,
+                ):
+                    result = batch.run_batch(
+                        paths, job_category="cloud_engineer", collected="2026-11-15",
+                        exclusions=exclusions,
+                    )
+                self.assertFalse(result["published"])
+                self.assertEqual(
+                    (result["target"], result["success"], result["failed"]),
+                    (0, 0, 0),
+                )
+                self.assertEqual(result["excluded"], len(exclusions))
+                self.assertEqual(self.store.snapshot, snapshot)
+                self.assertEqual(self.store.publish_count, 1)
+                create_store.assert_not_called()
+                create_s3.assert_not_called()
+        self.extractor.assert_not_called()
 
     def test_mock_and_missing_configuration_stop_before_aws(self):
         with patch.object(batch.DynamoDBStore, "from_env") as create_store:
@@ -311,8 +348,10 @@ class ExtractionBatchTest(unittest.TestCase):
         self.extractor.assert_not_called()
 
     def test_current_filter_removes_prior_other_terms_from_demand(self):
-        second = self.write_posting("rp-2", text="Kubernetes operations")
-        first = self.run_batch([self.path, second], terms=["aws", "kubernetes"])
+        second = self.write_posting(
+            "rp-2", title="Platform Engineer", text="Kubernetes operations",
+        )
+        first = self.run_batch([self.path, second], terms=["cloud", "platform"])
         self.assertTrue(first["published"])
         self.assertEqual(self.store.snapshot["demand"]["total_postings"], 2)
         self.extractor.reset_mock()
@@ -320,7 +359,10 @@ class ExtractionBatchTest(unittest.TestCase):
         self.assertTrue(result["published"])
         self.assertEqual(result["target"], 1)
         self.assertEqual(self.store.snapshot["demand"]["total_postings"], 1)
-        self.assertEqual(self.store.snapshot["policy"]["selection_version"], "cloud-aws-v1")
+        self.assertEqual(
+            self.store.snapshot["policy"]["selection_version"],
+            "cloud-role-title-v1",
+        )
         self.assertIn("rp-2", self.store.extractions)
         self.assertTrue(second.exists())
         self.extractor.assert_not_called()
@@ -328,9 +370,10 @@ class ExtractionBatchTest(unittest.TestCase):
             self.run_batch([self.path, second], exclusions={"rp-2": "outside current policy"})
 
     def test_selection_version_tracks_effective_filter(self):
-        self.assertEqual(batch.selection_version_for_terms(["AWS", " aws "]), "cloud-aws-v1")
+        defaults = [term.upper() for term in reversed(batch.DEFAULT_TERMS)] + [" cloud "]
+        self.assertEqual(batch.selection_version_for_terms(defaults), "cloud-role-title-v1")
         custom = batch.selection_version_for_terms(["Docker", "Kubernetes"])
-        self.assertTrue(custom.startswith("cloud-terms-"))
+        self.assertTrue(custom.startswith("cloud-title-terms-"))
         self.assertEqual(custom, batch.selection_version_for_terms(["kubernetes", "docker", "docker"]))
         self.assertNotEqual(custom, batch.selection_version_for_terms(["Docker"]))
         self.assertEqual(batch.selection_version_for_terms(["aws"], "custom-v2"), "custom-v2")

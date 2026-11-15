@@ -17,11 +17,12 @@ from backend.demand import build_snapshot
 from backend.dynamodb import DynamoDBStore
 from backend.jobs import JOBS, validate_role
 from pipeline import storage
+from pipeline.rocketpunch import ROLE_TERMS
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
-DEFAULT_SELECTION_VERSION = "cloud-aws-v1"
-DEFAULT_TERMS = ("aws",)
+DEFAULT_SELECTION_VERSION = "cloud-role-title-v1"
+DEFAULT_TERMS = ROLE_TERMS
 
 
 @dataclass(frozen=True)
@@ -78,11 +79,11 @@ def selection_version_for_terms(
         if not override.strip():
             raise ValueError("선정 규칙 버전은 빈 문자열일 수 없습니다.")
         return override.strip()
-    if normalized == DEFAULT_TERMS:
+    if normalized == _normalized_terms(DEFAULT_TERMS):
         return DEFAULT_SELECTION_VERSION
     serialized = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
     digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:12]
-    return f"cloud-terms-{digest}"
+    return f"cloud-title-terms-{digest}"
 
 
 def _freeze_inputs(
@@ -112,7 +113,7 @@ def _freeze_inputs(
                 raise ValueError("공고 text는 문자열이어야 합니다.")
             if not isinstance(posting.get("title"), str):
                 raise ValueError("공고 title은 문자열이어야 합니다.")
-            if not matched_terms(posting, terms):
+            if not matched_terms(posting, terms, fields=("title",)):
                 continue
             eligible_ids.add(posting_id)
             if posting_id in exclusions:
@@ -206,6 +207,8 @@ def run_batch(
         "usage": {name: 0 for name in USAGE_KEYS},
         "published": False,
     }
+    if not inputs:
+        return summary
     try:
         database = store if store is not None else DynamoDBStore.from_env()
         s3 = s3_client if s3_client is not None else storage._client()
@@ -271,7 +274,7 @@ def main() -> int:
     parser.add_argument("--job-category", default="cloud_engineer", choices=sorted(JOBS))
     parser.add_argument("--force", action="store_true", help="같은 입력도 다시 추출")
     parser.add_argument("--exclude", action="append", default=[], metavar="ID=REASON")
-    parser.add_argument("--terms", nargs="+", default=list(DEFAULT_TERMS), help="현재 선정 필터 단어")
+    parser.add_argument("--terms", nargs="+", default=list(DEFAULT_TERMS), help="공고 제목의 직무 선정 단어")
     parser.add_argument("--selection-version", help="선정 규칙 버전. 기본값은 필터에서 계산")
     args = parser.parse_args()
     load_env_file()

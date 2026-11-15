@@ -72,10 +72,22 @@ class CandidateSelectionTest(unittest.TestCase):
             "raw": "Docker",
             "normalized": "Docker",
             "type": "preferred",
+            "section": None,
             "evidence": "Docker 운영 경험 우대",
             "confidence": "high",
             "ncs_unit": None,
         }])
+
+    def test_section_weight_wins_between_verified_candidates(self) -> None:
+        duty = candidate(kind="preferred", evidence="Docker 운영 자동화")
+        preference = candidate(kind="required", evidence="Docker 자격증 우대")
+        text = "[주요업무]\nDocker 운영 자동화\n[우대사항]\nDocker 자격증 우대"
+        for version in extract.PROMPTS:
+            for items in ([duty, preference], [preference, duty]):
+                with self.subTest(version=version, items=items):
+                    result = extract.to_contract(items, text, version)
+                    self.assertEqual(result[0]["section"], "duty")
+                    self.assertEqual(result[0]["evidence"], duty["evidence"])
 
 
 class FingerprintTest(unittest.TestCase):
@@ -135,7 +147,6 @@ class FingerprintTest(unittest.TestCase):
         original = extract.input_fingerprint(self.posting, "cloud_engineer")
         settings_changes = (
             ("EXTRACTOR_VERSION", "extractor-next"),
-            ("PROMPT_VERSION", "prompt-next"),
             ("MAX_TOKENS", 2048),
             ("TEMPERATURE", 0.5),
         )
@@ -146,6 +157,10 @@ class FingerprintTest(unittest.TestCase):
                         original,
                         extract.input_fingerprint(self.posting, "cloud_engineer"),
                     )
+        with patch.object(extract.prompt_of(extract.DEFAULT_PROMPT), "VERSION", "prompt-next"):
+            self.assertNotEqual(
+                original, extract.input_fingerprint(self.posting, "cloud_engineer")
+            )
         with patch.dict(os.environ, {"BEDROCK_MODEL_ID": "another-model"}):
             self.assertNotEqual(
                 original, extract.input_fingerprint(self.posting, "cloud_engineer")
@@ -153,19 +168,21 @@ class FingerprintTest(unittest.TestCase):
 
     def test_current_system_and_message_changes_invalidate_result(self) -> None:
         original = extract.input_fingerprint(self.posting, "cloud_engineer")
-        with patch.object(extract.prompt, "SYSTEM", "새 추출 규칙"):
+        prompt = extract.prompt_of(extract.DEFAULT_PROMPT)
+        with patch.object(prompt, "SYSTEM", "새 추출 규칙"):
             self.assertNotEqual(
                 original, extract.input_fingerprint(self.posting, "cloud_engineer")
             )
-        with patch.object(extract.prompt, "user_message", return_value="새 입력 형식"):
+        with patch.object(prompt, "user_message", return_value="새 입력 형식"):
             self.assertNotEqual(
                 original, extract.input_fingerprint(self.posting, "cloud_engineer")
             )
 
     def test_actual_canonical_skill_changes_invalidate_result(self) -> None:
         original = extract.input_fingerprint(self.posting, "cloud_engineer")
-        names = extract.prompt.CANONICAL_SKILLS + ("UnlistedTool",)
-        with patch.object(extract.prompt, "CANONICAL_SKILLS", names):
+        prompt = extract.prompt_of(extract.DEFAULT_PROMPT)
+        names = prompt.CANONICAL_SKILLS + ("UnlistedTool",)
+        with patch.object(prompt, "CANONICAL_SKILLS", names):
             self.assertNotEqual(
                 original, extract.input_fingerprint(self.posting, "cloud_engineer")
             )
