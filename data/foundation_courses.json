@@ -1,0 +1,6 @@
+{
+  "note": "넓은 기술(AWS 같은 포괄어)에 지정한 입문 과정. 사람이 정한 것이고 규칙으로 찾은 매칭이 아니다. 과정 ID 는 data/courses/courses.csv 의 course_id 다. 여기 없는 포괄어(Azure, GCP)는 AWS 교육을 권할 맥락이 아니라 비워 둔다.",
+  "courses": {
+    "AWS": ["94T2BEN85A"]
+  }
+}

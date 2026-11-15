@@ -30,28 +30,44 @@ def demo():
     out, _ = standardize({"posting_id": "x", "skills": [skill("S3", "S3"), skill("도커", "도커"), skill("Rust", "Rust")]})
     assert [s["ncs_unit"] for s in out["skills"]] == ["2001021507", None, None]
 
-    # 합쳐져 같은 기술이 되면 required 를 남긴다, 같은 모르는 표현은 한 번만
+    # 합칠 때는 가중치가 가장 큰 것 하나(칸이 있으면 칸 기준): 자격요건(1.0)이 주요업무(0.7)보다 크다.
+    # 이전 규칙(required 우선)이면 주요업무의 required 가 남는다
+    out, _ = standardize({"posting_id": "x", "skills": [
+        {**skill("k8s", "Kubernetes", "required"), "section": "duty"},
+        {**skill("쿠버네티스", "쿠버네티스", "preferred"), "section": "qualification"}]})
+    assert [(s["normalized"], s["section"]) for s in out["skills"]] == [("Kubernetes", "qualification")]
+    # 가중치가 같으면 먼저 나온 것을 남긴다
+    out, _ = standardize({"posting_id": "x", "skills": [
+        {**skill("Docker", "Docker", "required"), "section": "other"}, skill("도커", "도커", "required")]})
+    assert out["skills"][0]["raw"] == "Docker"
+    # 둘 다 required 여도 칸이 다르면 칸 기준: 주요업무(0.7)가 우대사항(0.5)보다 커서 주요업무가 남는다(type 이 같아도 칸이 이긴다)
+    out, _ = standardize({"posting_id": "x", "skills": [
+        {**skill("k8s", "Kubernetes", "required"), "section": "preference"},
+        {**skill("쿠버네티스", "쿠버네티스", "required"), "section": "duty"}]})
+    assert [(s["raw"], s["section"]) for s in out["skills"]] == [("쿠버네티스", "duty")]
+
+    # 칸이 없으면 type 기준 가중치(required 1.0 > preferred 0.5)로 합친다, 같은 모르는 표현은 한 번만
     out, unknown = standardize({"posting_id": "x", "skills": [
         skill("Docker", "Docker", "preferred"), skill("도커", "도커", "required"),
         skill("Rust", "Rust"), skill("Rust", "Rust")]})
     assert [(s["normalized"], s["type"]) for s in out["skills"]] == [("Docker", "required"), ("Rust", "required")]
     assert unknown == ["Rust"]
 
-    # 성진의 정답지: LLM 이름이 엉망이어도(normalized = raw)
-    # ① 사전에 있는 이름은 정답지의 normalized 로 맞춰지고
-    # ② 사전에 없는 이름(정답지 규칙 7번, 예: 공고 표기 그대로 넣은 기술)은 unknown 목록에 빠짐없이, 더하지도 않고 들어간다.
-    # 어느 쪽인지는 data/aliases.json 을 보고 나눈다(정답지가 늘어도 이 테스트는 고치지 않는다). 종훈 확인 2026-11-16
+    # 성진의 정답지: LLM 이름이 엉망이어도(normalized = raw) 사전이 아는 raw 는 정답지의 normalized 로 맞춰진다.
+    # 사전 밖 raw(TCP/IP 등)는 uncertain 으로 낮추고 unknown 에 모일 뿐 막지 않는다.
+    # 사전 밖인지는 standardize 결과가 아니라 사전(normalize_skill)으로 따로 정하고, unknown 이 그 목록과
+    # 정확히 같은지(빠지거나 더해진 것 없음) 확인한다. 정답지가 늘어도 이 테스트는 고치지 않는다. (종훈·성진 11/16)
     for posting in json.loads(GOLD.read_text(encoding="utf-8")):
         pid = posting["posting_id"]
         skills = [skill(s["raw"], s["raw"], s["type"]) for s in posting["skills"]]
         out, unknown = standardize({"posting_id": pid, "skills": skills})
-        known = [s for s in posting["skills"] if normalize_skill(s["raw"])]
-        not_known = [s for s in posting["skills"] if not normalize_skill(s["raw"])]
-        known_raws = {s["raw"] for s in known}
-        got = {(s["normalized"], s["type"]) for s in out["skills"] if s["raw"] in known_raws}
+        outside = sorted(s["raw"] for s in posting["skills"] if normalize_skill(s["raw"]) is None)
+        assert sorted(unknown) == outside, (pid, unknown, outside)
+        assert all(s["confidence"] == "uncertain" for s in out["skills"] if normalize_skill(s["raw"]) is None), pid
+        known = [s for s in posting["skills"] if normalize_skill(s["raw"]) is not None]
+        got = {(s["normalized"], s["type"]) for s in out["skills"] if normalize_skill(s["raw"]) is not None}
         want = {(s["normalized"], s["type"]) for s in known}
         assert got == want, (pid, got ^ want)
-        assert sorted(unknown) == sorted(s["raw"] for s in not_known), (pid, unknown, [s["raw"] for s in not_known])
 
 
 if __name__ == "__main__":
