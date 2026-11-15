@@ -116,6 +116,26 @@ def export_eval():
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 rp.cmd_export_eval(args)
             assert "목표" in out.getvalue() and "부족" in out.getvalue()
+
+            # --min-aws 가 --n 보다 커도 n 건을 넘지 않고 엉뚱하게 잘리지 않는다(음수 슬라이스 방지)
+            for old_raw in tmp.glob("rp-*.raw.json"):
+                old_raw.unlink()
+            many = [raw(11, "클라우드 엔지니어", "AWS 운영"), raw(12, "인프라 엔지니어", "AWS 운영"),
+                    raw(13, "DevOps Engineer", "AWS 운영"), raw(14, "백엔드 개발자", "AWS 사용"),
+                    raw(15, "풀스택 개발자", "AWS 사용"), raw(16, "SRE", "모니터링")]
+            for j in many:
+                (tmp / f"rp-{j['jobId']}.raw.json").write_text(json.dumps(j, ensure_ascii=False), encoding="utf-8")
+            args.n, args.min_aws = 3, 5
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                rp.cmd_export_eval(args)
+            rows = list(csv.DictReader((tmp / "eval" / "eval-목록.csv").open(encoding="utf-8-sig", newline="")))
+            assert len(rows) == 3 and len(list((tmp / "eval").glob("eval-*.json"))) == 3, rows
+            assert [r["id"] for r in rows] == ["rp-13", "rp-12", "rp-11"]  # AWS 언급 + 직무 통과가 먼저, 최신 번호 순
+            assert all(r["AWS 언급"] == "있음" for r in rows) and "참고" in out.getvalue()
+            args.n, args.min_aws = 1, 99
+            with contextlib.redirect_stdout(io.StringIO()):
+                rp.cmd_export_eval(args)
+            assert len(list((tmp / "eval").glob("eval-*.json"))) == 1
         finally:
             rp.RAW_DIR, rp.EVAL_DIR, rp.TUNING_FILE = old
 

@@ -267,7 +267,8 @@ def cmd_export_eval(args) -> None:
 
     newest = lambda x: -int(x[0]["id"][3:])  # 최신 공고(번호가 큰 것) 먼저
     aws_pool = sorted((x for x in pool if x[2]), key=lambda x: (not x[1], newest(x)))  # 직무 통과 우선
-    picked = aws_pool[: args.min_aws]
+    want_aws = min(args.min_aws, args.n)  # --min-aws 가 --n 보다 크면 n 건으로 맞춘다(아래 슬라이스가 음수가 되지 않게)
+    picked = aws_pool[:want_aws]
     taken = {x[0]["id"] for x in picked}
     picked += sorted((x for x in pool if x[1] and x[0]["id"] not in taken), key=newest)[: args.n - len(picked)]
     taken = {x[0]["id"] for x in picked}
@@ -292,9 +293,11 @@ def cmd_export_eval(args) -> None:
     n_out = sum(1 for r in rows if r[4] == "밖")
     print(f"튜닝에 쓴 {len(tuned)}건을 빼고 받아 둔 원본 {len(pool)}건 중 {len(rows)}건을 {EVAL_DIR} 에 내보냈습니다.")
     print(f"  직무 필터 통과 {len(rows) - n_out}건, 밖 {n_out}건 / AWS 언급 {n_aws}건")
-    if len(rows) < args.n or n_aws < args.min_aws:
-        print(f"  ⚠ 목표(전체 {args.n}건, AWS 언급 {args.min_aws}건 이상)에 못 미칩니다: "
-              f"{args.n - len(rows)}건, AWS 언급 {max(args.min_aws - n_aws, 0)}건 부족. collect 로 더 받아 오세요.")
+    if args.min_aws > args.n:
+        print(f"  참고: --min-aws({args.min_aws})가 --n({args.n})보다 커서 AWS 언급 기준을 {args.n}건으로 맞췄습니다.")
+    if len(rows) < args.n or n_aws < want_aws:
+        print(f"  ⚠ 목표(전체 {args.n}건, AWS 언급 {want_aws}건 이상)에 못 미칩니다: "
+              f"{args.n - len(rows)}건, AWS 언급 {max(want_aws - n_aws, 0)}건 부족. collect 로 더 받아 오세요.")
     for r in rows:
         print(f"  {r[0]:02d} {r[1]} | {r[2]} | {r[3][:34]} | 직무 {r[4]} | AWS {r[5]}")
 
