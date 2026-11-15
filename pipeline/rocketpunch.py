@@ -106,6 +106,14 @@ def matched_terms(posting: dict, terms=DEFAULT_TERMS) -> list[str]:
     return [t for t in terms if re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", haystack)]
 
 
+def write_json(path: Path, data: dict | list) -> None:
+    """JSON을 UTF-8, 줄바꿈 LF로 저장한다.
+
+    S3 키는 파일 바이트의 해시다. 줄바꿈을 OS 기본값에 맡기면 Windows에서는 CRLF가 되어
+    같은 응답이 다른 키로 올라간다."""
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+
+
 def load_or_fetch(job_id: str) -> dict:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     path = RAW_DIR / f"rp-{job_id}.raw.json"
@@ -113,7 +121,7 @@ def load_or_fetch(job_id: str) -> dict:
         raw = json.loads(path.read_text(encoding="utf-8"))
     else:
         raw = api_get(f"/jobs/{job_id}")
-        path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(path, raw)
     maybe_upload(path)
     return raw
 
@@ -130,7 +138,7 @@ def load_listing(params: dict) -> dict:
     else:
         RAW_DIR.mkdir(parents=True, exist_ok=True)
         res = api_get("/jobs", params)
-        path.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(path, res)
     maybe_upload(path)
     return {"items": res} if isinstance(res, list) else res
 
@@ -170,7 +178,7 @@ def process(job_id, role: str, terms) -> bool:
     hits = matched_terms(posting, terms)
     out = RAW_DIR / f"{posting['id']}.posting.json"
     if hits:
-        out.write_text(json.dumps(posting, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(out, posting)
         maybe_upload(out)
     else:
         out.unlink(missing_ok=True)  # 필터 기준이 바뀌었을 때 예전 통과본을 지운다

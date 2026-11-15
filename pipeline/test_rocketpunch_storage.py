@@ -135,6 +135,27 @@ class RocketpunchStorageTest(unittest.TestCase):
         self.assertFalse(path.exists())
         self.upload.assert_not_called()
 
+    def test_saved_json_bytes_are_the_same_on_every_os(self) -> None:
+        # S3 키는 파일 바이트의 해시다. 줄바꿈이 OS마다 다르면 같은 응답이 다른 키가 된다.
+        self.api.side_effect = lambda path, params=None: (
+            self.listing if path == "/jobs" else self.detail
+        )
+        rocketpunch.load_listing(self.params)
+        rocketpunch.load_or_fetch("1")
+        with redirect_stdout(io.StringIO()):
+            rocketpunch.process("1", "Cloud Engineer", ["aws"])
+        saved = {
+            self.cache: self.listing,
+            self.root / "rp-1.raw.json": self.detail,
+            self.root / "rp-1.posting.json": rocketpunch.to_posting(
+                self.detail, "Cloud Engineer"
+            ),
+        }
+        for path, data in saved.items():
+            with self.subTest(path=path.name):
+                expected = json.dumps(data, ensure_ascii=False, indent=2)
+                self.assertEqual(path.read_bytes(), expected.encode("utf-8"))
+
     def test_upload_dry_run_classifies_only_posting_files_without_cloud_calls(self) -> None:
         self.save_cache(self.listing)
         for filename in ("rp-1.raw.json", "rp-1.posting.json", "unrelated.json"):
