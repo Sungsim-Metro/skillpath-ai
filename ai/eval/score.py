@@ -8,8 +8,9 @@
   채점용(#21): $env:BEDROCK_MOCK="0"; .venv\\Scripts\\python -m ai.eval.score --split test --final
               - 공고는 data/raw/eval_test/postings/, 정답지는 data/raw/eval_test/gold_test.json (커밋 안 함)
               - 프롬프트는 v2.1 고정, 1회만. 확인표(ai/eval/test_manifest.json)의 sha256 과 본문이 다르면 멈춘다
-              - outputs/eval/test_runs.log 에 실제(bedrock) 채점 기록이 있으면 멈춘다. 다시 하려면 기록을 직접 지운다
-              - 화면과 결과 파일에는 합계 점수만 남긴다. 공고별 결과와 근거 문장은 남기지 않는다
+              - outputs/eval/test_runs.log 에 "완료 mode=bedrock" 줄(점수를 본 기록)이 있으면 멈춘다. 다시 하려면 그 줄을 직접 지운다
+              - 시작·중단 줄은 막지 않는다. SSO 만료·throttling 으로 중단되면 원인을 고친 뒤 다시 실행한다
+              - 화면과 결과 파일에는 합계 점수만 남긴다. 공고별 결과와 근거 문장은 남기지 않는다. 중단 때는 합계도 남기지 않는다
 
 채점은 전부 코드로 한다.
 - 기본 점수: 공고마다 (normalized, type) 묶음을 정답과 비교해 모두 더한 micro P/R/F1
@@ -163,6 +164,15 @@ def print_run(i: int, r: dict) -> None:
         print(f"  ! {e['posting_id']}: {e['error']}")
 
 
+DONE = "완료"  # 채점 기록에서 점수를 낸 줄의 표시. 이 줄이 mode=bedrock 이면 다시 채점하지 않는다
+
+
+def is_real_done(line: str) -> bool:
+    """기록 한 줄이 '실제 모드로 끝까지 돌아 점수를 낸' 줄인가. 줄 형식: '날짜 시각 완료 mode=bedrock ...'."""
+    words = line.split()
+    return len(words) >= 4 and words[2] == DONE and words[3] == "mode=bedrock"
+
+
 def _log(path: Path, line: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -185,19 +195,23 @@ def test_final(args) -> int:
     mode = "mock" if is_mock() else "bedrock"
     log = args.log
 
-    # 1) 실행 기록: 실제 채점 기록이 하나라도 있으면 멈춘다 (가짜 모드 기록은 막지 않는다)
+    # 1) 실행 기록: 실제 모드로 끝까지 돌아 점수를 본 적이 있으면("완료 mode=bedrock") 멈춘다.
+    #    시작·중단 줄은 막지 않는다. 중단 때는 점수를 남기지 않으므로 SSO 만료·throttling 뒤 다시 할 수 있다.
     if log.exists():
         lines = [x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
-        real = [x for x in lines if "mode=bedrock" in x]
-        if real:
-            print(f"이미 채점 기록이 있어 멈춥니다: {shown(log)}")
-            print(f"  마지막 기록: {real[-1]}")
-            print("  다시 채점하려면 기록을 직접 지우고, 왜 다시 하는지 PR 이나 이슈에 남기세요.")
+        done = [x for x in lines if is_real_done(x)]
+        if done:
+            print(f"이미 실제 채점을 끝낸 기록이 있어 멈춥니다: {shown(log)}")
+            print(f"  기록: {done[-1]}")
+            print("  다시 채점하려면 그 줄을 직접 지우고, 왜 다시 하는지 PR 이나 이슈에 남기세요.")
             return 1
         if lines:
-            print(f"참고: 가짜 모드 기록 {len(lines)}줄이 있습니다(채점을 막지는 않음).")
+            print(f"참고: 기록 {len(lines)}줄(가짜 모드나 시작·중단)이 있습니다. 채점을 막지는 않습니다.")
 
     # 2) 공고·확인표·정답지 대조
+    if not args.manifest.exists():
+        print(f"확인표가 없습니다: {shown(args.manifest)}. 먼저 init 을 하세요: python -m ai.eval.make_gold_template init")
+        return 1
     postings = load_postings(args.test_dir / "postings")
     manifest_text = args.manifest.read_text(encoding="utf-8")
     expected = {x["id"]: x["text_sha256"] for x in json.loads(manifest_text)["postings"]}
@@ -227,24 +241,26 @@ def test_final(args) -> int:
         print("가짜 모드: 응답이 가짜라 점수에는 의미가 없습니다. 기록은 남기지만 실제 채점을 막지는 않습니다.")
     try:
         r = run_once([by_id[pid] for pid in sorted(expected)], gold, FINAL_PROMPT)
-    except Exception as e:
+    except BaseException as e:  # Ctrl+C 도 기록한다. 공고별 결과·부분 합계는 화면과 파일에 남기지 않는다
         _log(log, f"중단 mode={mode} 이유={type(e).__name__}")
+        print(f"\n채점이 중단됐습니다({type(e).__name__}). 점수는 남기지 않았습니다. 원인을 고친 뒤 다시 실행하면 됩니다.")
         raise
     failed = sorted(e["posting_id"] for e in r["errors"])
     summary = {"strict": r["strict"], "name_only": r["name_only"],
                "counts": {k: v for k, v in r["counts"].items()}, "tokens": r["tokens"], "failed_postings": failed}
 
-    # 4) 합계만 출력·저장 (공고별 결과·근거 문장·오류 원문은 남기지 않는다)
+    # 4) 합계만 저장·기록한 뒤 출력한다 (공고별 결과·근거 문장·오류 원문은 남기지 않는다).
+    #    "완료" 줄을 점수 출력보다 먼저 써서, 점수를 본 뒤에는 반드시 잠기게 한다.
     s, n, c = summary["strict"], summary["name_only"], summary["counts"]
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUT_DIR / f"{prompt.VERSION}_test_final_{mode}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    out.write_text(json.dumps({**meta, "summary": summary}, ensure_ascii=False, indent=1), encoding="utf-8")
+    _log(log, f"{DONE} mode={mode} P={s['precision']} R={s['recall']} F1={s['f1']} 오류={c['errors']} 결과={out.name}")
     print(f"\nP {s['precision']:.3f}  R {s['recall']:.3f}  F1 {s['f1']:.3f}  (이름만 F1 {n['f1']:.3f})")
     print(f"맞춤 {c['tp']} / extra {c['extra']} / 놓침 {c['missing']} / 지어낸 근거 {c['fabricated_evidence']}"
           f" / uncertain {c['uncertain']} / section 일치 {c['section_ok']} / 제외 칸 버림 {c['excluded_dropped']}")
     print(f"빈 공고 정답 {c['empty_posting_ok']} / 재시도 {c['retried']}건 / 오류 {c['errors']}건"
           + (f" (공고 {', '.join(failed)})" if failed else "") + f" / 토큰 {summary['tokens']['totalTokens']}")
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"{prompt.VERSION}_test_final_{mode}_{time.strftime('%Y%m%d-%H%M%S')}.json"
-    out.write_text(json.dumps({**meta, "summary": summary}, ensure_ascii=False, indent=1), encoding="utf-8")
-    _log(log, f"완료 mode={mode} P={s['precision']} R={s['recall']} F1={s['f1']} 오류={c['errors']} 결과={out.name}")
     print(f"\n합계 저장: {shown(out)} / 기록: {shown(log)}")
     return 1 if failed else 0
 

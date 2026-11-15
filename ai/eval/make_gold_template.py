@@ -6,7 +6,7 @@
   ai/eval/test_manifest.json                   커밋한다. 공고 id 와 본문 sha256 만 (원문·URL·제목 없음)
 
 사용 (저장소 루트에서)
-  python -m ai.eval.make_gold_template init    빈 양식과 확인표를 만든다. 정답지가 이미 있으면 덮어쓰지 않고 멈춘다.
+  python -m ai.eval.make_gold_template init    빈 양식과 확인표를 만든다. 정답지나 확인표가 이미 있으면 덮어쓰지 않고 멈춘다.
   python -m ai.eval.make_gold_template check   작성한 정답지를 검사한다. --fill 을 주면 section·confidence·ncs_unit 을 코드로 채운다.
 
 정답지는 기술마다 raw, normalized, type, evidence 만 쓰면 된다(ai/eval/GOLD_RULES.md 규칙).
@@ -93,6 +93,10 @@ def init(postings_dir: Path, gold: Path, manifest: Path, dev_sources: list[Path]
     if gold.exists():
         print(f"정답지가 이미 있어 덮어쓰지 않습니다: {shown(gold)}")
         return 1
+    if manifest.exists():
+        # 정답지만 지워진 경우에도 확인표(채점 때 본문 대조 기준)를 새 공고로 바꿔치지 않게 한다
+        print(f"확인표가 이미 있어 덮어쓰지 않습니다: {shown(manifest)}. 다시 만들려면 이유를 남기고 직접 지우세요.")
+        return 1
     gold.parent.mkdir(parents=True, exist_ok=True)
     gold.write_text(
         json.dumps([{"posting_id": p["id"], "skills": []} for p in postings], ensure_ascii=False, indent=1) + "\n",
@@ -112,6 +116,9 @@ def init(postings_dir: Path, gold: Path, manifest: Path, dev_sources: list[Path]
 
 
 def check(postings_dir: Path, gold: Path, manifest: Path, fill: bool) -> int:
+    if not manifest.exists():
+        print(f"확인표가 없습니다: {shown(manifest)}. 먼저 init 을 하세요.")
+        return 1
     postings = {p["id"]: p for p in load_postings(postings_dir)}
     expected = {x["id"]: x["text_sha256"] for x in json.loads(manifest.read_text(encoding="utf-8"))["postings"]}
     changed = [pid for pid, h in expected.items() if pid not in postings or sha256(postings[pid]["text"]) != h]
