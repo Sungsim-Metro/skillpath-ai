@@ -77,6 +77,7 @@ AWS 교육과정을 추천 이유와 함께 보여주는 서비스다. AI Bootca
 ## PR 리뷰 기준
 
 리뷰할 때 아래 순서로 본다. 취향 수준의 스타일 지적은 하지 않는다.
+자동 리뷰(Claude Review)의 점검 절차와 댓글 형식은 `.github/workflows/claude-review.yml`의 prompt에 있고, 읽는 법은 `docs/team-guide.md`에 있다.
 
 1. 키나 비밀 값이 들어갔는가
 2. `contracts/` 형식을 어겼거나 말없이 바꿨는가
