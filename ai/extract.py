@@ -6,13 +6,58 @@ LLM 은 raw, normalized, type, evidence 만 낸다. posting_id, confidence, ncs_
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+
 from ai.bedrock import ConverseResult, converse_json
 from ai.evidence import evidence_in_text
 from ai.prompts import extract_v1 as prompt
 
 PROMPT_VERSION = prompt.VERSION
+EXTRACTOR_VERSION = "extractor-v2"
 MOCK_FILE = "mock_bedrock_extract.json"
 TYPES = ("required", "preferred")
+MAX_TOKENS = 4096
+TEMPERATURE = 0.0
+
+
+def _json_sha256(value: object) -> str:
+    serialized = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def extraction_settings() -> dict:
+    """현재 추출 설정을 DynamoDB에 저장할 수 있는 값으로 돌려준다."""
+    model_id = os.getenv("BEDROCK_MODEL_ID", "")
+    if not model_id.strip():
+        raise ValueError("BEDROCK_MODEL_ID를 설정해야 추출 결과를 저장할 수 있습니다.")
+    return {
+        "model_id": model_id,
+        "prompt_version": PROMPT_VERSION,
+        "extractor_version": EXTRACTOR_VERSION,
+        "canonical_skills_sha256": _json_sha256(sorted(prompt.CANONICAL_SKILLS)),
+        "inference_config": {
+            "temperature": str(TEMPERATURE),
+            "max_tokens": MAX_TOKENS,
+        },
+    }
+
+
+def input_fingerprint(
+    posting: dict, job_category: str, settings: dict | None = None
+) -> str:
+    """현재 분석 입력과 설정의 해시로 저장된 성공 결과의 재사용 여부를 판단한다."""
+    return _json_sha256({
+        "job_category": job_category,
+        "posting_id": posting["id"],
+        "text": posting["text"],
+        "system": prompt.SYSTEM,
+        "user_message": prompt.user_message(posting["text"]),
+        "settings": extraction_settings() if settings is None else settings,
+    })
 
 
 def validate_llm_output(data: dict) -> None:
@@ -31,7 +76,7 @@ def validate_llm_output(data: dict) -> None:
 
 
 def to_contract(llm_skills: list[dict], text: str) -> list[dict]:
-    """LLM 출력을 ② skills 형식으로 바꾼다. 같은 기술이 둘이면 required 쪽을 남긴다."""
+    """같은 기술은 근거 검증을 통과한 후보, 그중 required 순서로 하나를 남긴다."""
     by_name: dict[str, dict] = {}
     for s in llm_skills:
         name = s["normalized"].strip()
@@ -48,7 +93,10 @@ def to_contract(llm_skills: list[dict], text: str) -> list[dict]:
             "ncs_unit": None,
         }
         prev = by_name.get(name)
-        if prev is None or (prev["type"] == "preferred" and item["type"] == "required"):
+        priority = (item["confidence"] == "high", item["type"] == "required")
+        if prev is None or priority > (
+            prev["confidence"] == "high", prev["type"] == "required"
+        ):
             by_name[name] = item
     return list(by_name.values())
 
@@ -61,6 +109,8 @@ def extract_with_meta(posting: dict) -> tuple[dict, ConverseResult]:
         mock_file=MOCK_FILE,
         mock_key=posting["id"],
         validate=validate_llm_output,
+        max_tokens=MAX_TOKENS,
+        temperature=TEMPERATURE,
     )
     extraction = {
         "posting_id": posting["id"],  # ②의 posting_id 는 ①의 id 를 가리킨다

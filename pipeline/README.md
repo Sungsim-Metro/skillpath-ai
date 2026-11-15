@@ -56,13 +56,69 @@ uv run --python 3.11 --with boto3 python -m pipeline.rocketpunch collect -k DevO
 ```
 
 기존 캐시는 API를 다시 호출하지 않는다. 새 공고 응답을 가져오면 로컬 저장 후 S3에도 보관한다.
-현재는 수집기를 실행할 때 동작하며 자동 실행 스케줄이나 S3에서 분석기로 이어지는 처리는 포함하지 않는다.
+수집기를 수동으로 실행할 때 동작한다. 아래 DynamoDB 설정을 추가하면 `fetch`, `collect`가 끝난 뒤
+현재 로컬 통과본 전체를 대상으로 기술 추출과 수요 집계를 실행한다.
+
+## DynamoDB 추출 결과와 수요 집계
+
+API 목록·상세 응답과 전처리 공고는 위 S3 경로에 보관한다. DynamoDB에는 검증된 기술 추출 결과와
+완성된 수요 집계를 저장한다. 기존 ② 추출 결과와 ④ 수요 집계 형식은 각각 `extraction`, `demand` 안에 유지한다.
+
+루트 `.env`에 다음 설정을 채운다. 테이블 이름은 환경변수로 주입하며 아래 이름은 설계의 예시다.
+
+```dotenv
+BEDROCK_MOCK=0
+BEDROCK_MODEL_ID=<your-model-id>
+ROCKETPUNCH_S3_BUCKET=<your-bucket>
+DYNAMODB_EXTRACTIONS_TABLE=skillpath-posting-extractions
+DYNAMODB_DEMAND_TABLE=skillpath-demand
+```
+
+테이블은 AWS 콘솔에서 만들거나 다음 명령으로 생성한다. 이미 있는 테이블은 키 구성을 확인하고 재사용한다.
+서울 리전, 온디맨드 과금이며 추출 테이블의 키는 `job_category`와 `posting_id`, 집계 테이블의 키는 `job_category`다.
+
+```powershell
+uv run --python 3.11 --with boto3 python -m backend.dynamodb create-tables
+```
+
+이후 수집은 한 명령으로 로컬·S3 저장, Bedrock 추출, DynamoDB 저장과 수요 집계까지 실행한다.
+`--collected`에는 `docs/data-sources.md`에 기록한 수집일 또는 기간을 넣는다.
+
+```powershell
+uv run --python 3.11 --with boto3 python -m pipeline.rocketpunch fetch 159625 --collected 2026-11-15
+uv run --python 3.11 --with boto3 python -m pipeline.rocketpunch collect -k DevOps --codes dev -n 10 --collected 2026-11-15
+```
+
+기존 로컬 통과본을 분석하거나 실패한 배치를 재시도할 때는 다음 명령을 쓴다. 수집 API를 다시 부르지 않는다.
+
+```powershell
+uv run --python 3.11 --with boto3 python -m pipeline.extraction_batch --collected 2026-11-15
+```
+
+- 두 테이블 이름이 모두 비어 있으면 수집은 기존 로컬·S3 저장까지 실행한다. 하나라도 설정하면 두 테이블과 S3 버킷,
+  실제 모델 설정을 모두 검사하고 수집 후 저장 배치를 실행한다. 가짜 모드에서는 저장 배치를 시작하지 않는다.
+- 분석 목록은 배치 시작 시의 `data/raw/rp-*.posting.json`에 현재 `--terms` 필터를 다시 적용해 고정한다.
+  예전 필터의 통과본이 남아 있어도 현재 기준에서 탈락하면 집계에 넣지 않는다.
+  S3 객체를 다시 읽어 분석하고 객체 키와 본문 해시를 기록한다.
+- 기본 선정 버전은 `cloud-aws-v1`이다. `--terms`를 바꾸면 필터의 해시로 버전을 만들며 `--selection-version`으로 명시할 수도 있다.
+- 같은 본문·프롬프트·모델·추출기·설정의 성공 결과는 재사용한다. `--force`를 추가하면 같은 입력도 다시 분석한다.
+- `--exclude rp-<ID>=<사유>`를 반복 지정하면 해당 공고를 분모에서 빼고 제외 사유를 집계에 남긴다.
+- 직무별로 배치 하나를 실행한다. 기본 직무는 `cloud_engineer`이며 공고의 `role`이 대응하는 직무와 다르면 오류로 보고한다.
+- 기술별로 확신도가 `high`인 고유 공고만 센다. 빈 기술 목록이나 `uncertain`만 있는 정상 추출도 전체 공고 수에는 포함한다.
+- 일부 추출·S3·DB 저장이 실패하면 성공한 추출 결과는 보존하고 수요 집계 교체는 보류한다. 같은 명령으로 재시도하면 성공 결과를 재사용한다.
+- 완료 시 공개 여부, 대상·성공·재사용·실패·제외 건수와 실패 호출을 포함한 토큰 합계를 JSON 한 줄로 출력한다.
+- 앱의 실제 모드는 DynamoDB의 완성된 `demand`를 조회한다. 조회 캐시는 최대 60초 후 갱신된다.
+
+필요한 IAM 권한은 수집 시 S3 `PutObject`, `GetObject`, DynamoDB `GetItem`, `PutItem`, `Query`,
+Bedrock 모델 호출 권한이다. 테이블 생성 명령에는 DynamoDB `CreateTable`, `DescribeTable` 권한도 필요하다.
+Query의 페이지 처리는 [AWS SDK 문서](https://docs.aws.amazon.com/boto3/latest/reference/services/dynamodb/table/query.html)를 따른다.
 
 ### 저장 경로 검증
 
 ```powershell
 uv run --python 3.11 --with boto3 python -m unittest pipeline.test_storage pipeline.test_rocketpunch_storage
 uv run --python 3.11 --with boto3 python -m pipeline.test_rocketpunch
+uv run --python 3.11 --with boto3 python -m unittest ai.test_extract backend.test_dynamodb backend.test_demand pipeline.test_extraction_batch pipeline.test_rocketpunch_dynamodb
 ```
 
 단위 테스트는 임시 파일과 모의 S3를 사용하며 실제 API나 AWS를 호출하지 않는다.

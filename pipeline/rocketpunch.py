@@ -8,6 +8,7 @@
 
 - 원본 응답은 data/raw/ 에 저장한다(저장소에 올리지 않는다).
 - ROCKETPUNCH_S3_BUCKET 이 있으면 목록·상세·전처리 JSON을 구분해 S3에도 저장한다.
+- DynamoDB 테이블 설정이 있으면 fetch·collect 후 기술 추출과 수요 집계까지 저장한다.
 - python -m pipeline.rocketpunch upload --dry-run 으로 기존 파일 업로드를 확인한다.
 - 이미 받은 공고는 API 를 다시 부르지 않는다. 429 가 오면 멈추고, 다시 실행하면 이어서 받는다.
 """
@@ -186,13 +187,60 @@ def process(job_id, role: str, terms) -> bool:
     return bool(hits)
 
 
+def batch_options(args) -> dict | None:
+    """테이블 설정이 있으면 API 호출 전에 추출 배치의 실행 설정을 검사한다."""
+    table_names = (
+        os.getenv("DYNAMODB_EXTRACTIONS_TABLE", "").strip(),
+        os.getenv("DYNAMODB_DEMAND_TABLE", "").strip(),
+    )
+    if not any(table_names):
+        return None
+
+    from backend.jobs import validate_role
+    from pipeline.extraction_batch import (
+        parse_exclusions, selection_version_for_terms, validate_configuration,
+    )
+
+    job_category = getattr(args, "job_category", "cloud_engineer")
+    validate_configuration(job_category)
+    validate_role(job_category, args.role)
+    collected = getattr(args, "collected", None)
+    if not collected or not collected.strip():
+        raise ValueError("DynamoDB 저장에는 --collected로 수집일 또는 기간을 지정하세요.")
+    return {
+        "job_category": job_category,
+        "collected": collected.strip(),
+        "force": getattr(args, "force", False),
+        "exclusions": parse_exclusions(getattr(args, "exclude", [])),
+        "selection_version": selection_version_for_terms(
+            args.terms, getattr(args, "selection_version", None)
+        ),
+        "terms": args.terms,
+    }
+
+
+def persist_extractions(options: dict | None) -> None:
+    """현재 통과본 전체를 한 배치로 분석하고 완성된 집계만 공개한다."""
+    if options is None:
+        return
+    from pipeline.extraction_batch import run_batch
+
+    summary = run_batch(sorted(RAW_DIR.glob("rp-*.posting.json")), **options)
+    print(json.dumps(summary, ensure_ascii=False))
+    if not summary["published"]:
+        raise SystemExit(1)
+
+
 def cmd_fetch(args) -> None:
+    options = batch_options(args)
     for job_id in args.ids:
         process(job_id, args.role, args.terms)
+    persist_extractions(options)
 
 
 def cmd_collect(args) -> None:
     """목록 → 상세 → 본문 필터. 통과가 --n 건이 되거나 429 가 오면 멈춘다. 다시 실행하면 이어서 한다."""
+    options = batch_options(args)
     kept = seen = 0
     for page in range(1, args.pages + 1):
         params = {"pageSize": args.size, "page": page, "sort": args.sort}
@@ -209,6 +257,7 @@ def cmd_collect(args) -> None:
         if kept >= args.n or not items:
             break
     print(f"\n후보 {seen}건 확인, 통과 {kept}건, 탈락 {seen - kept}건 (목표 {args.n}건)")
+    persist_extractions(options)
 
 
 def cmd_upload(args) -> None:
@@ -241,7 +290,6 @@ def cmd_upload(args) -> None:
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-    load_env_file()
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("codes").set_defaults(run=cmd_codes)
@@ -269,8 +317,14 @@ def main() -> None:
     for sp, run in ((f, cmd_fetch), (c, cmd_collect)):
         sp.add_argument("--role", default="클라우드 엔지니어", help="posting 의 role(직무 이름)")
         sp.add_argument("--terms", nargs="+", default=list(DEFAULT_TERMS), help="본문 필터 단어")
+        sp.add_argument("--job-category", default="cloud_engineer", help="DynamoDB에 저장할 서비스 직무 코드")
+        sp.add_argument("--collected", help="수집일 또는 기간. DynamoDB 저장 시 필수")
+        sp.add_argument("--force", action="store_true", help="저장된 동일 입력의 추출 결과도 다시 분석")
+        sp.add_argument("--exclude", action="append", default=[], metavar="ID=REASON", help="집계에서 제외할 공고와 사유")
+        sp.add_argument("--selection-version", help="선정 규칙 버전. 기본 AWS 규칙은 cloud-aws-v1")
         sp.set_defaults(run=run)
     args = p.parse_args()
+    load_env_file()
     args.run(args)
 
 

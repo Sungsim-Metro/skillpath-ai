@@ -68,9 +68,11 @@ def upload_json(
     *,
     client=None,
     dry_run: bool = False,
+    content: bytes | None = None,
 ) -> UploadResult:
-    """JSON 원본 바이트를 올린다. 같은 내용은 건너뛰며 기존 객체는 덮어쓰지 않는다."""
-    content = path.read_bytes()
+    """JSON 원본 바이트를 올린다. content가 있으면 배치 시작 시 고정한 바이트를 쓴다."""
+    if content is None:
+        content = path.read_bytes()
     json.loads(content.decode("utf-8-sig"))
     key = object_key(path, content, target.prefix)
     if dry_run:

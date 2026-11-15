@@ -24,8 +24,8 @@ except ImportError:
     pass
 
 from backend import api  # noqa: E402
+from backend.jobs import JOBS  # noqa: E402
 
-JOBS = {"cloud_engineer": "클라우드 엔지니어"}
 SAMPLE_POSTING = (
     "클라우드 엔지니어 채용\n"
     "Python을 활용한 개발 경험과 AWS 환경 운영 경험 필수, Docker 사용 경험 우대.\n"
