@@ -3,8 +3,8 @@
 사용:
   python -m pipeline.rocketpunch codes                       # 직군 코드 목록
   python -m pipeline.rocketpunch search -k 클라우드 --codes <코드> --size 20
-  python -m pipeline.rocketpunch fetch 159620 159227 ...     # 상세를 받아 본문 필터 후 posting 저장
-  python -m pipeline.rocketpunch collect --codes <코드> -n 10  # 목록 → 상세 → 본문 필터, 통과 10건까지
+  python -m pipeline.rocketpunch fetch 159620 159227 ...     # 상세를 받아 직무 필터 후 posting 저장
+  python -m pipeline.rocketpunch collect --codes <코드> -n 10  # 목록 → 상세 → 직무 필터, 통과 10건까지
 
 - 원본 응답은 data/raw/ 에 저장한다(저장소에 올리지 않는다).
 - ROCKETPUNCH_S3_BUCKET 이 있으면 목록·상세·전처리 JSON을 구분해 S3에도 저장한다.
@@ -32,9 +32,22 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
 KST = timezone(timedelta(hours=9))
 BASE = "https://openapi.rocketpunch.com/v1"  # 문서의 /api/v1 은 404 라서 /v1 을 쓴다
-# 본문 필드 순서. 필드 이름과 내용이 다른 공고가 있어 라벨 없이 본문만 잇는다.
-TEXT_FIELDS = ("description", "duty", "minimumQualification", "preferredQualification", "benefit")
-DEFAULT_TERMS = ("aws",)  # 본문 필터 기본 단어(소문자 비교). 서비스가 AWS 교육 추천이라 aws 만 쓴다. "클라우드"는 게임 공고도 통과시켜 뺐다.
+# 본문 필드와 칸 제목. text 에는 칸마다 제목을 한 줄에 단독으로 쓰고 다음 줄부터 본문을 쓴다.
+# ai/sections.py 가 이 제목으로 칸(자격요건·주요업무·우대사항)을 찾아 가중치를 건다(실습 노트북의 [주요업무] 방식).
+# 주의: 로켓펀치는 필드 이름과 내용이 다른 공고가 있다(예: 159625 는 duty 에 회사 소개). 그런 공고는 칸이 틀릴 수 있다.
+SECTIONS = (
+    ("description", "포지션소개"),
+    ("duty", "주요업무"),
+    ("minimumQualification", "자격요건"),
+    ("preferredQualification", "우대사항"),
+    ("benefit", "혜택및복지"),
+)
+# 직무 필터: 제목에 이 단어가 있으면 클라우드 계열 직무로 본다(소문자 비교, 영문은 단어 경계).
+# 이전에는 본문에 aws 가 있는지로 걸렀는데, 그러면 남은 공고의 AWS 수요율이 계산상 항상 100% 가 되고
+# 직무가 맞아도 aws 를 안 쓴 공고(SRE·DevOps 등)는 버려진다(2026-11-15 팀 피드백). 이제 aws 는 거르는 조건이 아니라
+# 수요를 세는 대상이다. 단어 목록은 사람이 고치는 값이다(--terms 로 바꿔 시험할 수 있다).
+ROLE_TERMS = ("클라우드", "cloud", "인프라", "infra", "infrastructure", "devops", "sre", "site reliability",
+              "mlops", "시스템 엔지니어")
 
 
 def load_env_file() -> None:
@@ -42,11 +55,15 @@ def load_env_file() -> None:
     env_file = ROOT / ".env"
     if not env_file.exists():
         return
+    values: dict[str, str] = {}
     for line in env_file.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            values[key.strip()] = value.strip().strip("\"'")  # 같은 이름이 둘이면 나중 줄이 이긴다(python-dotenv 와 같음)
+    for key, value in values.items():
+        if not os.environ.get(key):  # 이미 값이 있는 환경변수는 덮지 않는다
+            os.environ[key] = value
 
 
 def api_get(path: str, params: dict | None = None) -> dict:
@@ -79,6 +96,16 @@ def clean(text: str | None) -> str:
     return re.sub(r"\n\s*\n+", "\n", text).strip()
 
 
+def _text(raw: dict) -> str:
+    """칸마다 `[제목]` 한 줄 + 본문. 내용이 빈 칸은 제목도 쓰지 않는다."""
+    blocks = []
+    for field, heading in SECTIONS:
+        body = clean(raw.get(field))
+        if body:
+            blocks.append(f"[{heading}]\n{body}")
+    return "\n".join(blocks)
+
+
 def to_posting(raw: dict, role: str = "클라우드 엔지니어") -> dict:
     """로켓펀치 상세 응답 → posting(실습 노트북의 표준 필드 + url). role 은 직무가 하나(M2)라 인자로 받는다."""
     company = raw.get("company") or {}
@@ -95,15 +122,15 @@ def to_posting(raw: dict, role: str = "클라우드 엔지니어") -> dict:
             datetime.fromisoformat(started.replace("Z", "+00:00")).astimezone(KST).date().isoformat()
             if started else None
         ),
-        "text": "\n".join(p for p in (clean(raw.get(f)) for f in TEXT_FIELDS) if p),
+        "text": _text(raw),
         "url": raw.get("webUrl"),
     }
 
 
-def matched_terms(posting: dict, terms=DEFAULT_TERMS) -> list[str]:
-    """제목+본문에 나온 필터 단어. 비어 있으면 직무와 무관한 공고일 가능성이 크다."""
-    haystack = (posting["title"] + "\n" + posting["text"]).lower()
-    # 영문 단어는 단어 경계로 비교한다(aws 가 laws 에 걸리지 않게). 한글은 부분 일치.
+def matched_terms(posting: dict, terms=ROLE_TERMS, fields=("title",)) -> list[str]:
+    """fields(기본은 제목)에 나온 단어. 직무 필터는 제목만, 본문까지 보려면 fields=("title", "text")."""
+    haystack = "\n".join(posting[f] for f in fields).lower()
+    # 영문 단어는 단어 경계로 비교한다(sre 가 presrc 같은 글자에 걸리지 않게). 한글은 부분 일치.
     return [t for t in terms if re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", haystack)]
 
 
@@ -174,7 +201,7 @@ def cmd_search(args) -> None:
 
 
 def process(job_id, role: str, terms) -> bool:
-    """상세를 받아(있으면 재사용) 본문 필터를 적용하고, 통과하면 posting 을 저장한다."""
+    """상세를 받아(있으면 재사용) 직무(제목) 필터를 적용하고, 통과하면 posting 을 저장한다."""
     posting = to_posting(load_or_fetch(str(job_id)), role)
     hits = matched_terms(posting, terms)
     out = RAW_DIR / f"{posting['id']}.posting.json"
