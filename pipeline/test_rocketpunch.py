@@ -211,9 +211,59 @@ def collect_and_process():
             rp.RAW_DIR, rp.list_page, rp.load_or_fetch = old
 
 
+def manual_ids():
+    """사이트 검색에서 모은 번호: 중복은 하나만, 검색어·날짜와 함께 기록, fetch --manual 은 아직 안 받은 번호만 받는다."""
+    import contextlib
+    import io
+    import json
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import pipeline.rocketpunch as rp
+
+    old = rp.RAW_DIR, rp.MANUAL_FILE, rp.load_or_fetch
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        calls: list[str] = []
+
+        def fake_fetch(job_id):
+            calls.append(job_id)
+            return {"jobId": int(job_id), "title": "클라우드 엔지니어", "company": {"name": "회사"}, "description": "AWS"}
+
+        rp.RAW_DIR, rp.MANUAL_FILE, rp.load_or_fetch = tmp, tmp / "manual_job_ids.json", fake_fetch
+        try:
+            def out_of(fn, **kw):
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    fn(SimpleNamespace(**kw))
+                return out.getvalue()
+
+            # 입력 안의 중복(3 이 두 번)은 하나만 기록한다
+            out = out_of(rp.cmd_add_ids, query="AWS", ids=[1, 2, 3, 3])
+            assert rp.manual_ids() == [1, 2, 3] and "새 번호 3개" in out, out
+            # 두 번째 검색: 이미 기록한 번호(2, 3)는 빼고 새 번호만 두 번째 묶음에 남긴다. 순서는 처음 모은 순서
+            out = out_of(rp.cmd_add_ids, query="클라우드", ids=[3, 2, 4])
+            assert rp.manual_ids() == [1, 2, 3, 4] and "새 번호 1개" in out, out
+            batches = json.loads(rp.MANUAL_FILE.read_text(encoding="utf-8"))["batches"]
+            assert [(b["query"], b["ids"]) for b in batches] == [("AWS", [1, 2, 3]), ("클라우드", [4])]
+            assert all(b["collected_at"] and b["source"] for b in batches)  # 검색어·날짜·출처를 남긴다
+            # 새 번호가 없으면 묶음을 늘리지 않는다
+            out_of(rp.cmd_add_ids, query="AWS", ids=[1, 4])
+            assert len(json.loads(rp.MANUAL_FILE.read_text(encoding="utf-8"))["batches"]) == 2
+
+            # fetch --manual 은 아직 안 받은 번호만 받는다(이미 받은 2 는 호출 0회)
+            (tmp / "rp-2.raw.json").write_text("{}", encoding="utf-8")
+            args = dict(ids=[], manual=True, role="클라우드 엔지니어", terms=list(rp.ROLE_TERMS))
+            out = out_of(rp.cmd_fetch, **args)
+            assert calls == ["1", "3", "4"] and "아직 안 받은 것 3개" in out, (calls, out)
+        finally:
+            rp.RAW_DIR, rp.MANUAL_FILE, rp.load_or_fetch = old
+
+
 if __name__ == "__main__":
     demo()
     names()
     export_eval()
     collect_and_process()
+    manual_ids()
     print("통과")
