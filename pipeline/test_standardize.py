@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 
+from pipeline.aliases import normalize_skill
 from pipeline.standardize import standardize
 
 GOLD = Path(__file__).resolve().parent.parent / "ai" / "eval" / "gold_extraction.json"
@@ -36,14 +37,21 @@ def demo():
     assert [(s["normalized"], s["type"]) for s in out["skills"]] == [("Docker", "required"), ("Rust", "required")]
     assert unknown == ["Rust"]
 
-    # 성진의 정답지: LLM 이름이 엉망이어도(normalized = raw) 정답지의 normalized 로 맞춰진다
+    # 성진의 정답지: LLM 이름이 엉망이어도(normalized = raw)
+    # ① 사전에 있는 이름은 정답지의 normalized 로 맞춰지고
+    # ② 사전에 없는 이름(정답지 규칙 7번, 예: 공고 표기 그대로 넣은 기술)은 unknown 목록에 빠짐없이, 더하지도 않고 들어간다.
+    # 어느 쪽인지는 data/aliases.json 을 보고 나눈다(정답지가 늘어도 이 테스트는 고치지 않는다). 종훈 확인 2026-11-16
     for posting in json.loads(GOLD.read_text(encoding="utf-8")):
+        pid = posting["posting_id"]
         skills = [skill(s["raw"], s["raw"], s["type"]) for s in posting["skills"]]
-        out, unknown = standardize({"posting_id": posting["posting_id"], "skills": skills})
-        assert not unknown, (posting["posting_id"], unknown)
-        got = {(s["normalized"], s["type"]) for s in out["skills"]}
-        want = {(s["normalized"], s["type"]) for s in posting["skills"]}
-        assert got == want, (posting["posting_id"], got ^ want)
+        out, unknown = standardize({"posting_id": pid, "skills": skills})
+        known = [s for s in posting["skills"] if normalize_skill(s["raw"])]
+        not_known = [s for s in posting["skills"] if not normalize_skill(s["raw"])]
+        known_raws = {s["raw"] for s in known}
+        got = {(s["normalized"], s["type"]) for s in out["skills"] if s["raw"] in known_raws}
+        want = {(s["normalized"], s["type"]) for s in known}
+        assert got == want, (pid, got ^ want)
+        assert sorted(unknown) == sorted(s["raw"] for s in not_known), (pid, unknown, [s["raw"] for s in not_known])
 
 
 if __name__ == "__main__":
