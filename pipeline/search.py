@@ -6,7 +6,10 @@
    그다음 검색 순위(search_rank) 순.
 - 맞는 세부 능력이 없으면 빈 목록이다(Azure·GCP, 목록에 없는 기술). 그럴듯하게 채우지 않는다.
 - 단, AWS 처럼 넓어서 세부 능력으로 고를 수 없는 기술은 사람이 지정한 입문 과정(data/foundation_courses.json)을 준다.
-  이때 subskill_id 는 None 이다. 규칙으로 찾은 매칭이 아니라 지정이므로 부르는 쪽은 match 를 uncertain 으로 다룬다.
+  이때 subskill_id 는 None 이다. 규칙으로 찾은 매칭이 아니라 지정이므로 match 는 uncertain 이어야 맞다.
+  주의: subskill_id 가 None 인 항목은 부르는 쪽이 따로 처리해야 한다. ai/recommend.py 의 candidate_courses 는
+  (course_id, subskill_id) 행이 없으면 KeyError 를 내고 match 도 CSV 값만 쓰므로, search_courses 로 교체할 때
+  sid 가 None 이면 행 조회를 건너뛰고 match 를 uncertain 으로 두는 분기를 함께 넣어야 한다(아직 없음).
 - 반환은 [{"course_id", "subskill_id"}]. 제목·링크·난이도·match 는 부르는 쪽(ai/recommend.py)이 CSV 에서 채운다.
 - 임베딩이나 Knowledge Base 로 바꿀 때도 이 함수 안쪽만 바꾼다.
 """
