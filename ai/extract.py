@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from ai.bedrock import ConverseResult, converse_json
 from ai.evidence import evidence_in_text
-from ai.prompts import extract_v1, extract_v2
+from ai.prompts import extract_v1, extract_v2, extract_v2_1
 from ai.sections import EXCLUDED, find_section, weight
 from pipeline.aliases import normalize_skill
 
-PROMPTS = {"v1": extract_v1, "v2": extract_v2}
+PROMPTS = {"v1": extract_v1, "v2": extract_v2, "v2.1": extract_v2_1}  # v2.1 의 후처리는 v2 와 같다
 DEFAULT_PROMPT = "v1"
 PROMPT_VERSION = PROMPTS[DEFAULT_PROMPT].VERSION
 MOCK_FILE = "mock_bedrock_extract.json"
@@ -102,7 +102,7 @@ def extract_with_details(
         "posting_id": posting["id"],  # ②의 posting_id 는 ①의 id 를 가리킨다
         "skills": skills,
     }
-    if prompt_version == "v2":
+    if prompt_version != "v1":
         from pipeline.standardize import standardize
 
         extraction, _ = standardize(extraction)  # 이름은 이미 대표명이라 ncs_unit 만 채워진다
