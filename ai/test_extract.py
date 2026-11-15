@@ -1,8 +1,10 @@
 """기술 후보 선택과 저장용 입력 식별자 회귀 검사. 외부 모델은 호출하지 않는다."""
 from __future__ import annotations
 
+import json
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from ai import extract
@@ -33,6 +35,24 @@ class CandidateSelectionTest(unittest.TestCase):
                 self.assertEqual(result[0]["type"], "preferred")
                 self.assertEqual(result[0]["confidence"], "high")
                 self.assertEqual(result[0]["evidence"], valid["evidence"])
+
+    def test_contract_example_prefers_verified_candidate_over_higher_weight(self) -> None:
+        valid = candidate("AWS", evidence="AWS 운영 경험 우대")
+        invalid = candidate("AWS", kind="required", evidence="AWS 운영 경험 필수")
+        posting = {"id": "sample-0002", "text": "[우대사항]\nAWS 운영 경험 우대"}
+        example_path = (
+            Path(__file__).resolve().parent.parent
+            / "data" / "sample" / "extraction_deduplicated.json"
+        )
+        expected = json.loads(example_path.read_text(encoding="utf-8"))
+        for version in extract.PROMPTS:
+            for items in ([valid, invalid], [invalid, valid]):
+                with self.subTest(version=version, items=items):
+                    result = {
+                        "posting_id": posting["id"],
+                        "skills": extract.to_contract(items, posting["text"], version),
+                    }
+                    self.assertEqual(result, expected)
 
     def test_valid_required_wins_between_verified_candidates(self) -> None:
         preferred = candidate()

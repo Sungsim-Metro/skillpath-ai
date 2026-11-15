@@ -26,6 +26,7 @@ except ImportError:
 from backend import api  # noqa: E402
 from backend.jobs import JOBS  # noqa: E402
 
+# 칸 제목([주요업무] 등)을 한 줄에 단독으로 써야 추출 결과의 칸(section)이 정해진다(contracts ②).
 SAMPLE_POSTING = (
     "[주요업무]\n"
     "AWS 기반 서비스 인프라 운영\n"

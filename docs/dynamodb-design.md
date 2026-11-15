@@ -1,8 +1,8 @@
 # 채용공고 추출 결과와 수요 집계의 DynamoDB 설계
 
-설계일: 2026-11-15. 제안 단계이며 테이블 생성이나 추출·집계 코드 변경은 포함하지 않는다.
-현재 단일 직무, 수십~수백 건 규모의 배치를 기준으로 한다.
-MVP에 필요한 최소 구성을 적었고, 뒤로 미룬 장치는 10절에 모았다.
+`backend/dynamodb.py`의 테이블 생성·저장, `backend/demand.py`의 수요 집계,
+`pipeline/extraction_batch.py`의 배치 실행 규칙을 설명한다.
+단일 직무, 수십~수백 건 규모의 배치를 기준으로 하며, 규모가 커질 때 검토할 장치는 10절에 정리했다.
 
 ## 1. 저장 구조와 책임
 
@@ -35,8 +35,9 @@ flowchart LR
 
 ## 2. 테이블 정의
 
-두 테이블 모두 서울 리전 `ap-northeast-2`, 온디맨드(`PAY_PER_REQUEST`)를 제안한다.
-첫 구현에는 GSI, LSI, Streams, TTL을 두지 않는다.
+테이블 생성 명령은 기본 리전 `ap-northeast-2`에서 온디맨드(`PAY_PER_REQUEST`) 테이블을 만든다.
+리전은 `AWS_REGION`, 추출 테이블은 `DYNAMODB_EXTRACTIONS_TABLE`,
+집계 테이블은 `DYNAMODB_DEMAND_TABLE`로 지정한다.
 
 | 테이블 | Partition key | Sort key | 항목 단위 |
 | --- | --- | --- | --- |
@@ -55,8 +56,8 @@ flowchart LR
 - 공고의 직무는 ①의 `role`에 있다(수집기의 `--role` 값).
 - 배치는 직무 코드 하나를 받아 실행한다. 대상 공고의 `role`을 대응표로 직무 코드로 바꾼 값이 실행한 직무와 같아야 한다.
   다르거나 대응표에 없으면 저장하지 않고 오류를 보고한다.
-- 직무 코드, 화면에 보여줄 이름(`demand.job_title`), `role` 값의 대응표는 한 곳에 둔다. 현재는 `app/main.py`의 `JOBS`에만 있다.
-  집계 코드는 화면 코드를 불러오지 않으므로 대응표를 `backend/`나 `data/`로 옮기고 화면이 그것을 읽게 한다.
+- 직무 코드, 화면에 보여줄 이름(`demand.job_title`), `role` 값의 대응표는 `backend/jobs.py`의 `JOBS`에 두고 화면과 배치가 함께 읽는다.
+  공고의 `role`과 실행 직무의 일치는 같은 모듈의 `validate_role()`로 검사한다.
 - 로켓펀치 상세 응답의 `jobCategory`는 현재 수집한 공고 전부가 `dev`여서 직무를 구분하지 못한다.
 - 직무에 맞지 않는 공고는 선정 규칙으로 거른다(4절). 모델로 직무를 분류하는 방식은 ② 계약 변경이 필요하고,
   분류가 바뀌면 키가 달라져 항목을 지우고 다시 써야 하므로 쓰지 않는다.
@@ -131,7 +132,7 @@ flowchart LR
 
 - 비교할 때는 현재 입력·설정으로 계산한 값을 저장된 문자열과 비교한다.
   저장된 항목의 `analysis`로 다시 계산하지 않는다. 읽은 숫자는 `Decimal`이라 같은 입력도 다른 해시가 될 수 있다(7절).
-- `extractor_version`은 추출 후처리 코드(`to_contract()`)를 바꿀 때 올리는 상수다. 현재 코드에 없으므로 추가한다.
+- `extractor_version`은 `ai/extract.py`의 `EXTRACTOR_VERSION` 상수다. 추출 후처리 규칙을 바꿀 때 값을 올린다.
 - `canonical_skills_sha256`은 `high` 판정에 실제로 쓰는 표준명 목록의 해시다.
   현재는 `ai/prompts/extract_v1.py`의 `CANONICAL_SKILLS`다(8절).
 - 같은 fingerprint인데도 다시 추출하려면 강제 옵션으로 실행해 현재 결과를 교체한다. 이전 결과는 남지 않는다.
@@ -157,8 +158,9 @@ flowchart LR
   S3에 올라간 예전 통과본은 지우지 않는다. 내용이 바뀐 공고는 예전 버전도 S3에 남는다.
 - 대상 공고마다 `pipeline.storage.object_key()`로 S3 키를 계산하고, 객체가 없으면 올린 뒤 그 키에서 전처리 공고를 읽어 분석한다.
   로컬 파일을 직접 분석하지 않으므로 로컬 실행과 Lambda 실행이 같은 입력을 읽는다.
-- 선정 규칙은 코드로 적용하고 모델을 쓰지 않는다. 현재 규칙은 본문의 `aws` 포함 여부뿐이어서 직무가 먼 공고가 섞인다
-  (`docs/data-sources.md`). 규칙을 바꾸면 규칙 이름을 올리고 집계의 `policy.selection_version`에 기록한다.
+- 수집기와 배치는 공고 제목을 `pipeline/rocketpunch.py`의 `ROLE_TERMS`와 비교해 직무를 선정한다.
+  기본 선정 버전은 `cloud-role-title-v1`이며, `--terms`로 바꾼 제목 필터는 단어 목록의 해시를 버전에 반영한다.
+  적용한 버전은 집계의 `policy.selection_version`에 기록한다.
 - 추출이 반복해서 실패하는 공고는 실행 인자로 제외를 지정한다. 제외한 공고는 분모에 넣지 않고
   `quality.excluded_postings`에 공고 ID와 사유를 남긴다. 지정 없이 실패한 공고를 건너뛰고 공개하지 않는다.
 
@@ -179,8 +181,9 @@ flowchart LR
 1. 근거 문장이 공고 본문에 있는지, 표준명이 표준명 목록에 있는지 코드로 검사한다.
    `high`는 확률이 아니라 이 규칙 검사를 통과했다는 뜻이다.
 2. 같은 표준 기술명의 후보가 여럿이면 검사를 통과한 후보를 먼저 고른다.
-3. 통과한 후보 중 `required`가 있으면 `required`, 없으면 `preferred`를 남긴다.
-   통과한 후보가 없으면 `uncertain` 후보 하나를 남긴다.
+3. 같은 확신도의 후보 중 `ai/sections.py`의 수요 가중치가 큰 것을 남긴다.
+   가중치는 자격요건 1.0, 주요업무 0.7, 우대사항 0.5이며 칸을 알 수 없으면 `type` 기준이다.
+   검사를 통과한 후보가 없으면 `uncertain` 후보 하나를 남긴다.
 
 **집계할 때 (`backend/`)**
 
@@ -206,7 +209,8 @@ fingerprint가 이번 배치의 입력과 다른 항목은 세지 않으므로 �
 영역의 기술을 하나 이상 요구한 고유 공고 수(위 예에서는 C1에 1건)는 기술별 건수로 계산할 수 없다.
 화면에 필요해지면 집계 단계에서 따로 세고 ④ 계약에 필드를 추가한다(인터페이스 변경). 두 값을 서로 대체하지 않는다.
 사전에 없는 기술은 미분류로 둔다. 영역 매핑만으로 NCS나 세부 능력 매핑이 끝났다고 취급하지 않는다.
-현재 `ncs_unit`은 항상 `null`이다. 세부 능력 사전이 확정되면 집계 방식을 따로 정한다.
+배치의 기본 프롬프트 v1은 `ncs_unit`을 `null`로 둔다.
+v2·v2.1은 별칭 표준화 후 확신 있는 NCS 연결을 채우며, 수요 집계는 표준 기술명별 공고 수를 센다.
 
 ## 5. 직무별 수요 집계: skillpath-demand
 
@@ -368,8 +372,8 @@ boto3 resource는 숫자를 정수여도 `Decimal`로 돌려준다.
 
 ### 한 번의 화면 렌더링
 
-`backend/api.py`의 Gap·추천 함수는 각자 `get_demand()`를 부르므로 화면을 한 번 그릴 때 집계를 최대 6번 읽는다.
-`get_demand()`에 짧은 캐시(예: 60초)를 두어 한 번의 렌더링이 같은 `snapshot_id`의 집계로 비율·Gap·추천 입력을 만들게 한다.
+`backend/api.py`의 Gap·추천 함수는 `get_demand()`를 함께 사용한다.
+`get_demand()`는 직무·테이블·리전·프로필별 집계를 60초 동안 캐시해 비율·Gap·추천 계산에 재사용한다.
 새 집계는 캐시 시간이 지난 뒤 화면에 반영된다.
 갱신 직후 반영이 필요한 조회는 기본 테이블의 `ConsistentRead=true`를 사용한다.
 
@@ -382,23 +386,22 @@ boto3 resource는 숫자를 정수여도 `Decimal`로 돌려준다.
 - RAG는 교육과정 검색에 쓴다. S3의 과정 문서를 Knowledge Base가 읽는다.
 - 순서는 수요 집계 조회 → 코드로 Gap 계산 → 부족 기술로 과정 검색 → 수치와 검색된 과정으로 추천 이유 생성이다.
 
-## 8. 현재 코드와 연결할 때의 주의점
+## 8. 코드 연결 규칙
 
 - 저장에는 `extract_with_meta()`를 쓴다. `ConverseResult.usage`를 `analysis.usage`에 넣기 위해서다.
   실패한 호출의 토큰은 `BedrockJSONError.usage`에 있으므로 배치 실행 기록의 합계에 더한다.
-- 현재 `to_contract()`는 검증 확신도보다 `required`를 우선하므로 잘못된 근거의 `required/uncertain`이
-  올바른 `preferred/high`를 대체할 수 있다. **유효한 후보를 먼저 선택하도록 보완한 뒤** DB 저장·집계에 연결한다.
-  기존 ②의 필드를 변경할 필요는 없다. 보완하면서 `extractor_version` 상수를 추가한다.
-- `high` 판정의 표준명 목록은 현재 `CANONICAL_SKILLS` 12개다. `data/aliases.json`(43개), `data/skill_areas.json`(31개)과 다르다.
-  영역 사전에만 있는 EC2, S3, IAM, RDS, VPC, Lambda 등 19개 기술은 지금은 항상 `uncertain`이 되어 확정 수요에서 빠진다.
-  추출의 기준 목록을 별칭 사전으로 바꾸는 일(#13)을 `ai/`·`pipeline/` 담당과 맞춘다. 목록이 바뀌면 fingerprint가 달라져 다시 추출된다.
+- `to_contract()`는 같은 기술의 후보 중 근거·표준명 검증을 통과한 `high`를 우선하고, 같은 확신도에서는
+  `ai/sections.py`의 수요 가중치가 큰 후보를 선택한다. 추출 후처리 규칙을 바꿀 때는 `EXTRACTOR_VERSION`도 갱신해 재사용 판정에 반영한다.
+- 프롬프트 v1은 `CANONICAL_SKILLS` 12개를 기준으로 표준명을 검사한다.
+  v2·v2.1은 `data/aliases.json`의 별칭 사전으로 이름을 정규화한 뒤 중복을 합치고 NCS 분류를 연결한다.
+  배치는 기본 프롬프트의 추출 설정과 공고 본문으로 fingerprint를 계산한다.
 - 현재 ②와 추출 프롬프트는 `required`, `preferred`만 지원한다. `duty`는 미지원이며 주요 업무도 `required`에 포함한다.
   3단 구분으로 전환할 때는 추출기, contracts, 예시, 집계를 함께 변경한다.
 - `extraction`과 `demand` 내부는 기존 계약을 유지하고 DB용 메타데이터는 외부에 둔다.
   DB 메타데이터를 기존 화면 API에 그대로 반환하지 않는다.
 - `get_demand()`의 실제 모드는 집계 테이블의 `demand`를 읽어 숫자를 `int`로 바꾼 뒤 반환하고, 짧은 캐시를 둔다(7절).
   개인 Gap의 기본식은 그대로 사용할 수 있다.
-- 직무 코드와 이름의 대응표는 현재 `app/main.py`의 `JOBS`에만 있다. `backend/`나 `data/`로 옮긴다(2절).
+- 화면은 `backend/jobs.py`의 `JOBS`를 읽고, 집계는 같은 대응표의 이름을 `demand.job_title`에 넣는다(2절).
 - `BEDROCK_MOCK`은 설정하지 않으면 `1`이다. 배치와 Lambda 환경에서 `0`으로 설정했는지 확인하고, 가짜 모드에서는 저장하지 않는다(6절).
 - S3 키와 SHA-256은 로컬 파일의 바이트로 계산한다. 수집기는 줄바꿈을 `\n`으로 고정해 저장하므로 OS가 달라도 같은 내용은 같은 키가 된다.
   고정하기 전에 Windows에서 저장한 파일은 CRLF 그대로라 키가 다르다. 전처리 공고는 `fetch`나 `collect`를 다시 실행하면 `\n`으로 다시 저장된다.

@@ -25,7 +25,7 @@ S3 경로는 다음과 같다. S3의 디렉터리는 객체 키의 접두사다.
 ```
 
 - `raw/lists`: 채용공고 목록 API 응답. 새로 수집한 목록은 `items`, `totalItems`, `totalPages` 등 응답 전체를 보존한다.
-- `raw/details`: 공고별 상세 API 응답. AWS 키워드 필터에서 탈락한 공고도 원본은 보관한다.
+- `raw/details`: 공고별 상세 API 응답. 직무 필터에서 탈락한 공고도 원본은 보관한다.
 - `processed/postings`: 필터를 통과해 `contracts/`의 공고 형식으로 변환한 결과.
 - 같은 파일 내용은 같은 키를 사용해 중복 저장하지 않는다. 내용이 달라지면 새 객체로 남기므로 이전 근거를 재현할 수 있다.
   [S3 조건부 PUT](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html)으로 기존 객체 덮어쓰기를 막는다.
@@ -58,6 +58,18 @@ uv run --python 3.11 --with boto3 python -m pipeline.rocketpunch collect -k DevO
 기존 캐시는 API를 다시 호출하지 않는다. 새 공고 응답을 가져오면 로컬 저장 후 S3에도 보관한다.
 수집기를 수동으로 실행할 때 동작한다. 아래 DynamoDB 설정을 추가하면 `fetch`, `collect`가 끝난 뒤
 현재 로컬 통과본 전체를 대상으로 기술 추출과 수요 집계를 실행한다.
+
+`search`와 `collect`는 검색 조건·페이지가 같은 `data/raw/list-*.json` 목록 캐시를 재사용한다.
+최신 목록을 받으려면 목록에서 해당 파일 한 개를 골라 `.bak`로 옮긴 뒤 같은 수집 명령을 다시 실행한다.
+다음은 위 DevOps 검색의 첫 페이지 캐시를 백업하는 예다. 갱신 대상은 선택한 목록 캐시이며,
+상세 원본(`rp-*.raw.json`)과 전처리 공고(`rp-*.posting.json`)는 계속 재사용한다.
+
+```powershell
+Get-ChildItem -LiteralPath data/raw -Filter 'list-*.json' | Select-Object Name
+$listCache = 'data/raw/list-jobCategories=dev-keyword=DevOps-page=1-pageSize=10-sort=DATE_DESC.json'
+Move-Item -LiteralPath $listCache -Destination "$listCache.bak"
+uv run --python 3.11 --with boto3 python -m pipeline.rocketpunch search -k DevOps --codes dev
+```
 
 ## DynamoDB 추출 결과와 수요 집계
 

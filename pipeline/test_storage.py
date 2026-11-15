@@ -9,6 +9,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from botocore.exceptions import ClientError
+from botocore.loaders import create_loader
+from botocore.model import ServiceModel
+from botocore.validate import validate_parameters
 
 from pipeline import storage
 
@@ -77,6 +80,10 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(
             kwargs["Metadata"]["sha256"], hashlib.sha256(self.content).hexdigest()
         )
+        service = ServiceModel(
+            create_loader().load_service_model("s3", "service-2"), service_name="s3"
+        )
+        validate_parameters(kwargs, service.operation_model("PutObject").input_shape)
 
     def test_existing_snapshot_is_skipped(self) -> None:
         self.client.put_object.side_effect = ClientError(

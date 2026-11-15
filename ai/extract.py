@@ -3,7 +3,8 @@
 LLM 은 raw, normalized, type, evidence 만 낸다. posting_id, section, confidence, ncs_unit 은 코드가 채운다.
 - evidence 가 비면 버린다.
 - section 은 근거 문장이 들어 있는 칸(ai.sections). 혜택·회사소개 같은 제외 칸에서 나온 기술은 버린다.
-- 같은 기술이 여러 번 나오면 수요 가중치(ai.sections.weight)가 가장 큰 것 하나만 남긴다.
+- 같은 기술이 여러 번 나오면 confidence가 high인 후보를 우선한다.
+  같은 확신도에서는 수요 가중치(ai.sections.weight)가 가장 큰 하나를 남기고, 둘 다 같으면 먼저 나온 후보를 남긴다.
 
 프롬프트 버전 (기본은 v1. 기본값을 v2.1 로 바꾸는 시점은 #21 채점 뒤에 정한다)
 - v1: confidence 는 근거가 공고에 있고 normalized 가 v1 대표명 12개 안이면 high
