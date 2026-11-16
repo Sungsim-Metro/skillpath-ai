@@ -24,7 +24,7 @@ import re
 from typing import Optional
 
 import ai.recommend as rec
-from ai.bedrock import USAGE_KEYS, BedrockJSONError, ConverseResult, add_usage, converse_json, is_mock
+from ai.bedrock import USAGE_KEYS, ConverseResult, add_usage, converse_json, is_mock
 from ai.prompts import recommend_v1, review_v1
 from pipeline.search import _mentions, _names
 from pipeline.aliases import normalize_skill
@@ -200,8 +200,8 @@ def build_recommendation(skill: str, demand: dict, user_level: Optional[str] = N
 
     try:
         reviewed = review(skill, courses, reasons, user_level)
-    except BedrockJSONError as e:
-        add_usage(usage, e.usage)
+    except Exception as e:  # noqa: BLE001 - 형식 검사 실패뿐 아니라 호출 제한·시간 초과도 추천을 막지 않게 한다
+        add_usage(usage, getattr(e, "usage", {}) or {})
         logger.warning("추천 %s: 검증 호출 실패(%s). 추천은 그대로 둡니다", skill, type(e).__name__)
         for _, out in paired:
             out["review"] = {"status": UNREVIEWED, "issue": None, "comment": None, "quote": None}
@@ -220,8 +220,8 @@ def build_recommendation(skill: str, demand: dict, user_level: Optional[str] = N
             revised = _revise(skill, llm_input, reasons, objections)
             _add("revise", revised)
             new_reasons = {r["course_id"]: r["reason"].strip() for r in revised.data["reasons"]}
-        except BedrockJSONError as e:
-            add_usage(usage, e.usage)
+        except Exception as e:  # noqa: BLE001 - 수정에 실패하면 원래 이유를 두고 불확실로 표시한다
+            add_usage(usage, getattr(e, "usage", {}) or {})
             logger.warning("추천 %s: 수정 호출 실패(%s)", skill, type(e).__name__)
 
     for c, out in paired:

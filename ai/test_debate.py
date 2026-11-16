@@ -71,6 +71,14 @@ class DebateTest(unittest.TestCase):
         self.assertEqual([c["reason"] for c in recommendation["courses"]],
                          [c["reason"] for c in rec.build_recommendation("Docker", demand_of("Docker"))[0]["courses"]])
 
+    def test_any_review_error_keeps_recommendation(self):
+        """호출 제한·시간 초과 같은 오류도 추천을 막지 않는다."""
+        with mock.patch.object(debate, "review", side_effect=RuntimeError("ThrottlingException")):
+            recommendation, _ = self.build("Docker")
+        self.assertEqual([c["review"]["status"] for c in recommendation["courses"]], ["unreviewed"] * 3)
+        with mock.patch.object(debate, "_revise", side_effect=TimeoutError()):
+            self.assertEqual(self.build("Kubernetes")[0]["courses"][1]["review"]["status"], "uncertain")
+
     def test_failed_revision_stays_uncertain(self):
         with mock.patch.object(debate, "_revise", side_effect=BedrockJSONError("가짜 실패")):
             second = self.build("Kubernetes")[0]["courses"][1]
