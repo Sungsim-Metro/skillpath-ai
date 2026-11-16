@@ -53,8 +53,9 @@ class UsageTest(unittest.TestCase):
             self.assertEqual(json.loads(lines[0])["stage"], "recommend")
             self.assertNotIn("비밀", lines[0])
             self.assertEqual(usage.read_rows(log)[0]["mock"], True)
-            log.write_text(lines[0] + "\n{끊긴 줄\n", encoding="utf-8")
-            self.assertEqual(len(usage.read_rows(log)), 1)
+            log.write_text(lines[0] + '\n{끊긴 줄\n{"ts": "2026-11-17T10", "stage": "x", "attempt": 1}\n[1, 2]\n', encoding="utf-8")
+            self.assertEqual(len(usage.read_rows(log)), 1)      # 끊긴 줄, 칸이 빠진 줄, 객체가 아닌 줄은 세지 않는다
+            usage.summarize(usage.read_rows(log), PRICING)
 
     def test_record_failure_does_not_break_calls(self):
         with mock.patch.dict(os.environ, {"USAGE_LOG": "/proc/없는/경로/u.jsonl"}):

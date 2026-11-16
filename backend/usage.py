@@ -23,10 +23,18 @@ def read_rows(path: Path | None = None) -> list[dict]:
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
-            rows.append(json.loads(line))
+            row = json.loads(line)
         except json.JSONDecodeError:
             continue  # 쓰다 끊긴 줄은 건너뛴다
+        if _valid(row):
+            rows.append(row)
     return rows
+
+
+def _valid(row) -> bool:
+    """집계에 쓸 수 있는 줄인가. 칸이 빠졌거나 형식이 다른 줄은 세지 않는다(화면이 한 줄 때문에 멈추지 않게)."""
+    return (isinstance(row, dict) and isinstance(row.get("ts"), str) and isinstance(row.get("stage"), str)
+            and all(type(row.get(k)) is int for k in ("inputTokens", "outputTokens")))
 
 
 def load_pricing() -> dict:
