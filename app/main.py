@@ -86,10 +86,12 @@ if demand:
 else:
     st.caption("채용공고를 분석해 부족한 역량과 AWS 교육과정을 근거와 함께 보여줍니다.")
 
+# 운영 현황 탭은 주소에 ?admin=1 을 붙였을 때만 맨 뒤에 더한다. 로그인이 아니라 가려 두는 것이다(토큰 수만 있고 내용은 없다)
+if st.query_params.get("admin") == "1":
+    TABS.append(("운영 현황", tab_usage.render))
+
 ctx = Ctx(job=job, demand=demand, demand_err=demand_err, owned=list(owned), skill_options=skill_options,
           gap_rows=gap_rows, gap_err=gap_err, missing=missing)
-# 운영 현황 탭은 주소에 ?admin=1 을 붙였을 때만 보인다. 로그인이 아니라 가려 두는 것이다(토큰 수만 있고 내용은 없다)
-tabs = [*TABS, ("운영 현황", tab_usage.render)] if st.query_params.get("admin") == "1" else TABS
-for container, (_, render) in zip(st.tabs([name for name, _ in tabs]), tabs):
+for container, (_, render) in zip(st.tabs([name for name, _ in TABS]), TABS):
     with container:
         render(ctx)
