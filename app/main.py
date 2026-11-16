@@ -28,6 +28,7 @@ from backend.jobs import JOBS  # noqa: E402
 from app.common import DEFAULT_OWNED, PENDING, Ctx, Pending, load  # noqa: E402
 from app.tabs import demand as tab_demand  # noqa: E402
 from app.tabs import extract as tab_extract  # noqa: E402
+from app.tabs import report as tab_report  # noqa: E402
 from app.tabs import gap as tab_gap  # noqa: E402
 from app.tabs import recommend as tab_recommend  # noqa: E402
 
@@ -37,6 +38,7 @@ TABS = [
     ("부족 역량", tab_gap.render),
     ("학습 추천", tab_recommend.render),
     ("공고 직접 분석", tab_extract.render),
+    ("진단 보고서", tab_report.render),
 ]
 
 st.set_page_config(page_title="skillpath-ai", layout="wide")
