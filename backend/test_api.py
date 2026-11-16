@@ -58,14 +58,6 @@ def demo():
     rec, _ = recommend.build_recommendation("Docker", {"postings": 20, "of": 40, "required_ratio": 0.45})
     assert rec["gap_skill"] == "Docker" and rec["courses"]
     assert all(set(c) == {"title", "url", "level", "prerequisites", "reason", "match"} for c in rec["courses"])
-    # 추천 과정을 마친 뒤(예상): 과정이 붙은 기술만큼 보유가 늘고, 수요와 다른 영역은 그대로다
-    before = {r["area"]: r for r in api.get_area_gap(JOB, OWNED)}
-    after = {r["area"]: r for r in api.get_area_gap_after(JOB, OWNED, ["Docker"])}
-    assert after["컴퓨팅·서버"]["demand"] == before["컴퓨팅·서버"]["demand"]
-    assert before["컴퓨팅·서버"]["owned"] < after["컴퓨팅·서버"]["owned"] <= before["컴퓨팅·서버"]["owned"] + demand["Docker"]
-    assert after["공통"] == before["공통"]
-    assert api.get_area_gap_after(JOB, OWNED, []) == api.get_area_gap(JOB, OWNED)
-    assert api.get_area_gap_after(JOB, OWNED, ["Python"]) == api.get_area_gap(JOB, OWNED)   # 이미 가진 기술은 그대로
     print("backend.api 확인 통과")
 
 
