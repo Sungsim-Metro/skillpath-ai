@@ -35,11 +35,12 @@ class Ctx:
     job: str
     demand: dict | None  # backend.api.get_demand 결과. 못 받으면 None
     demand_err: str | None
-    owned: list[str]  # 사이드바에서 고른 보유 기술
+    owned: list[str]  # 사이드바에서 "써봄"으로 고른 기술
     skill_options: list[str]  # 고를 수 있는 기술 이름
     gap_rows: list[dict] | None  # backend.api.get_gap 결과. 못 받으면 None
     gap_err: str | None
-    missing: list[dict] = field(default_factory=list)  # gap_rows 중 보유하지 않은 기술
+    missing: list[dict] = field(default_factory=list)  # gap_rows 중 "써봄"이 아닌 기술(없음과 배워봄)
+    levels: dict[str, str] = field(default_factory=dict)  # {기술: "used" | "learned"}. 없음은 넣지 않는다
 
 
 def md_escape(text: str) -> str:

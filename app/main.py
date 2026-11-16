@@ -24,6 +24,7 @@ except ImportError:
 
 from backend import api  # noqa: E402
 from backend.jobs import JOBS  # noqa: E402
+from backend.levels import LEARNED, LEVEL_LABEL, USED  # noqa: E402
 
 from app.common import DEFAULT_OWNED, PENDING, Ctx, Pending, load  # noqa: E402
 from app.tabs import demand as tab_demand  # noqa: E402
@@ -50,15 +51,23 @@ with st.sidebar:
     skill_options = [s["skill"] for s in demand["skills"]] if demand else []
     if skill_options:
         owned = st.pills(
-            "보유 기술",
+            f"{LEVEL_LABEL[USED]} (프로젝트에서 사용)",
             options=skill_options,
             selection_mode="multi",
             default=[s for s in DEFAULT_OWNED if s in skill_options],
             key="owned",
-            help="이미 다룰 수 있는 기술을 누르세요. 부족 역량과 추천이 바로 바뀝니다.",
+            help="프로젝트나 실무에서 직접 써 본 기술을 누르세요. 부족 역량과 추천이 바로 바뀝니다.",
         )
+        learned = st.pills(
+            f"{LEVEL_LABEL[LEARNED]} (강의·실습)",
+            options=[s for s in skill_options if s not in owned],
+            selection_mode="multi",
+            key="learned",
+            help="강의나 실습으로 배워 봤지만 프로젝트에서 써 보지는 않은 기술을 누르세요. 절반만 보유한 것으로 칩니다.",
+        )
+        st.caption("누르지 않은 기술은 '없음'으로 봅니다. 수준은 스스로 고른 값이며 실력을 검증한 것이 아닙니다.")
     else:
-        owned = []
+        owned, learned = [], []
         st.markdown(f"보유 기술 {PENDING}")
         st.caption("고를 수 있는 기술 목록은 채용공고 수요 집계가 연결되면 나옵니다.")
     st.divider()
@@ -67,8 +76,9 @@ with st.sidebar:
     else:
         st.caption("실제 모드입니다 (BEDROCK_MOCK=0).")
 
+levels = {**{s: LEARNED for s in learned if s not in owned}, **{s: USED for s in owned}}
 if demand:
-    gap_rows, gap_err = load(api.get_gap, job, owned)
+    gap_rows, gap_err = load(api.get_gap, job, levels)
 else:  # 수요 집계가 구현 전이면 이어지는 구역도 '개발 중', 오류면 오류로 보여준다
     needs_demand = "시장 수요 집계가 있어야 계산할 수 있습니다."
     gap_rows, gap_err = None, Pending(needs_demand) if isinstance(demand_err, Pending) else needs_demand
@@ -86,7 +96,7 @@ else:
     st.caption("채용공고를 분석해 부족한 역량과 AWS 교육과정을 근거와 함께 보여줍니다.")
 
 ctx = Ctx(job=job, demand=demand, demand_err=demand_err, owned=list(owned), skill_options=skill_options,
-          gap_rows=gap_rows, gap_err=gap_err, missing=missing)
+          gap_rows=gap_rows, gap_err=gap_err, missing=missing, levels=levels)
 for container, (_, render) in zip(st.tabs([name for name, _ in TABS]), TABS):
     with container:
         render(ctx)
