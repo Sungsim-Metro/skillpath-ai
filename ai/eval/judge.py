@@ -45,9 +45,9 @@ DEMAND = ROOT / "data" / "sample" / "demand.json"
 GOLD_FILES = (ROOT / "ai" / "eval" / "gold_extraction.json", ROOT / "data" / "raw" / "eval_test" / "gold_test.json")
 OUT_DIR = ROOT / "outputs" / "eval"
 MOCK_FILE = "mock_bedrock_judge.json"
-KEYS = judge_v1.KEYS
+CRITERIA = judge_v1.CRITERIA
 SCORES = (0, 1, 2)
-HUMAN_COLUMNS = ["item_id", "skill", "title", "level", "prerequisites", "objectives", "reason", *KEYS, "memo"]
+HUMAN_COLUMNS = ["item_id", "skill", "title", "level", "prerequisites", "objectives", "reason", *CRITERIA, "memo"]
 
 
 def demand_table() -> dict:
@@ -110,7 +110,7 @@ def validate_scores(data: dict, item_ids: list[str]) -> None:
     if got != item_ids:
         raise ValueError(f"item_id 가 입력과 다릅니다: 입력 {item_ids}, 응답 {got}")
     for s in scores:
-        for k in KEYS:
+        for k in CRITERIA:
             if type(s.get(k)) is not int or s[k] not in SCORES:
                 raise ValueError(f"{s['item_id']} 의 {k} 가 {s.get(k)!r} 입니다. 0, 1, 2 중 하나여야 합니다")
         if s.get("note") is not None and not isinstance(s["note"], str):
@@ -131,7 +131,7 @@ def judge(skill: str, items: list[dict]) -> ConverseResult:
     ids = [it["item_id"] for it in items]
     key = f"{skill}:{items[0]['mode']}"
     if is_mock() and key not in _mock_keys():  # 가짜 모드에서 응답 예시가 없으면 모두 2점. 결과에 mock 이라고 남는다
-        data = {"scores": [{"item_id": i, **{k: 2 for k in KEYS}, "note": None} for i in ids]}
+        data = {"scores": [{"item_id": i, **{k: 2 for k in CRITERIA}, "note": None} for i in ids]}
         return ConverseResult(data, 1, {k: 0 for k in USAGE_KEYS}, ())
     with _env(BEDROCK_MODEL_ID=os.getenv("JUDGE_MODEL_ID") or None):
         return converse_json(judge_v1.SYSTEM, judge_v1.user_message(judge_input), mock_file=MOCK_FILE, mock_key=key,
@@ -145,8 +145,8 @@ def summarize(items: list[dict]) -> dict:
         rows = [it for it in items if it["mode"] == mode and it.get("scores")]
         out[mode] = {
             "n": len(rows),
-            **{k: round(sum(r["scores"][k] for r in rows) / len(rows), 2) if rows else None for k in KEYS},
-            "total": round(sum(sum(r["scores"][k] for k in KEYS) for r in rows) / len(rows), 2) if rows else None,
+            **{k: round(sum(r["scores"][k] for r in rows) / len(rows), 2) if rows else None for k in CRITERIA},
+            "total": round(sum(sum(r["scores"][k] for k in CRITERIA) for r in rows) / len(rows), 2) if rows else None,
             "uncertain": sum(r["match"] == "uncertain" for r in rows),
         }
     return out
@@ -157,7 +157,7 @@ def paired_change(items: list[dict]) -> dict | None:
     by = {}
     for it in items:
         if it.get("scores"):
-            by.setdefault((it["skill"], it["title"]), {})[it["mode"]] = sum(it["scores"][k] for k in KEYS)
+            by.setdefault((it["skill"], it["title"]), {})[it["mode"]] = sum(it["scores"][k] for k in CRITERIA)
     pairs = [(v["single"], v["debate"]) for v in by.values() if {"single", "debate"} <= set(v)]
     if not pairs:
         return None
@@ -167,9 +167,9 @@ def paired_change(items: list[dict]) -> dict | None:
 
 def print_summary(summary: dict, change: dict | None) -> None:
     names = {r[0]: r[1] for r in judge_v1.RUBRIC}
-    print(f"\n{'모드':8} {'항목':>4} " + " ".join(f"{names[k]:>10}" for k in KEYS) + f" {'합계(0~6)':>10} {'불확실':>6}")
+    print(f"\n{'모드':8} {'항목':>4} " + " ".join(f"{names[k]:>10}" for k in CRITERIA) + f" {'합계(0~6)':>10} {'불확실':>6}")
     for mode, row in summary.items():
-        cells = " ".join(f"{'-' if row[k] is None else format(row[k], '.2f'):>12}" for k in KEYS)
+        cells = " ".join(f"{'-' if row[k] is None else format(row[k], '.2f'):>12}" for k in CRITERIA)
         print(f"{mode:8} {row['n']:>6} {cells} {'-' if row['total'] is None else format(row['total'], '.2f'):>12} {row['uncertain']:>8}")
     if change:
         print(f"같은 과정 {change['pairs']}쌍에서 토론 추천의 합계가 높아짐 {change['higher']} / 같음 {change['same']} / 낮아짐 {change['lower']}")
@@ -185,7 +185,7 @@ def write_human_sheet(path: Path, items: list[dict], n: int, seed: int) -> list[
         for it in picked:
             w.writerow({"item_id": it["item_id"], "skill": it["skill"], "title": it["title"], "level": it["level"],
                         "prerequisites": it["prerequisites"], "objectives": " / ".join(it["objectives"]),
-                        "reason": it["reason"], **{k: "" for k in KEYS}, "memo": ""})
+                        "reason": it["reason"], **{k: "" for k in CRITERIA}, "memo": ""})
     return [it["item_id"] for it in picked]
 
 
@@ -228,7 +228,7 @@ def run(args) -> int:
                 continue
             add_usage(usage["judge"], judged.usage)
             for it, s in zip(batch, judged.data["scores"]):
-                it["scores"] = {k: s[k] for k in KEYS}
+                it["scores"] = {k: s[k] for k in CRITERIA}
                 it["note"] = s.get("note")
             items += batch
 
@@ -255,7 +255,7 @@ def run(args) -> int:
 def agreement(llm: dict[str, dict], human: dict[str, dict]) -> dict:
     """기준마다 정확히 같은 비율, 1점 이내 비율, 평균 차이(LLM − 사람). 사람이 채운 항목만 센다."""
     out = {}
-    for k in KEYS:
+    for k in CRITERIA:
         pairs = [(llm[i][k], human[i][k]) for i in human if i in llm and human[i].get(k) is not None]
         n = len(pairs)
         out[k] = {
@@ -272,7 +272,7 @@ def read_human_sheet(path: Path) -> dict[str, dict]:
     with path.open(encoding="utf-8-sig", newline="") as f:
         for line, row in enumerate(csv.DictReader(f), start=2):
             scores = {}
-            for k in KEYS:
+            for k in CRITERIA:
                 cell = (row.get(k) or "").strip()
                 if cell == "":
                     scores[k] = None

@@ -23,7 +23,7 @@ RUBRIC = (
      "뜻은 통하지만 모호하거나 번역투여서 다시 읽어야 한다",
      "무슨 말인지 알기 어렵거나 이 과정을 들어야 할 이유가 없다"),
 )
-KEYS = tuple(r[0] for r in RUBRIC)
+CRITERIA = tuple(r[0] for r in RUBRIC)
 
 
 def rubric_text() -> str:

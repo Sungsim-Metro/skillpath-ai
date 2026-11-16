@@ -36,7 +36,7 @@ class JudgeTest(unittest.TestCase):
         rows = list(csv.DictReader(sheet.open(encoding="utf-8-sig")))
         self.assertEqual(len(rows), 4)
         self.assertEqual(set(rows[0]), set(judge.HUMAN_COLUMNS))          # 모드와 LLM 점수는 양식에 없다
-        self.assertTrue(all(r[k] == "" for r in rows for k in judge.KEYS))
+        self.assertTrue(all(r[k] == "" for r in rows for k in judge.CRITERIA))
         self.assertEqual({r["item_id"] for r in rows}, set(result["human_item_ids"]))
 
     def test_agreement_is_computed_by_code(self):
