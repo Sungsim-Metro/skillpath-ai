@@ -1,6 +1,6 @@
 # WBS (작업 분해 구조)
 
-2026-11-12 기준. **진행 상태와 날짜의 원본은 GitHub Projects 보드입니다.** 이 문서는 마일스톤별로 어떤 작업이 있는지 구조만 보여줍니다.
+2026-11-17 기준(11/16 기획 결정 반영, 팀 확인 전). **진행 상태와 날짜의 원본은 GitHub Projects 보드입니다.** 이 문서는 마일스톤별로 어떤 작업이 있는지 구조만 보여줍니다.
 상태(할 일, 진행 중, 완료)는 여기에 적지 않습니다. 두 곳에 적으면 어긋납니다.
 
 ## 어디서 보고 어떻게 고치나
@@ -29,12 +29,15 @@ gantt
     M2 공고 1건에서 추천 1건    :m2, 2026-11-13, 2026-11-16
     M3 MVP 완성               :m3, 2026-11-16, 2026-11-18
     M4 기능 동결까지           :m4, 2026-11-18, 2026-11-20
+    추가 기능 10개 (형섭)       :add, 2026-11-17, 2026-11-20
     section 제출과 발표
+    사용자 테스트 30명          :ut, 2026-11-20, 2026-11-21
+    테스트 반영 수정            :fix, 2026-11-21, 2026-11-23
     M5 구현 제출              :m5, 2026-11-20, 2026-11-23
     M6 발표 준비              :m6, 2026-11-23, 2026-11-26
     section 주요 날짜
     멘토링 1차 11/12          :milestone, 2026-11-12, 0d
-    멘토링 2차 11/17          :milestone, 2026-11-17, 0d
+    멘토링 2차 11/16          :milestone, 2026-11-16, 0d
     기능 동결 11/19           :milestone, 2026-11-19, 0d
     구현 제출 11/22           :milestone, 2026-11-22, 0d
     발표 11/25               :milestone, 2026-11-25, 0d
@@ -99,9 +102,28 @@ gantt
 | [#26](https://github.com/Sungsim-Metro/skillpath-ai/issues/26) | 학습 순서 제안 표시 | 형섭 |
 | [#38](https://github.com/Sungsim-Metro/skillpath-ai/issues/38) | E2E 자동 테스트: 공고 1건 → 추천 | 형섭 |
 
+#### 11/16 결정으로 더한 작업 (11/17~11/19 오후, 팀 확인 전)
+
+구현은 형섭이 먼저 하고 팀원이 PR별로 검토한다. 지침과 완료 조건은 [`sprint-2026-11-17.md`](sprint-2026-11-17.md)에 있다. 이슈 번호는 만든 뒤 채운다.
+
+| 순서 | 브랜치 | 작업 | 구현 | 검토(안) |
+| --- | --- | --- | --- | --- |
+| 0 | `refactor/app-tabs` | 화면 파일을 탭별로 나눔 | 형섭 | 형섭 |
+| 1 | `feat/skill-level` | 보유 수준 3단계 입력 (인터페이스 변경) | 형섭 | 일현 |
+| 2 | `feat/radar-chart` | 영역 레이더 차트 | 형섭 | 일현 |
+| 3 | `feat/recommend-evidence` | 추천 카드의 신뢰 근거 | 형섭 | 성진 |
+| 4 | `feat/recommend-debate` | 추천 에이전트 대 검증 에이전트 | 형섭 | 성진 |
+| 5 | `feat/eval-judge` | LLM 채점, 사람 재채점, 정답셋 | 형섭 | 성진 |
+| 6 | `feat/mentor-connect` | 현직자 연결 카드 | 형섭 | 종훈 |
+| 7 | `feat/mobile-layout` | 폰 화면 폭 맞춤 | 형섭 | 종훈 |
+| 8 | `feat/usage-dashboard` | 토큰·비용 화면 | 형섭 | 일현 |
+| 9 | `feat/search-compare` | 과정 검색 방식 비교표 | 형섭 | 종훈 |
+| 10 | `feat/report-download` | 진단 보고서 내려받기 | 형섭 | 일현 |
+| | | 사용자 테스트용 배포 주소 | 미정 | |
+
 ### M5 구현 제출 (11/20~11/22)
 
-완료 기준: 제출물 취합과 제출. 팀 내부 마감 18시
+완료 기준: 11/20 사용자 테스트, 11/21~22 정오 테스트 반영 수정, 제출물 취합과 제출. 팀 내부 마감 18시
 
 | 이슈 | 작업 | 담당 |
 | --- | --- | --- |
@@ -109,7 +131,7 @@ gantt
 | [#28](https://github.com/Sungsim-Metro/skillpath-ai/issues/28) | 보고서: 데이터 절 | 종훈 |
 | [#29](https://github.com/Sungsim-Metro/skillpath-ai/issues/29) | 보고서: AI·평가 절 | 성진 |
 | [#30](https://github.com/Sungsim-Metro/skillpath-ai/issues/30) | 제출물 취합과 제출 | 형섭 |
-| [#39](https://github.com/Sungsim-Metro/skillpath-ai/issues/39) | 사용자 테스트 3~5명: 보고 설명해 보게 하기 | 형섭 |
+| [#39](https://github.com/Sungsim-Metro/skillpath-ai/issues/39) | 사용자 테스트: 약 30명 설문(11/20) + 3~5명 관찰 | 형섭 |
 | [#44](https://github.com/Sungsim-Metro/skillpath-ai/issues/44) | 저장소 공개 전 체크리스트 (제출 직전 public 전환) | 형섭 |
 
 ### M6 발표 (11/23~11/25)
