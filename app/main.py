@@ -26,6 +26,7 @@ from backend import api  # noqa: E402
 from backend.jobs import JOBS  # noqa: E402
 
 from app.common import DEFAULT_OWNED, PENDING, Ctx, Pending, load  # noqa: E402
+from app.mobile import inject_css, sidebar_hint  # noqa: E402
 from app.tabs import demand as tab_demand  # noqa: E402
 from app.tabs import extract as tab_extract  # noqa: E402
 from app.tabs import gap as tab_gap  # noqa: E402
@@ -40,6 +41,7 @@ TABS = [
 ]
 
 st.set_page_config(page_title="skillpath-ai", layout="wide")
+inject_css()
 
 # ── 사이드바: 입력 ─────────────────────────────────────────────
 with st.sidebar:
@@ -75,6 +77,7 @@ else:  # 수요 집계가 구현 전이면 이어지는 구역도 '개발 중', 
 missing = [r for r in gap_rows if not r["owned"]] if gap_rows is not None else []
 
 st.title(f"{JOBS[job]} 역량 진단")
+sidebar_hint()
 if demand:
     origin = [f"수집일 {demand['collected']}"] if demand.get("collected") else []
     origin += [f"출처 {', '.join(demand['sources'])}"] if demand.get("sources") else []

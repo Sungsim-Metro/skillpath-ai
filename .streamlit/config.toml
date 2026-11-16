@@ -12,3 +12,7 @@ font = "Noto Sans KR:https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@
 headingFontWeights = 700
 baseRadius = "0.5rem"
 showSidebarBorder = true
+
+[client]
+# 오른쪽 위의 Deploy 버튼과 개발자 메뉴를 숨긴다(사용자 테스트와 시연용)
+toolbarMode = "minimal"

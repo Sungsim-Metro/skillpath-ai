@@ -40,8 +40,9 @@ def render_area_gap(ctx: Ctx):
     tooltip = [alt.Tooltip("영역:N"), alt.Tooltip("수요:Q", title="공고 수요"), alt.Tooltip("보유:Q", title="내 보유"),
                alt.Tooltip("기술:N", title="이 영역의 기술"), alt.Tooltip("부족:N", title="부족한 기술")]
     base = alt.Chart(df).encode(y=alt.Y("영역:N", sort=list(df["영역"]), title=None, axis=alt.Axis(labelLimit=220)))
-    x_demand = alt.X("수요:Q", title="요구 건수 (영역 안 기술별 공고 수의 합)", axis=alt.Axis(tickCount=6),
-                     scale=alt.Scale(domain=[0, df["수요"].max() * 1.3]))
+    # 막대 오른쪽의 "보유 / 수요 (%)" 글자가 폰 화면에서 잘리지 않게 오른쪽을 넉넉히 비운다
+    x_demand = alt.X("수요:Q", title="요구 건수", axis=alt.Axis(tickCount=5),
+                     scale=alt.Scale(domain=[0, df["수요"].max() * 1.75]))
     chart = alt.layer(
         base.mark_bar(color=ACCENT_LIGHT, stroke=ACCENT_LINE, height=24).encode(x=x_demand, tooltip=tooltip),
         base.mark_bar(color=ACCENT, height=24).encode(x=alt.X("보유:Q"), tooltip=tooltip),
@@ -49,7 +50,7 @@ def render_area_gap(ctx: Ctx):
     ).properties(height=44 * len(df) + 50)
     st.altair_chart(chart, width="stretch")
     st.caption(
-        "옅은 막대는 공고가 그 영역의 기술을 요구한 건수, 진한 막대는 그중 내가 가진 기술의 몫입니다. "
+        "옅은 막대는 공고가 그 영역의 기술을 요구한 건수(영역 안 기술별 공고 수의 합), 진한 막대는 그중 내가 가진 기술의 몫입니다. "
         "비어 있는 만큼이 Gap입니다. 여러 영역에 걸치는 기술(AWS 등)은 공통, 사전에 없는 기술은 미분류로 셉니다."
         + (f" 이 데이터에서 수요가 없는 영역: {', '.join(empty)}." if empty else "")
     )
