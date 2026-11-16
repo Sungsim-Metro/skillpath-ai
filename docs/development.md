@@ -41,7 +41,7 @@ API Gateway는 쓰지 않습니다(2026-11-13). 수업 교안에 없고, 화면�
 | --- | --- | --- |
 | ① 공고 | pipeline → ai | `id`, `title`, `company`, `role`, `text`, `url` |
 | ② 추출 결과 | ai → backend | `skills[].normalized`, `type`, `evidence`, `confidence` |
-| ③ 추천 | backend + ai → app | `gap_skill`, `demand`, `courses[].reason`, `match` |
+| ③ 추천 | backend + ai → app | `gap_skill`, `demand`, `courses[].reason`, `match`, `evidence` |
 | ④ 수요 집계 | backend → app | `total_postings`, `skills[].postings`, `required`, `preferred` |
 
 형식을 바꾸는 PR은 설명 맨 위에 "인터페이스 변경"이라고 적고, 문서와 예시를 같은 PR에서 고칩니다.
