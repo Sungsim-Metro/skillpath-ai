@@ -11,6 +11,7 @@ ai
 contracts
 data/sample
 data/skill_areas.json
+data/communities.json
 .streamlit/config.toml
 docs/service-flow.md
 docs/data-sources.md

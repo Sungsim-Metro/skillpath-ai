@@ -16,6 +16,7 @@ from app.common import (
     load,
     notice,
 )
+from app.tabs.connect import render_connect
 from backend import api
 
 def render_area_gap(ctx: Ctx):
@@ -158,6 +159,10 @@ def _render_gap(ctx: Ctx):
             )
         if have:
             st.caption("이미 보유: " + ", ".join(r["skill"] for r in have))
+
+    with st.container(border=True):
+        st.subheader("현직자에게 물어보기")
+        render_connect(ctx)
 
 
 
