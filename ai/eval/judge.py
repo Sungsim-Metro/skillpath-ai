@@ -192,6 +192,9 @@ def write_human_sheet(path: Path, items: list[dict], n: int, seed: int) -> list[
 def run(args) -> int:
     table = demand_table()
     skills = args.skills or [s["skill"] for s in table["skills"]]
+    unknown = [s for s in skills if s not in {x["skill"] for x in table["skills"]}]
+    if unknown:
+        sys.exit(f"수요 집계({DEMAND.name})에 없는 기술입니다: {unknown}")
     modes = [m for m in args.modes if m in available_modes()]
     skipped = [m for m in args.modes if m not in modes]
     mode_name = "mock" if is_mock() else "bedrock"

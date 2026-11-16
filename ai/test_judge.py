@@ -80,15 +80,29 @@ class JudgeTest(unittest.TestCase):
             judge.validate_scores({"scores": []}, ["a"])
 
     def test_failed_judge_call_is_recorded_not_scored(self):
-        """채점 응답이 두 번 다 형식 검사에서 떨어지면 그 항목은 점수 없이 남고 평균에 넣지 않는다."""
-        code, _ = self.run_cli("run", "--skills", "Go", "Docker", "--modes", "single")
+        """채점 호출이 실패하면 그 항목은 점수 없이 남고, 평균에 넣지 않으며, 종료 코드가 1 이다."""
+        from ai.bedrock import BedrockJSONError
+
+        real = judge.judge
+
+        def flaky(skill, items):
+            if skill == "Docker":
+                raise BedrockJSONError("가짜 실패")
+            return real(skill, items)
+
+        with mock.patch.object(judge, "judge", side_effect=flaky):
+            code, _ = self.run_cli("run", "--skills", "Docker", "Kubernetes", "--modes", "single")
         result = json.loads(next(Path(self.tmp.name).glob("judge_mock_*[0-9].json")).read_text(encoding="utf-8"))
-        go_items = [it for it in result["items"] if it["skill"] == "Go"]
-        if go_items:  # Go 에 과정이 붙어 있을 때만 채점 호출이 일어난다
-            self.assertEqual(code, 1)
-            self.assertTrue(all("scores" not in it for it in go_items))
-            self.assertEqual(result["errors"][0]["stage"], "judge")
-        self.assertEqual(result["summary"]["single"]["n"], result["counts"]["scored"])
+        self.assertEqual(code, 1)
+        self.assertEqual(result["errors"][0]["stage"], "judge")
+        docker = [it for it in result["items"] if it["skill"] == "Docker"]
+        self.assertTrue(docker and all("scores" not in it for it in docker))
+        self.assertEqual(result["counts"], {"items": 6, "scored": 3})
+        self.assertEqual(result["summary"]["single"]["n"], 3)
+
+    def test_unknown_skill_gives_clear_error(self):
+        with self.assertRaises(SystemExit):
+            self.run_cli("run", "--skills", "없는기술")
 
     def test_paired_change(self):
         def item(mode, total):
