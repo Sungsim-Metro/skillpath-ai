@@ -4,6 +4,25 @@ import streamlit as st
 from app.common import COMMON_AREA, PENDING, UNCERTAIN, Ctx, load, md_escape, notice
 from backend import api
 
+REVIEW_BADGE = {
+    "passed": ":green-badge[검증 통과]",
+    "revised": ":blue-badge[검증 뒤 수정]",
+    "uncertain": ":orange-badge[검증: 불확실]",
+    "unreviewed": ":gray-badge[검증 못 함]",
+}
+
+
+def _review_text(skill: str, course: dict) -> str:
+    """검증 에이전트 결과(③ courses[].review)를 제목 옆 표시와 한 줄 설명으로 바꾼다. 결과가 없으면 빈 문자열."""
+    review = course.get("review") or api.sample_review(skill, course["title"])
+    if not review:
+        return ""
+    text = f" {REVIEW_BADGE.get(review['status'], '')}"
+    if review.get("comment"):
+        text += f"  \n:gray[검증: {md_escape(review['comment'])}]"
+    return text
+
+
 def _render_recommendations(ctx: Ctx):
     missing = ctx.missing
     if not missing:
@@ -30,7 +49,7 @@ def _render_recommendations(ctx: Ctx):
                 info, action = st.columns([3, 1], vertical_alignment="center")
                 with info:
                     badge = f" {UNCERTAIN}" if c["match"] == "uncertain" else ""
-                    st.markdown(f"**{md_escape(c['title'])}**{badge}")
+                    st.markdown(f"**{md_escape(c['title'])}**{badge}{_review_text(rec['gap_skill'], c)}")
                     st.caption(f"난이도 {c['level']} · 선수지식 {c['prerequisites']}")
                     st.write(c["reason"])
                 with action:

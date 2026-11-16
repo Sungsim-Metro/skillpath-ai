@@ -238,7 +238,7 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
     if cached is not None:
         return deepcopy(cached)
 
-    from ai.recommend import build_recommendation
+    from ai.debate import build_recommendation  # RECOMMEND_DEBATE=1 이면 검증 에이전트를 거친다. 꺼져 있으면 ai.recommend 와 같다
 
     out = []
     for skill, demand in pairs:
@@ -286,3 +286,17 @@ def extract_posting(text: str, posting_id: str = "manual-input") -> dict:
                     "ncs_unit": None,
                 })
     return {"posting_id": posting_id, "skills": skills}
+
+
+def sample_review(gap_skill: str, course_title: str) -> dict | None:
+    """가짜 모드에서 화면 확인용으로 쓰는 검증 결과 예시(③ courses[].review 와 같은 형식).
+
+    실제 모드에서는 검증 결과가 ③ 안에 담겨 오므로 이 함수는 None 을 돌려준다.
+    가짜 모드에서도 RECOMMEND_DEBATE=1 일 때만 예시를 준다. 예시에 없는 과정은 "통과"다.
+    """
+    from ai.debate import PASSED, debate_enabled
+
+    if not is_mock() or not debate_enabled():
+        return None
+    table = _load("recommendation_reviews.json")
+    return table.get(gap_skill, {}).get(course_title) or {"status": PASSED, "issue": None, "comment": None, "quote": None}

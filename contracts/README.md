@@ -81,6 +81,22 @@ AWS 운영 경험 우대
 | `courses[].reason` | string | 추천 이유 |
 | `courses[].match` | string | `certain` 또는 `uncertain` |
 
+### `courses[].review` (2026-11-16 추가, 팀 확인 대기)
+
+`RECOMMEND_DEBATE=1`일 때만 붙습니다. 추천 에이전트가 쓴 추천을 검증 에이전트가 반박하고, 코드가 결정한 결과입니다(`ai/debate.py`).
+꺼져 있으면 이 필드가 없고 ③은 전과 같습니다.
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `review.status` | string | `passed`(통과), `revised`(이유를 한 번 고침), `uncertain`(불확실), `unreviewed`(검증 호출 실패, 추천은 그대로) |
+| `review.issue` | string \| null | 반박의 종류. `coverage`(과정이 이 기술을 다루지 않음), `reason`(이유가 학습 목표에 없는 내용을 말함), `level`(수준에 맞지 않음) |
+| `review.comment` | string \| null | 화면에 보여줄 한 문장 |
+| `review.quote` | string \| null | 검증 에이전트가 근거로 든 과정 원문 문장. 과정의 제목·학습 목표에 그대로 있는지 코드로 검사한 것 |
+| `review.overruled` | boolean | `coverage` 반박을 코드 검사가 기각했을 때만 `true` |
+
+`coverage` 반박이 받아들여지면 `courses[].match`가 `uncertain`으로 낮아집니다. 검증으로 `match`가 올라가는 일은 없습니다.
+`revised`면 `courses[].reason`이 고쳐 쓴 문장입니다.
+
 ## ④ 수요 집계 (`demand`) — backend → app  · 11/10 회의 승인 대기
 
 시장 수요 탭에서 직무 전체의 기술 순위를 보여주기 위한 형식입니다. 예시는 `data/sample/demand.json`.

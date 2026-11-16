@@ -1,0 +1,19 @@
+{
+ "_note": "가짜 모드에서 RECOMMEND_DEBATE=1 일 때 화면이 보여주는 검증 결과 예시. 키는 gap_skill → 과정 제목(recommendations.json). 없는 과정은 통과로 본다. 실제 모드에서는 쓰지 않는다.",
+ "AWS": {
+  "(예시) Architecting on AWS": {
+   "status": "uncertain",
+   "issue": "level",
+   "quote": null,
+   "comment": "(예시) 선수지식이 AWS 기초 서비스 이해라 처음 배우는 사람이 바로 듣기 어렵습니다."
+  }
+ },
+ "Kubernetes": {
+  "(예시) Amazon EKS 입문": {
+   "status": "revised",
+   "issue": "reason",
+   "quote": null,
+   "comment": "(예시) 추천 이유에 학습 목표에 없는 내용이 있어 고쳐 썼습니다."
+  }
+ }
+}

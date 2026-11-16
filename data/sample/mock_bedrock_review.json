@@ -1,0 +1,118 @@
+{
+ "_note": "BEDROCK_MOCK=1 일 때 ai/debate.py 가 받는 가짜 응답. 키는 gap_skill(검증 에이전트 응답)과 'gap_skill#revise'(추천 에이전트가 고쳐 쓴 응답). 없는 기술은 코드가 모두 통과로 만든다. Docker: 모두 통과. Kubernetes: 이유 지적 → 수정. AWS: 다루지 않는다는 반박이지만 제목에 이름이 있어 코드가 기각. Terraform: 다루지 않는다는 반박이 맞아 불확실.",
+ "default": {
+  "reviews": []
+ },
+ "Docker": {
+  "reviews": [
+   {
+    "course_id": "JV8N39BFYH",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   },
+   {
+    "course_id": "WU72QMK76B",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   },
+   {
+    "course_id": "CUCA1DK47V",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   }
+  ]
+ },
+ "Kubernetes": {
+  "reviews": [
+   {
+    "course_id": "6MCV5DBF5N",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   },
+   {
+    "course_id": "TYAAKGU914",
+    "verdict": "objection",
+    "issue": "reason",
+    "claim": "Ingress와 NetworkPolicies",
+    "quote": "Describe the core components of Amazon EKS networking and how they provide connectivity in a Kubernetes cluster",
+    "comment": "가짜 응답 예시입니다. 이유에 적힌 Ingress와 NetworkPolicies는 근거 문장에서 확인되지 않습니다."
+   },
+   {
+    "course_id": "WU72QMK76B",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   }
+  ]
+ },
+ "Kubernetes#revise": {
+  "reasons": [
+   {
+    "course_id": "6MCV5DBF5N",
+    "reason": "목표 직무 공고 40건 중 17건이 Kubernetes를 요구하고, 그중 47%는 필수입니다. 이 과정은 AWS에서 Kubernetes를 운영하는 이유와 AWS 서비스와의 연동을 설명합니다."
+   },
+   {
+    "course_id": "TYAAKGU914",
+    "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 Amazon EKS 네트워킹의 핵심 구성 요소와 Amazon VPC 설계를 다룹니다."
+   },
+   {
+    "course_id": "WU72QMK76B",
+    "reason": "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 컨테이너를 쓰는 이유와 기본 개념, 애플리케이션을 컨테이너로 만드는 방법을 다룹니다."
+   }
+  ]
+ },
+ "AWS": {
+  "reviews": [
+   {
+    "course_id": "94T2BEN85A",
+    "verdict": "objection",
+    "issue": "coverage",
+    "claim": null,
+    "quote": null,
+    "comment": "가짜 응답 예시입니다. 입문 과정이라 AWS 실무 역량을 다룬다고 보기 어렵습니다."
+   }
+  ]
+ },
+ "Terraform": {
+  "reviews": [
+   {
+    "course_id": "RH22P2RXU4",
+    "verdict": "objection",
+    "issue": "coverage",
+    "claim": null,
+    "quote": "Explain the purpose and functionality of CloudFormation.",
+    "comment": "이 과정은 CloudFormation을 다루며 Terraform은 학습 목표에 없습니다."
+   },
+   {
+    "course_id": "KE11JMZA26",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   },
+   {
+    "course_id": "RXN7Y5H87R",
+    "verdict": "pass",
+    "issue": null,
+    "claim": null,
+    "quote": null,
+    "comment": null
+   }
+  ]
+ }
+}
