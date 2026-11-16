@@ -8,7 +8,7 @@ Streamlit 화면. 화면 코드만 두고 로직은 다른 폴더의 함수를 �
 | `tabs/gap.py` | 탭 2 부족 역량 |
 | `tabs/recommend.py` | 탭 3 학습 추천 |
 | `tabs/extract.py` | 탭 4 공고 직접 분석 |
-| `test_app.py` | 가짜 모드에서 화면이 오류 없이 뜨는지 확인. `python -m pytest app` |
+| `test_app.py` | 가짜 모드에서 화면이 오류 없이 뜨는지 확인. `python -m app.test_app` |
 
 새 탭은 `tabs/`에 `render(ctx)` 함수가 있는 파일을 더하고 `main.py`의 `TABS`에 한 줄을 넣습니다.
 탭 파일끼리는 서로 가져다 쓰지 않습니다. 함께 쓸 것은 `common.py`에 둡니다.
