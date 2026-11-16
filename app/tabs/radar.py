@@ -13,7 +13,7 @@ from app.common import ACCENT, MARKET_DEMAND, Ctx, load, notice
 from backend import api
 
 AFTER = "#2E9E6B"  # "마친 뒤"에만 쓰는 색
-SERIES = ["공고 수요", "지금", "추천 과정을 마친 뒤(예상)"]
+SERIES = ["공고 수요", "지금", "마친 뒤(예상)"]  # 폰 화면에서 범례가 잘리지 않게 짧게 쓴다
 RINGS = (0.25, 0.5, 0.75, 1.0)
 
 
