@@ -32,7 +32,9 @@ def validate_draft(data: dict, llm_input: dict) -> None:
     missing_blanks = [b for b in prompt.BLANKS if b not in message]
     if missing_blanks:
         raise ValueError(f"message 에 빈칸 {missing_blanks} 이 없습니다. 이름과 소개는 지어내지 않고 빈칸으로 둡니다")
-    allowed_words = " ".join([llm_input["target_job"], *llm_input["missing_skills"], *llm_input["owned_skills"]]).lower()
+    # 입력에 있는 이름을 낱말 단위로 모은다. 부분 문자열로 비교하면 입력에 없는 이름의 조각이 통과한다
+    allowed_words = {w.lower() for text in [llm_input["target_job"], *llm_input["missing_skills"], *llm_input["owned_skills"]]
+                     for w in [text, *_LATIN.findall(text)]}
     for label, text in [("message", message), *[(f"questions[{i}]", q) for i, q in enumerate(questions)]]:
         if not re.search(r"[가-힣]", text):
             raise ValueError(f"{label} 이 한국어가 아닙니다")

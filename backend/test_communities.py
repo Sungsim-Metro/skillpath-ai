@@ -71,6 +71,7 @@ class CommunitiesTest(unittest.TestCase):
             {**ok, "message": ok["message"] + " 저는 3년 동안 공부했습니다."},                  # 입력에 없는 숫자
             {**ok, "questions": [*ok["questions"][:2], "Kubernetes도 해야 하나요?"]},           # 입력에 없는 기술
             {**ok, "questions": ok["questions"][:2]},
+            {**ok, "questions": [*ok["questions"][:2], "Dock 은 무엇인가요?"]},                 # 입력 이름의 조각은 통과하지 못한다
         ]
         for data in bad:
             with self.assertRaises(ValueError, msg=data):
