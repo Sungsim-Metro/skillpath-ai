@@ -104,21 +104,21 @@ gantt
 
 #### 11/16 결정으로 더한 작업 (11/17~11/19 오후, 팀 확인 전)
 
-구현은 형섭이 먼저 하고 팀원이 PR별로 검토한다. 지침과 완료 조건은 [`sprint-2026-11-17.md`](sprint-2026-11-17.md)에 있다. 이슈 번호는 만든 뒤 채운다.
+구현은 형섭이 먼저 하고 팀원이 PR별로 검토한다. 지침과 완료 조건은 [`sprint-2026-11-17.md`](sprint-2026-11-17.md)에 있다. 이슈는 아직 만들지 않았고 PR 번호를 적었다.
 
 | 순서 | 브랜치 | 작업 | 구현 | 검토(안) |
 | --- | --- | --- | --- | --- |
-| 0 | `refactor/app-tabs` | 화면 파일을 탭별로 나눔 | 형섭 | 형섭 |
-| 1 | `feat/skill-level` | 보유 수준 3단계 입력 (인터페이스 변경) | 형섭 | 일현 |
-| 2 | `feat/radar-chart` | 영역 레이더 차트 | 형섭 | 일현 |
-| 3 | `feat/recommend-evidence` | 추천 카드의 신뢰 근거 | 형섭 | 성진 |
-| 4 | `feat/recommend-debate` | 추천 에이전트 대 검증 에이전트 | 형섭 | 성진 |
-| 5 | `feat/eval-judge` | LLM 채점, 사람 재채점, 정답셋 | 형섭 | 성진 |
-| 6 | `feat/mentor-connect` | 현직자 연결 카드 | 형섭 | 종훈 |
-| 7 | `feat/mobile-layout` | 폰 화면 폭 맞춤 | 형섭 | 종훈 |
-| 8 | `feat/usage-dashboard` | 토큰·비용 화면 | 형섭 | 일현 |
-| 9 | `feat/search-compare` | 과정 검색 방식 비교표 | 형섭 | 종훈 |
-| 10 | `feat/report-download` | 진단 보고서 내려받기 | 형섭 | 일현 |
+| 0 | `refactor/app-tabs` ([#89](https://github.com/Sungsim-Metro/skillpath-ai/pull/89)) | 화면 파일을 탭별로 나눔 | 형섭 | 형섭 |
+| 1 | `feat/skill-level` ([#90](https://github.com/Sungsim-Metro/skillpath-ai/pull/90)) | 보유 수준 3단계 입력 (인터페이스 변경) | 형섭 | 일현 |
+| 2 | `feat/radar-chart` ([#91](https://github.com/Sungsim-Metro/skillpath-ai/pull/91)) | 영역 레이더 차트 | 형섭 | 일현 |
+| 3 | `feat/recommend-evidence` ([#92](https://github.com/Sungsim-Metro/skillpath-ai/pull/92)) | 추천 카드의 신뢰 근거 | 형섭 | 성진 |
+| 4 | `feat/recommend-debate` ([#93](https://github.com/Sungsim-Metro/skillpath-ai/pull/93)) | 추천 에이전트 대 검증 에이전트 | 형섭 | 성진 |
+| 5 | `feat/eval-judge` ([#94](https://github.com/Sungsim-Metro/skillpath-ai/pull/94)) | LLM 채점, 사람 재채점, 정답셋 | 형섭 | 성진 |
+| 6 | `feat/mentor-connect` ([#95](https://github.com/Sungsim-Metro/skillpath-ai/pull/95)) | 현직자 연결 카드 | 형섭 | 종훈 |
+| 7 | `feat/mobile-layout` ([#99](https://github.com/Sungsim-Metro/skillpath-ai/pull/99)) | 폰 화면 폭 맞춤 | 형섭 | 종훈 |
+| 8 | `feat/usage-dashboard` ([#96](https://github.com/Sungsim-Metro/skillpath-ai/pull/96)) | 토큰·비용 화면 | 형섭 | 일현 |
+| 9 | `feat/search-compare` ([#97](https://github.com/Sungsim-Metro/skillpath-ai/pull/97)) | 과정 검색 방식 비교표 | 형섭 | 종훈 |
+| 10 | `feat/report-download` ([#98](https://github.com/Sungsim-Metro/skillpath-ai/pull/98)) | 진단 보고서 내려받기 | 형섭 | 일현 |
 | | | 사용자 테스트용 배포 주소 | 미정 | |
 
 ### M5 구현 제출 (11/20~11/22)
