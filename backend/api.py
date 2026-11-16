@@ -155,6 +155,25 @@ def get_area_gap(job_category: str, owned_skills: list[str]) -> list[dict]:
     return list(rows.values())
 
 
+def get_area_gap_after(job_category: str, owned_skills, covered_skills: list[str]) -> list[dict]:
+    """추천 과정을 모두 마쳤다고 볼 때의 영역별 Gap(예상). 형식은 get_area_gap 과 같다. 계산은 전부 코드로 한다.
+
+    covered_skills 는 추천 과정이 붙은 부족 기술이다. 과정을 마치면 그 기술을 "배워봄"으로 본다.
+    - 보유 수준 기능(backend/levels.py)이 있으면 배워봄 값(0.5)으로 친다. 이미 써봄인 기술은 그대로 둔다.
+    - 그 기능이 없으면(있다/없다만 받는 동안) 보유로 친다.
+    과정을 마친다고 그 기술을 다룰 수 있게 된다는 보장은 없다. 화면에는 "예상"이라고 적는다.
+    """
+    try:
+        from backend.levels import LEARNED, normalize_owned
+    except ImportError:
+        names = list(owned_skills)
+        return get_area_gap(job_category, [*names, *[s for s in covered_skills if s not in names]])
+    levels = normalize_owned(owned_skills)
+    for skill in covered_skills:
+        levels.setdefault(skill.lower(), LEARNED)
+    return get_area_gap(job_category, levels)
+
+
 def _get_supply() -> dict:
     """교육 공급 집계(⑤): 기술별로 그 기술을 다루는 교과목 수."""
     if is_mock():
