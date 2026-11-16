@@ -30,6 +30,7 @@ from app.tabs import demand as tab_demand  # noqa: E402
 from app.tabs import extract as tab_extract  # noqa: E402
 from app.tabs import gap as tab_gap  # noqa: E402
 from app.tabs import recommend as tab_recommend  # noqa: E402
+from app.tabs import usage as tab_usage  # noqa: E402
 
 # (탭 이름, 그리는 함수). 순서대로 화면에 놓인다.
 TABS = [
@@ -87,6 +88,8 @@ else:
 
 ctx = Ctx(job=job, demand=demand, demand_err=demand_err, owned=list(owned), skill_options=skill_options,
           gap_rows=gap_rows, gap_err=gap_err, missing=missing)
-for container, (_, render) in zip(st.tabs([name for name, _ in TABS]), TABS):
+# 운영 현황 탭은 주소에 ?admin=1 을 붙였을 때만 보인다. 로그인이 아니라 가려 두는 것이다(토큰 수만 있고 내용은 없다)
+tabs = [*TABS, ("운영 현황", tab_usage.render)] if st.query_params.get("admin") == "1" else TABS
+for container, (_, render) in zip(st.tabs([name for name, _ in tabs]), tabs):
     with container:
         render(ctx)

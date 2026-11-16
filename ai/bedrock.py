@@ -16,6 +16,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
+from ai.usage import record as record_usage
+
 SAMPLE_DIR = Path(__file__).resolve().parent.parent / "data" / "sample"
 DEFAULT_REGION = "ap-northeast-2"
 USAGE_KEYS = ("inputTokens", "outputTokens", "totalTokens")
@@ -89,6 +91,7 @@ def converse_json(
             system, messages, max_tokens, temperature, mock_file, mock_key, attempt
         )
         add_usage(usage, call_usage)
+        record_usage(mock_file, attempt, call_usage, is_mock())  # 토큰·비용 화면용 기록. 내용은 남기지 않는다
         calls.append({"attempt": attempt, **{k: call_usage.get(k, 0) for k in USAGE_KEYS}})
         logger.info(
             "Bedrock 호출 key=%s 시도=%d 입력=%d 출력=%d 토큰 (stopReason=%s)",
