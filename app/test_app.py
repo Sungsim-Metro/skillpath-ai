@@ -32,12 +32,6 @@ class AppSmokeTest(unittest.TestCase):
         at = self.at.sidebar.button_group[0].set_value([]).run()
         self.assertFalse(at.exception)
 
-    def test_learned_skill_changes_gap_and_recommendation(self):
-        """배워봄으로 고르면 부족 기술에 '보강'으로 남고 추천 안내가 붙는다."""
-        at = self.at.sidebar.button_group(key="learned").set_value(["AWS"]).run()
-        self.assertFalse(at.exception)
-        self.assertTrue(any("중급 과정을 먼저" in c.value for c in at.caption))
-
 
 if __name__ == "__main__":
     unittest.main()

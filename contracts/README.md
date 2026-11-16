@@ -80,35 +80,6 @@ AWS 운영 경험 우대
 | `courses[].prerequisites` | string | 선수지식 |
 | `courses[].reason` | string | 추천 이유 |
 | `courses[].match` | string | `certain` 또는 `uncertain` |
-| `user_level` | string | 이 기술의 사용자 수준 `none` 또는 `learned`. 화면 안내용이고 없으면 `none`으로 본다 (2026-11-16 추가) |
-
-`courses[]`의 순서는 `user_level`에 따라 달라집니다. `learned`(배워봄)면 중급 과정이, 그 밖에는 기초 과정이 앞에 옵니다.
-과정을 더하거나 빼지 않고 순서만 바꿉니다(`backend/api.py`의 `_with_level`).
-
-## 보유 기술 입력 (`owned_skills`) — app → backend  · 2026-11-16 추가, 팀 확인 대기
-
-`get_gap`, `get_area_gap`, `get_recommendations`가 받는 보유 기술입니다. 두 형식을 모두 받습니다.
-
-| 형식 | 예 | 뜻 |
-| --- | --- | --- |
-| 이름 목록 (예전 형식) | `["Python", "Linux"]` | 모두 `used`로 봅니다. 예전 호출의 결과는 달라지지 않습니다 |
-| 기술과 수준 | `{"Python": "used", "Docker": "learned"}` | 적지 않은 기술과 `none`은 없음 |
-
-| 수준 값 | 화면 이름 | Gap에 치는 값 |
-| --- | --- | --- |
-| `none` | 없음 | 0 |
-| `learned` | 배워봄 (강의·실습) | 0.5 |
-| `used` | 써봄 (프로젝트에서 사용) | 1.0 |
-
-값과 이름은 `backend/levels.py` 한 곳에 둡니다. 0.5는 팀이 정한 값이고 근거 자료가 있는 수치가 아닙니다.
-수준은 사용자가 스스로 고른 값이며 실력을 검증한 것이 아닙니다. 모르는 수준 값은 오류를 냅니다.
-
-돌려주는 값에 더해진 필드:
-
-| 함수 | 필드 | 설명 |
-| --- | --- | --- |
-| `get_gap` | `level` | 그 기술의 수준. `owned`는 `used`일 때만 `true` (배워봄은 부족 기술에 남는다) |
-| `get_area_gap` | `partial_skills` | 배워봄인 기술 목록. `owned`는 요구 공고 수에 수준 값을 곱해 더한 값이라 소수일 수 있다 |
 
 ## ④ 수요 집계 (`demand`) — backend → app  · 11/10 회의 승인 대기
 
@@ -141,3 +112,32 @@ AWS 운영 경험 우대
 | `note` | string | 화면에 함께 보여줄 안내(한계 등). 없으면 생략 |
 | `skills[].skill` | string | 표준 기술 이름 |
 | `skills[].courses` | number | 이 기술을 다루는 교과목 수 (코드로 계산) |
+
+## 보유 기술 입력 (`owned_skills`) — app → backend  · 2026-11-16 추가, 팀 확인 대기
+
+`get_gap`, `get_area_gap`, `get_recommendations`가 받는 보유 기술입니다. 두 형식을 모두 받습니다.
+
+| 형식 | 예 | 뜻 |
+| --- | --- | --- |
+| 이름 목록 (예전 형식) | `["Python", "Linux"]` | 모두 `used`로 봅니다. 예전 호출의 결과는 달라지지 않습니다 |
+| 기술과 수준 | `{"Python": "used", "Docker": "learned"}` | 적지 않은 기술과 `none`은 없음 |
+
+| 수준 값 | 화면 이름 | Gap에 치는 값 |
+| --- | --- | --- |
+| `none` | 없음 | 0 |
+| `learned` | 배워봄 (강의·실습) | 0.5 |
+| `used` | 써봄 (프로젝트에서 사용) | 1.0 |
+
+값과 이름은 `backend/levels.py` 한 곳에 둡니다. 0.5는 팀이 정한 값이고 근거 자료가 있는 수치가 아닙니다.
+수준은 사용자가 스스로 고른 값이며 실력을 검증한 것이 아닙니다. 모르는 수준 값은 오류를 냅니다.
+
+돌려주는 값에 더해진 필드:
+
+| 함수 | 필드 | 설명 |
+| --- | --- | --- |
+| `get_gap` | `level` | 그 기술의 수준. `owned`는 `used`일 때만 `true` (배워봄은 부족 기술에 남는다) |
+| `get_area_gap` | `partial_skills` | 배워봄인 기술 목록. `owned`는 요구 공고 수에 수준 값을 곱해 더한 값이라 소수일 수 있다 |
+
+③ 추천에 더해진 것: `user_level`(string). 이 기술의 사용자 수준 `none` 또는 `learned`이고, 화면 안내용이며 없으면 `none`으로 봅니다.
+`courses[]`의 순서는 `user_level`에 따라 달라집니다. `learned`(배워봄)면 중급 과정이, 그 밖에는 기초 과정이 앞에 옵니다.
+과정을 더하거나 빼지 않고 순서만 바꿉니다(`backend/api.py`의 `_with_level`).
