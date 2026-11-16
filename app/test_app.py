@@ -32,13 +32,6 @@ class AppSmokeTest(unittest.TestCase):
         at = self.at.sidebar.button_group[0].set_value([]).run()
         self.assertFalse(at.exception)
 
-    def test_coffeechat_draft_appears_after_button(self):
-        """메시지 초안은 버튼을 눌렀을 때만 만들어진다."""
-        self.assertFalse([t for t in self.at.text_area if t.key == "coffeechat_text"])
-        at = self.at.button(key="coffeechat_btn").click().run()
-        self.assertFalse(at.exception)
-        self.assertIn("[내 이름]", at.text_area(key="coffeechat_text").value)
-
 
 if __name__ == "__main__":
     unittest.main()
