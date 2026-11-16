@@ -33,11 +33,33 @@ def _render_recommendations(ctx: Ctx):
                     st.markdown(f"**{md_escape(c['title'])}**{badge}")
                     st.caption(f"난이도 {c['level']} · 선수지식 {c['prerequisites']}")
                     st.write(c["reason"])
+                    _render_evidence(rec["gap_skill"], c)
                 with action:
                     st.link_button("Skill Builder 열기", c["url"], icon=":material/open_in_new:",
                                    type="primary", width="stretch")
 
 
+
+
+FIELD_LABEL = {"objectives": "학습 목표", "title": "과정 제목"}
+
+
+def _render_evidence(skill: str, course: dict):
+    """과정 쪽 근거 문장(③ courses[].evidence). 문장은 backend 가 과정 원문에서 골라 검사한 것만 온다."""
+    if "evidence" not in course:  # 근거 필드가 없는 예전 형식의 추천은 아무것도 붙이지 않는다
+        return
+    ev = course["evidence"]
+    if not ev:
+        st.caption(f"{UNCERTAIN} 과정의 제목과 학습 목표에서 {md_escape(skill)} 관련 문장을 찾지 못했습니다. "
+                   "관련 기초 과정으로 보고, 링크에서 내용을 확인하세요.")
+        return
+    where = FIELD_LABEL.get(ev["field"], ev["field"])
+    if ev["about"] == "skill":
+        lead = f"과정의 {where}에서 찾은 근거 · {md_escape(skill)}"
+    else:
+        lead = (f"과정의 {where}에서 찾은 근거 · {md_escape(skill)} 이름은 없고 같은 세부 능력"
+                + (f"({md_escape(ev['subskill'])})" if ev.get("subskill") else "") + "을 다룸")
+    st.markdown(f"> {md_escape(ev['text'])}  \n> :gray[{lead}]")
 
 
 def render(ctx: Ctx):

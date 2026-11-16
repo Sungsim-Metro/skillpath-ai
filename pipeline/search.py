@@ -162,3 +162,48 @@ def search_courses(skill: str, k: int = 3) -> list[dict]:
         seen.add(cid)
         out.append({"course_id": cid, "subskill_id": r["subskill_id"], "match": "uncertain"})
     return out
+
+
+def _sentences(course: dict, field: str) -> list[str]:
+    """과정의 한 칸을 문장 단위로 나눈다. objectives 는 ' / ' 나 줄바꿈으로 나뉘어 있다."""
+    text = course.get(field, "")
+    if field == "title":
+        return [text.strip()] if text.strip() else []
+    return [p.strip() for p in re.split(r"\s+/\s+|\n", text) if p.strip()]
+
+
+def skill_evidence(skill: str, course_id: str, subskill_id: str | None = None) -> dict | None:
+    """과정 원문에서 '이 기술을 다룬다'는 근거 문장 하나. 없으면 None. 문장을 만들어 내지 않고 원문에서 골라 온다.
+
+    순서
+    1. 기술 이름(대표명·별칭)이 나오는 학습 목표 문장 → about "skill", field "objectives"
+    2. 기술 이름이 나오는 제목 → about "skill", field "title"
+    3. 이름은 없지만 같은 세부 능력으로 이어진 근거(course_subskill.csv 의 evidence, certain 인 것만)
+       → about "subskill". "이 기술"이 아니라 "관련 세부 능력"을 다룬다는 근거다
+    반환: {"text", "field", "about", "subskill"}. text 는 과정 원문의 그 칸에 그대로 있다(evidence_in_course 로 확인).
+    설명(description)에만 나오는 것은 약해서 근거로 쓰지 않는다(search_courses 와 같은 기준).
+    """
+    course = _courses().get(course_id)
+    if course is None:
+        return None
+    names = _names(normalize_skill(skill) or skill)
+    for field in ("objectives", "title"):
+        for sentence in _sentences(course, field):
+            if _mentions(sentence, names):
+                return {"text": sentence, "field": field, "about": "skill", "subskill": None}
+    for row in _links_by_course().get(course_id, []):
+        if row["subskill_id"] == subskill_id and row["match"] == "certain" and row["evidence"].strip() \
+                and row["evidence_field"] in ("objectives", "title"):
+            found = {"text": row["evidence"].strip(), "field": row["evidence_field"], "about": "subskill",
+                     "subskill": row["subskill"]}
+            return found if evidence_in_course(found, course_id) else None
+    return None
+
+
+def evidence_in_course(evidence: dict, course_id: str) -> bool:
+    """근거 문장이 그 과정 원문의 해당 칸에 실제로 있는지. 공백 차이만 무시한다."""
+    course = _courses().get(course_id)
+    if course is None or evidence.get("field") not in ("objectives", "title"):
+        return False
+    squash = lambda t: re.sub(r"\s+", " ", t.replace("\xa0", " ")).strip()  # noqa: E731
+    return bool(evidence.get("text")) and squash(evidence["text"]) in squash(course[evidence["field"]])

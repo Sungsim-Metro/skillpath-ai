@@ -57,7 +57,20 @@ def demo():
     # 가짜가 아닌 실제 build_recommendation 이 ③ 형식(courses[] 의 필드와 반환 튜플)을 돌려주는지: 연결이 가짜 모양에만 맞지 않게
     rec, _ = recommend.build_recommendation("Docker", {"postings": 20, "of": 40, "required_ratio": 0.45})
     assert rec["gap_skill"] == "Docker" and rec["courses"]
-    assert all(set(c) == {"title", "url", "level", "prerequisites", "reason", "match"} for c in rec["courses"])
+    assert all(set(c) == {"title", "url", "level", "prerequisites", "reason", "match", "evidence"} for c in rec["courses"])
+    # 과정 쪽 근거 문장: 과정 원문에서 골라 온 것이고, 있으면 그 과정의 그 칸에 실제로 있다
+    from pipeline.search import _courses, evidence_in_course, skill_evidence
+    by_title = {c["title"]: cid for cid, c in _courses().items()}
+    assert rec["courses"][0]["evidence"]["about"] == "skill" and "Docker" in rec["courses"][0]["evidence"]["text"]
+    for c in rec["courses"]:
+        if c["evidence"]:
+            assert evidence_in_course(c["evidence"], by_title[c["title"]]), c
+    some_id = by_title[rec["courses"][0]["title"]]
+    assert skill_evidence("없는기술이름", some_id) is None                       # 이름도 세부 능력도 안 맞으면 없다
+    assert not evidence_in_course({"text": "지어낸 문장", "field": "objectives"}, some_id)
+    assert not evidence_in_course({"text": "x", "field": "description"}, some_id)   # 설명 칸은 근거로 쓰지 않는다
+    # 가짜 추천 예시에도 evidence 가 있다(없음을 뜻하는 null 포함)
+    assert all("evidence" in c for r in api._load("recommendations.json") for c in r["courses"])
     print("backend.api 확인 통과")
 
 

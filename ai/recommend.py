@@ -7,6 +7,7 @@
 - retiring 과정과 학습 목표(objectives)가 빈 과정은 제외한다 (근거로 삼을 내용이 없음)
 - 입력 숫자는 ③ demand 그대로. 지금은 건수로 가정한다 (건수인지 가중 합인지 미정: docs/development.md)
 - 공고 원문과 근거 문장은 넣지 않는다 (CLAUDE.md 원칙 3, 2026-11-12)
+- 과정 쪽 근거 문장(courses[].evidence)은 LLM 이 아니라 코드가 과정 원문에서 골라 오고, 원문에 있는지 검사한다(2026-11-16)
 - reason 검사는 코드로 한다: course_id 집합, 숫자, 입력에 없는 영문 이름, 한국어 여부.
   실패하면 converse_json 이 1회 재시도하고, 그래도 실패하면 BedrockJSONError 를 그대로 낸다.
 """
@@ -21,7 +22,7 @@ from typing import Optional
 
 from ai.bedrock import SAMPLE_DIR, USAGE_KEYS, ConverseResult, converse_json, is_mock
 from ai.prompts import recommend_v1 as prompt
-from pipeline.search import search_courses
+from pipeline.search import evidence_in_course, search_courses, skill_evidence
 
 ROOT = Path(__file__).resolve().parent.parent
 COURSES_CSV = ROOT / "data" / "courses" / "courses.csv"
@@ -179,7 +180,20 @@ def build_recommendation(skill: str, demand: dict) -> tuple[dict, Optional[Conve
             "prerequisites": c["prerequisites"],
             "reason": reasons[c["course_id"]],
             "match": c["match"],
+            "evidence": course_evidence(skill, c),
         }
         for c in courses
     ]
     return rec, result
+
+
+def course_evidence(skill: str, course: dict) -> Optional[dict]:
+    """추천 카드에 보여줄 과정 쪽 근거 문장(③ courses[].evidence). LLM 을 쓰지 않고 과정 원문에서 골라 온다.
+
+    원문에 실제로 있는지 한 번 더 검사하고, 없으면 None 을 돌려준다(화면은 "불확실"로 표시한다).
+    공고 원문이나 추출 근거 문장이 아니다(CLAUDE.md 원칙 3).
+    """
+    found = skill_evidence(skill, course["course_id"], course.get("subskill_id"))
+    if found is None or not evidence_in_course(found, course["course_id"]):
+        return None
+    return found
