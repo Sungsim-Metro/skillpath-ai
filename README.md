@@ -4,6 +4,8 @@
 
 AI Bootcamp Innovation Challenger 2026 · 팀 ASAP하게 · 발표 11/25(수)
 
+https://claude.ai/artifact/6LV7F7PLY3xtbB5kKRW97Y#progress
+
 ## 30초 요약
 
 - **누구를 위한 것인가.** 클라우드·AI 엔지니어를 준비하는 취업 준비생. 공고가 실제로 무엇을 요구하는지, 그래서 무엇부터 공부할지 모르는 사람.
