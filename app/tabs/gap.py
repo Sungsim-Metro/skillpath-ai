@@ -3,6 +3,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from app.tabs.connect import render_connect
 from app.common import (
     ACCENT,
     ACCENT_LIGHT,
@@ -16,7 +17,6 @@ from app.common import (
     load,
     notice,
 )
-from app.tabs.connect import render_connect
 from backend import api
 
 def render_area_gap(ctx: Ctx):
