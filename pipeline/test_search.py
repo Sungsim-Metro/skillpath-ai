@@ -111,6 +111,34 @@ def hybrid():
         k8s = search_courses("Kubernetes", k=5)
         assert k8s[: len(search_courses("Kubernetes", mode="rules", k=5))] == search_courses("Kubernetes", mode="rules", k=5)
         assert len({f["course_id"] for f in k8s}) == len(k8s)
+        # 채우는 단계가 실패하면(Titan 호출 오류 등) 오류로 멈추지 않고 경고를 남긴 뒤 규칙 결과를 준다. 방식을 직접 고르면 오류를 그대로 낸다
+        def boom(skill):
+            raise ConnectionError("Titan down")
+
+        S._semantic_ranking = boom
+        import logging
+
+        class Capture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.records = []
+
+            def emit(self, record):
+                self.records.append(record.getMessage())
+
+        cap = Capture()
+        logging.getLogger("pipeline.search").addHandler(cap)
+        try:
+            assert search_courses("Network") == search_courses("Network", mode="rules") == []
+            assert len(cap.records) == 1 and "ConnectionError" in cap.records[0], cap.records
+            try:
+                search_courses("Network", mode="embedding")
+                raise AssertionError("방식을 직접 고르면 오류를 그대로 낸다")
+            except ConnectionError:
+                pass
+        finally:
+            logging.getLogger("pipeline.search").removeHandler(cap)
+        S._semantic_ranking = lambda skill: [b, c]
         # 사람이 지정한 입문 과정(AWS)은 채우지 않는다
         assert search_courses("AWS") == [{"course_id": "94T2BEN85A", "subskill_id": None, "match": "uncertain"}]
         # 단독 방식

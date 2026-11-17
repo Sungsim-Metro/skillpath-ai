@@ -1,4 +1,4 @@
-"""기술 → 교육과정 후보 (#14). 임베딩 없이 저장소에 있는 연결표와 과정 본문만 쓴다.
+"""기술 → 교육과정 후보 (#14). 규칙(연결표와 과정 본문)이 먼저이고, 자리가 남으면 키워드+임베딩 검색으로 채운다.
 
 순서
 1. 기술 → 세부 능력: pipeline/courses/queries.csv 의 aliases 에 기술 이름이 '그대로' 있는 세부 능력.
@@ -14,18 +14,20 @@
 - 반환은 [{"course_id", "subskill_id", "match"}]. 제목·링크·난이도는 부르는 쪽(ai/recommend.py)이 CSV 에서 채운다.
   match 는 이 함수가 정한 값이다. course_subskill.csv 의 match 는 "그 과정이 세부 능력을 다룬다"는 증거이지
   "그 과정이 이 기술을 다룬다"는 증거가 아니므로 그대로 쓰지 않는다.
-  주의: subskill_id 가 None 인 항목이 있다. ai/recommend.py 의 candidate_courses 는 (course_id, subskill_id) 행이 없으면
-  KeyError 를 내고 match 도 CSV 값만 쓰므로, search_courses 로 교체할 때 이 함수가 준 match 를 쓰고
-  sid 가 None 이면 행 조회를 건너뛰는 분기를 함께 넣어야 한다(아직 없음).
+  subskill_id 가 None 인 항목이 있다(AWS 같은 지정 입문 과정, 임베딩으로 채운 과정 중 세부 능력 연결이 없는 것).
+  ai/recommend.py 의 candidate_courses 는 sid 가 None 이면 행 조회를 건너뛰고 match 를 uncertain 으로 둔다.
 - 방식(mode): rules(위 규칙만), keyword(본문 키워드 점수만), embedding(과정 벡터와 코사인만), hybrid(키워드+의미를 RRF 로 합침),
   final(기본: 규칙 결과를 먼저 주고 자리가 남으면 hybrid 로 채움, 채운 것은 match=uncertain). 비교표는 pipeline/eval_search.py.
   final 은 벡터를 쓸 수 없으면(가짜 모드, data/courses/course_vectors.json 없음, EMBED_MODEL_ID 불일치) 규칙 결과 그대로다.
   AWS 처럼 사람이 입문 과정을 지정한 기술은 채우지 않는다. Reranking 은 하지 않는다(2026-11-16 결정).
+  채우는 단계는 보조다. 그 단계에서 Titan 호출 등이 실패하면 오류로 멈추지 않고 경고를 남긴 뒤 규칙 결과를 돌려준다(예전 동작과 같다).
+  mode 를 직접 고른 호출(keyword 외)은 실패를 그대로 낸다.
 """
 from __future__ import annotations
 
 import csv
 import json
+import logging
 import os
 import re
 from functools import lru_cache
@@ -275,7 +277,12 @@ def search_courses(skill: str, k: int = 3, mode: str = "final") -> list[dict]:
         if len(out) >= k or (normalize_skill(skill) or skill) in _foundation() or not _semantic_ready():
             return out  # 사람이 지정한 입문 과정(AWS)은 채우지 않는다
         seen = {f["course_id"] for f in out}
-        for cid in _candidates(skill, "hybrid"):
+        try:
+            filler = _candidates(skill, "hybrid")
+        except Exception as e:  # ponytail: 어떤 실패든 규칙 결과로 돌아간다. 오류 종류를 가려야 하면 botocore 예외로 좁힌다
+            logging.getLogger(__name__).warning("채움 단계(임베딩 검색) 실패, 규칙 결과만 돌려줍니다: %s: %s", type(e).__name__, e)
+            return out
+        for cid in filler:
             if len(out) == k:
                 break
             if cid not in seen:
