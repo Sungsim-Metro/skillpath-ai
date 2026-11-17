@@ -44,8 +44,12 @@ class JudgeTest(unittest.TestCase):
                "c": {"grounded": 2, "relevant": 1, "clear": 2}}
         human = {"a": {"grounded": 2, "relevant": 1, "clear": 1}, "b": {"grounded": 2, "relevant": 2, "clear": None}}
         table = judge.agreement(llm, human)
-        self.assertEqual(table["grounded"], {"n": 2, "exact": 0.5, "within_1": 0.5, "mean_diff": -1.0})
-        self.assertEqual(table["relevant"], {"n": 2, "exact": 0.5, "within_1": 1.0, "mean_diff": 0.5})
+        g = table["grounded"]
+        self.assertEqual((g["n"], g["exact"], g["mean_diff"]), (2, 0.5, -1.0))
+        self.assertNotIn("within_1", g)                                   # 점수가 셋뿐이라 뜻이 없는 숫자는 내지 않는다
+        self.assertEqual(g["confusion"]["2"], {"0": 1, "1": 0, "2": 1})   # 사람이 2점 준 두 항목에 LLM 은 0점과 2점
+        r = table["relevant"]
+        self.assertEqual((r["human_low"], r["human_low_caught"]), (1, 0))  # 사람이 낮게 준 항목을 LLM 은 2점으로 놓쳤다
         self.assertEqual(table["clear"]["n"], 1)                          # 사람이 비운 칸은 세지 않는다
 
     def test_agree_command_and_bad_cell(self):
@@ -61,7 +65,9 @@ class JudgeTest(unittest.TestCase):
             w.writerows(rows)
         code, out = self.run_cli("agree", str(result), str(sheet))
         self.assertEqual(code, 0)
-        self.assertIn("100%", out)
+        self.assertIn("일치율 저장", out)
+        saved = json.loads(next(Path(self.tmp.name).glob("*_agreement.json")).read_text(encoding="utf-8"))
+        self.assertEqual((saved["human_items"], saved["agreement"]["grounded"]["exact"]), (3, 1.0))
         rows[0]["grounded"] = "좋음"
         with sheet.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=judge.HUMAN_COLUMNS)
@@ -104,13 +110,55 @@ class JudgeTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_cli("run", "--skills", "없는기술")
 
-    def test_paired_change(self):
-        def item(mode, total):
-            return {"skill": "S", "title": "T", "mode": mode, "match": "certain",
+    def test_paired_change_separates_noise_from_effect(self):
+        def item(title, mode, total, reason="같은 이유"):
+            return {"skill": "S", "title": title, "mode": mode, "match": "certain", "reason": reason,
                     "scores": {"grounded": total, "relevant": 0, "clear": 0}}
-        self.assertEqual(judge.paired_change([item("single", 1), item("debate", 2)]),
-                         {"pairs": 1, "higher": 1, "same": 0, "lower": 0})
-        self.assertIsNone(judge.paired_change([item("single", 1)]))
+        change = judge.paired_change([
+            item("A", "single", 1), item("A", "debate", 2),                      # 글이 같은데 점수가 다르다: 잡음
+            item("B", "single", 1), item("B", "debate", 2, reason="고친 이유"),   # 글이 바뀌었다: 효과
+            item("C", "single", 2), item("C", "debate", 2),
+        ])
+        self.assertEqual((change["pairs"], change["noise"]), (3, 1))
+        self.assertEqual(change["changed"], {"pairs": 1, "higher": 1, "same": 0, "lower": 0})
+        self.assertEqual(change["identical"]["pairs"], 2)
+        self.assertIsNone(judge.paired_change([item("A", "single", 1)]))
+
+    def test_human_sample_always_includes_suspect_items(self):
+        def item(i, low=False, review=None, match="certain", reason=None):
+            return {"item_id": f"i{i}", "skill": "S", "title": f"T{i}", "reason": reason or f"이유 {i}", "match": match,
+                    "review_status": review, "scores": {"grounded": 1 if low else 2, "relevant": 2, "clear": 2}}
+        items = [item(i) for i in range(10)] + [item(10, low=True), item(11, review="revised"), item(12, match="uncertain")]
+        items.append({**item(13), "title": "T0", "reason": "이유 0"})  # 0번과 글자까지 같다
+        picked = {it["item_id"] for it in judge.pick_for_human(items, 5, seed=1)}
+        self.assertTrue({"i10", "i11", "i12"} <= picked)
+        self.assertEqual(len(picked), 5)
+        self.assertEqual(len(judge.pick_for_human(items, 0, seed=1)), 13)  # 0 이면 서로 다른 이유 전부
+
+    def test_rubric_in_doc_matches_prompt(self):
+        doc = (Path(judge.__file__).parent / "JUDGE.md").read_text(encoding="utf-8")
+        for key, name, two, one, zero in judge.judge_v1.RUBRIC:
+            self.assertIn(f"| {name} (`{key}`) | {two} | {one} | {zero} |", doc)
+
+    def test_human_sheet_is_read_strictly(self):
+        def sheet(text, encoding="utf-8-sig"):
+            p = Path(self.tmp.name) / "h.csv"
+            p.write_bytes(("item_id,skill,grounded,relevant,clear,memo\n" + text).encode(encoding))
+            return p
+        self.assertEqual(judge.read_human_sheet(sheet("a,도커,2.0,1,,메모\n,,,,,\n", "cp949")),
+                         {"a": {"grounded": 2, "relevant": 1, "clear": None}})
+        with self.assertRaises(ValueError):
+            judge.read_human_sheet(sheet("a,S,2,1,0,\na,S,0,0,0,\n"))  # 같은 항목이 두 번
+        with self.assertRaises(ValueError):
+            judge.read_human_sheet(sheet(",S,2,1,0,\n"))                # 번호가 지워진 줄
+
+    def test_any_failure_is_recorded(self):
+        """호출 제한 같은 오류도 실행 전체를 멈추지 않고 errors 에 남는다."""
+        with mock.patch.object(judge, "judge", side_effect=RuntimeError("ThrottlingException")):
+            code, _ = self.run_cli("run", "--skills", "Docker", "--modes", "single")
+        result = json.loads(next(Path(self.tmp.name).glob("judge_mock_*[0-9].json")).read_text(encoding="utf-8"))
+        self.assertEqual((code, result["errors"][0]["stage"]), (1, "judge"))
+        self.assertIn("ThrottlingException", result["errors"][0]["error"])
 
 
 if __name__ == "__main__":
