@@ -145,10 +145,14 @@ class ToolLoopResult(NamedTuple):
     """converse_tools 결과. text 는 마지막 응답의 글(도구를 더 부르지 않은 응답). 반복 한도에 걸리면 빈 문자열."""
     text: str
     messages: list      # 대화 전체(도구 호출·결과 포함). 이어서 물을 때 그대로 넘긴다
-    tool_calls: tuple   # 도구 호출마다 {"name", "input", "ok"}
+    tool_calls: tuple   # 도구 호출마다 {"name", "input", "ok"} (final_tool 은 넣지 않는다)
     model_calls: int    # 모델을 부른 횟수
     usage: dict         # 모델 호출 전체의 토큰 합 (가짜 모드는 0)
-    stop: str           # "end_turn"(도구 없이 끝남) 또는 "max_turns"(한도까지 도구만 부름)
+    stop: str           # "end_turn"(글로 끝남), "final_tool"(마지막 답 도구로 끝남), "max_turns"(한도까지 도구만 부름)
+    final: Optional[dict] = None  # stop 이 final_tool 이면 {"id": toolUseId, "input": 도구 입력}. 이어서 물을 때 이 id 로 toolResult 를 준다
+
+
+FINAL_TOO_EARLY = "다른 도구 결과가 아직 없어 이 답은 받지 않았습니다. 도구 결과를 본 뒤 answer 만 다시 부르세요."
 
 
 def converse_tools(
@@ -163,11 +167,15 @@ def converse_tools(
     mock_turn_start: int = 1,
     max_tokens: int = 2048,
     temperature: float = 0.0,
+    final_tool: Optional[str] = None,
 ) -> ToolLoopResult:
     """Converse 도구 호출 반복 (#25). 모델이 도구를 고르면 run_tool 로 실행해 결과를 돌려주고, 글로 답하면 멈춘다.
 
     tools 는 [{"name", "description", "inputSchema": {"json": JSON Schema}}] (Converse toolSpec 형식).
     run_tool(name, input) 은 JSON 으로 바꿀 수 있는 dict 를 돌려준다. 예외가 나면 status "error" 로 모델에 알린다.
+    final_tool: 마지막 답을 받는 도구 이름. 이 도구만 불리면 실행하지 않고 그 입력을 final 로 돌려주며 멈춘다.
+      같은 턴에 다른 도구와 같이 불리면 다른 도구를 먼저 실행하고, 마지막 답에는 FINAL_TOO_EARLY 오류를 돌려줘 다시 묻는다
+      (결과를 보기 전에 쓴 답은 그 결과를 근거로 할 수 없다).
     messages 는 바꾸지 않고 복사해서 쓴다. 가짜 모드는 mock_file[mock_key] 의 n번째 응답을 n번째 호출에 쓴다.
     """
     messages = list(messages)
@@ -184,11 +192,20 @@ def converse_tools(
         )
         messages.append({"role": "assistant", "content": content})
         uses = [b["toolUse"] for b in content if "toolUse" in b]
+        text = "".join(b["text"] for b in content if "text" in b)
         if not uses:
-            text = "".join(b["text"] for b in content if "text" in b)
             return ToolLoopResult(text, messages, tuple(calls), turn + 1, usage, "end_turn")
+        finals = [u for u in uses if u["name"] == final_tool]
+        if finals and len(finals) == len(uses):
+            final = finals[-1]
+            return ToolLoopResult(text, messages, tuple(calls), turn + 1, usage, "final_tool",
+                                  {"id": final["toolUseId"], "input": final.get("input") or {}})
         results = []
         for use in uses:
+            if use["name"] == final_tool:  # 다른 도구와 같이 불린 마지막 답: 받지 않고 다시 묻는다
+                results.append({"toolResult": {"toolUseId": use["toolUseId"], "content": [{"text": FINAL_TOO_EARLY}],
+                                               "status": "error"}})
+                continue
             try:
                 out, status = [{"json": run_tool(use["name"], use.get("input") or {})}], "success"
             except Exception as e:  # noqa: BLE001 - 도구 실패는 모델에게 알리고 대화는 이어 간다

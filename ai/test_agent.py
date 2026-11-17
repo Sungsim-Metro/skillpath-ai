@@ -225,7 +225,7 @@ def test_converse_tools_real_request_shape():
         os.environ.update(old_env)
     first = fake.calls[0]
     assert first["modelId"] == "test-model"
-    assert [t["toolSpec"]["name"] for t in first["toolConfig"]["tools"]] == ["get_gap", "get_skill_demand", "search_courses"]
+    assert [t["toolSpec"]["name"] for t in first["toolConfig"]["tools"]] == ["get_gap", "get_skill_demand", "search_courses", "answer"]
     results = fake.calls[1]["messages"][-1]
     assert results["role"] == "user"
     tr = [b["toolResult"] for b in results["content"]]
@@ -234,6 +234,69 @@ def test_converse_tools_real_request_shape():
     assert res.text == "끝" and res.stop == "end_turn" and res.model_calls == 2
     assert res.usage == {"inputTokens": 200, "outputTokens": 20, "totalTokens": 220}
     assert [c["ok"] for c in res.tool_calls] == [True, False]
+
+
+class FakeFinalClient:
+    """첫 호출: 수요 도구와 answer 를 같은 차례에 부름(너무 이른 답). 둘째 호출: answer 만."""
+
+    def __init__(self):
+        self.calls = []
+
+    def converse(self, **kw):
+        self.calls.append(copy.deepcopy(kw))
+        usage = {"inputTokens": 50, "outputTokens": 5, "totalTokens": 55}
+        if len(self.calls) == 1:
+            content = [{"toolUse": {"toolUseId": "d1", "name": "get_skill_demand", "input": {"skill": "AWS"}}},
+                       {"toolUse": {"toolUseId": "f1", "name": "answer", "input": {"answer": "이른 답", "scope": "in"}}}]
+        else:
+            content = [{"text": "정리합니다."},
+                       {"toolUse": {"toolUseId": "f2", "name": "answer", "input": {"answer": "최종 답", "scope": "in"}}}]
+        return {"output": {"message": {"role": "assistant", "content": content}}, "stopReason": "tool_use", "usage": usage}
+
+
+def test_converse_tools_final_tool():
+    fake = FakeFinalClient()
+    old_client, old_env = bedrock._client, dict(os.environ)
+    bedrock._client = lambda: fake
+    os.environ.update({"BEDROCK_MOCK": "0", "BEDROCK_MODEL_ID": "test-model"})
+    ran = []
+    try:
+        res = bedrock.converse_tools("시스템", [{"role": "user", "content": [{"text": "질문"}]}], agent.prompt.TOOLS,
+                                     lambda n, i: ran.append(n) or {"postings": 31}, mock_file=agent.MOCK_FILE,
+                                     mock_key="x", final_tool="answer")
+    finally:
+        bedrock._client = old_client
+        os.environ.clear()
+        os.environ.update(old_env)
+    assert ran == ["get_skill_demand"]  # answer 는 실행하지 않는다
+    second = {b["toolResult"]["toolUseId"]: b["toolResult"] for b in fake.calls[1]["messages"][-1]["content"]}
+    assert second["d1"]["status"] == "success"
+    assert second["f1"]["status"] == "error" and second["f1"]["content"][0]["text"] == bedrock.FINAL_TOO_EARLY
+    assert res.stop == "final_tool" and res.final == {"id": "f2", "input": {"answer": "최종 답", "scope": "in"}}
+    assert res.model_calls == 2 and [c["name"] for c in res.tool_calls] == ["get_skill_demand"]
+
+
+def test_answer_tool_flow():
+    text = _agent_log(QUESTION)
+    assert "답 answer도구" in text and "재질문 없음" in text and "모델 3회" in text
+    # 다른 도구와 같은 차례에 부른 answer(35건)는 받지 않고, 결과를 본 뒤의 answer(31건)를 쓴다
+    r = agent.chat("AWS 수요랑 답을 같이 불러 주세요")
+    assert names(r) == ["get_skill_demand"] and "31건" in r["answer"] and "35" not in r["answer"]
+    assert r["uncertain"] is False
+    assert "재질문 없음" in _agent_log("AWS 수요랑 답을 같이 불러 주세요")  # 너무 이른 답은 재질문으로 세지 않는다
+    # 안전장치: answer 도구 없이 글(JSON)로 답해도 받는다
+    text = _agent_log("AWS는 글로만 답해 주세요")
+    assert "답 글" in text and "재질문 없음" in text
+
+
+def test_retry_turn_shape():
+    loop = bedrock.ToolLoopResult("", [], (), 2, {}, "final_tool", {"id": "f9", "input": {}})
+    turn = agent._retry_turn(loop, "숫자 오류")
+    tr = turn["content"][0]["toolResult"]
+    assert turn["role"] == "user" and tr["toolUseId"] == "f9" and tr["status"] == "error"  # answer 호출에 대한 결과로 돌려준다
+    assert "answer 도구로" in tr["content"][0]["text"]
+    text_loop = bedrock.ToolLoopResult("글", [], (), 2, {}, "end_turn")
+    assert agent._retry_turn(text_loop, "형식 오류")["content"][0]["text"].startswith("직전 답이")
 
 
 if __name__ == "__main__":

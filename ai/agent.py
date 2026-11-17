@@ -12,7 +12,9 @@
 코드가 하는 검사
 - 답의 숫자는 이번 대화의 도구 결과와 사용자 메시지(이전 대화 포함)에 있는 것만 허용한다(ai.recommend 의 숫자 검사 방식).
   실패하면 이유를 알려 한 번 다시 묻고, 그래도 실패하면 근거 없는 숫자가 든 문장을 지운다(uncertain_reason "number_check").
-- 마지막 답은 JSON {"answer", "scope"}. 두 번 모두 JSON 이 아니면 BedrockJSONError 를 그대로 낸다(CLAUDE.md 코드 규칙).
+- 마지막 답은 answer 도구({"answer", "scope"})로 받는다. answer 가 불리면 반복이 끝난다. 다른 도구와 같은 차례에 불리면
+  다른 도구를 먼저 실행하고 answer 에는 "결과를 보고 다시 부르라"는 오류를 돌려줘 다시 묻는다(ai.bedrock.converse_tools).
+  안전장치: answer 없이 글로 답하면 그 글을 JSON 으로 읽고, 아니면 형식 재질문. 두 번 모두 실패하면 BedrockJSONError(CLAUDE.md 코드 규칙).
 - unrecognized 표기가 있는데 답에 되묻기가 없으면 코드가 "OO는 XX를 말씀하신 건가요?" 를 덧붙인다.
 - 취업 준비 질문(scope "in")인데 도구를 한 번도 성공적으로 부르지 않았으면 uncertain_reason "no_tool".
 - 도구만 부르다 MAX_TURNS 에 걸리면 정해진 안내와 uncertain_reason "max_turns".
@@ -177,12 +179,18 @@ def answer_numbers(answer: str) -> set[float]:
     return _numbers(_LIST_MARK.sub("", answer))
 
 
-def check_answer(text: str, allowed: set[float]) -> tuple[Optional[dict], list[float], Optional[str]]:
-    """(읽은 답, 근거 없는 숫자, 오류 설명). 오류가 없으면 설명이 None."""
-    try:
-        data = parse_json_object(text)
-    except ValueError as e:
-        return None, [], f"JSON 객체가 아닙니다({type(e).__name__})"
+def check_answer(raw, allowed: set[float]) -> tuple[Optional[dict], list[float], Optional[str]]:
+    """(읽은 답, 근거 없는 숫자, 오류 설명). 오류가 없으면 설명이 None.
+
+    raw 는 answer 도구 입력(dict) 이거나, 모델이 도구 없이 글로 답한 문자열(JSON 이어야 함, 안전장치).
+    """
+    if isinstance(raw, dict):
+        data = raw
+    else:
+        try:
+            data = parse_json_object(raw)
+        except ValueError as e:
+            return None, [], f"answer 도구를 부르지 않았고 글도 JSON 객체가 아닙니다({type(e).__name__})"
     if not isinstance(data.get("answer"), str) or not data["answer"].strip():
         return None, [], '"answer" 가 비었거나 문자열이 아닙니다'
     if data.get("scope") not in ("in", "out"):
@@ -227,6 +235,22 @@ def _mock_key(message: str) -> str:
     return "default"
 
 
+def _final_answer(loop):
+    """반복 결과에서 검사할 답: answer 도구 입력, 없으면 글(안전장치). 도구만 부르다 끝났으면 None."""
+    if loop.stop == "final_tool":
+        return loop.final["input"]
+    return loop.text if loop.stop == "end_turn" else None
+
+
+def _retry_turn(loop, error: str) -> dict:
+    """다시 물을 때 보낼 user 메시지. 직전 답이 answer 도구면 그 호출의 toolResult(오류)로 돌려준다(Converse 규칙)."""
+    note = prompt.RETRY_MESSAGE.format(error=error)
+    if loop.stop == "final_tool":
+        return {"role": "user", "content": [{"toolResult": {"toolUseId": loop.final["id"],
+                                                            "content": [{"text": note}], "status": "error"}}]}
+    return {"role": "user", "content": [{"text": note}]}
+
+
 def _result(answer: str, calls: list, usage: dict, started: float, uncertain_reason: Optional[str]) -> dict:
     return {
         "answer": answer,
@@ -264,33 +288,34 @@ def chat(message: str, history: Optional[list] = None) -> dict:
         return out
 
     key = _mock_key(message) if is_mock() else "real"
-    loop = converse_tools(prompt.SYSTEM, msgs, prompt.TOOLS, run_tool,
-                          mock_file=MOCK_FILE, mock_key=key, max_turns=MAX_TURNS)
+    tool_args = dict(mock_file=MOCK_FILE, mock_key=key, final_tool=prompt.FINAL_TOOL)
+    loop = converse_tools(prompt.SYSTEM, msgs, prompt.TOOLS, run_tool, max_turns=MAX_TURNS, **tool_args)
     add_usage(usage, loop.usage)
     calls, model_calls = list(loop.tool_calls), loop.model_calls
 
     reason = None
-    retried = None  # 재질문 이유: None(없음), "number"(숫자 검사), "format"(JSON 형식). 로그에만 남긴다
+    retried = None  # 재질문 이유: None(없음), "number"(숫자 검사), "format"(answer 도구 없이 JSON 아닌 글 등). 로그에만 남긴다
     bad_numbers: dict[str, list[float]] = {}  # 검사에 걸린 숫자만(원문 없이) 로그에 남긴다. {"1차": [...], "2차": [...]}
+    via = {"final_tool": "answer도구", "end_turn": "글"}.get(loop.stop, "-")  # 마지막 답을 어떻게 받았는지(로그)
     if loop.stop == "max_turns":
         answer, scope, reason = MAX_TURNS_ANSWER, "in", "max_turns"
     else:
         said = [message, *((h or {}).get("content", "") for h in (history or []))]
         allowed = _walk_numbers(outputs) | set().union(*(_numbers(t) for t in said))
-        data, bad, error = check_answer(loop.text, allowed)
+        data, bad, error = check_answer(_final_answer(loop), allowed)
         if bad:
             bad_numbers["1차"] = bad
         if error is not None:
             retried = "number" if bad else "format"
-            retry = converse_tools(
-                prompt.SYSTEM, loop.messages + [{"role": "user", "content": [{"text": prompt.RETRY_MESSAGE.format(error=error)}]}],
-                prompt.TOOLS, run_tool, mock_file=MOCK_FILE, mock_key=key, max_turns=1, mock_turn_start=model_calls + 1,
-            )
+            retry = converse_tools(prompt.SYSTEM, loop.messages + [_retry_turn(loop, error)], prompt.TOOLS, run_tool,
+                                   max_turns=1, mock_turn_start=model_calls + 1, **tool_args)
             add_usage(usage, retry.usage)
             calls += list(retry.tool_calls)
             model_calls += retry.model_calls
             allowed |= _walk_numbers(outputs)
-            data2, bad2, error2 = check_answer(retry.text, allowed) if retry.stop == "end_turn" else (None, [], "도구를 다시 불렀습니다")
+            raw2 = _final_answer(retry)
+            data2, bad2, error2 = check_answer(raw2, allowed) if raw2 is not None else (None, [], "도구를 다시 불렀습니다")
+            via = {"final_tool": "answer도구", "end_turn": "글"}.get(retry.stop, "-")
             if bad2:
                 bad_numbers["2차"] = bad2
             if error2 is None:
@@ -312,8 +337,8 @@ def chat(message: str, history: Optional[list] = None) -> dict:
 
     result = _result(answer, calls, usage, started, reason)
     logger.info(
-        "상담 1건: 도구 %s, 도구 %d회, 모델 %d회, 재질문 %s, 근거 없는 숫자 %s, 토큰 %s, %dms, 불확실 %s (prompt=%s)",
-        [c["name"] for c in calls], len(calls), model_calls, retried or "없음",
+        "상담 1건: 도구 %s, 도구 %d회, 모델 %d회, 답 %s, 재질문 %s, 근거 없는 숫자 %s, 토큰 %s, %dms, 불확실 %s (prompt=%s)",
+        [c["name"] for c in calls], len(calls), model_calls, via, retried or "없음",
         {k: [f"{n:g}" for n in v] for k, v in bad_numbers.items()} or "없음",
         usage.get("totalTokens", 0), result["latency_ms"], reason, PROMPT_VERSION,
     )
