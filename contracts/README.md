@@ -115,7 +115,8 @@ AWS 운영 경험 우대
 
 ## 보유 기술 입력 (`owned_skills`) — app → backend  · 2026-11-16 추가, 팀 확인 대기
 
-`get_gap`, `get_area_gap`, `get_recommendations`가 받는 보유 기술입니다. 두 형식을 모두 받습니다.
+`get_gap`, `get_area_gap`이 받는 보유 기술입니다. 두 형식을 모두 받습니다.
+`get_recommendations(job, gap_skills, levels)`의 `levels`도 같은 형식이며, 부족 기술의 수준을 넘깁니다(화면은 `{기술: 수준}`으로 넘깁니다).
 
 | 형식 | 예 | 뜻 |
 | --- | --- | --- |
@@ -138,6 +139,7 @@ AWS 운영 경험 우대
 | `get_gap` | `level` | 그 기술의 수준. `owned`는 `used`일 때만 `true` (배워봄은 부족 기술에 남는다) |
 | `get_area_gap` | `partial_skills` | 배워봄인 기술 목록. `owned`는 요구 공고 수에 수준 값을 곱해 더한 값이라 소수일 수 있다 |
 
-③ 추천에 더해진 것: `user_level`(string). 이 기술의 사용자 수준 `none` 또는 `learned`이고, 화면 안내용이며 없으면 `none`으로 봅니다.
-`courses[]`의 순서는 `user_level`에 따라 달라집니다. `learned`(배워봄)면 중급 과정이, 그 밖에는 기초 과정이 앞에 옵니다.
-과정을 더하거나 빼지 않고 순서만 바꿉니다(`backend/api.py`의 `_with_level`).
+③ 추천에 더해진 것: `user_level`(string). 이 기술의 사용자 수준(`none`, `learned`, `used`)이고 화면 안내용이며, 없으면 `none`으로 봅니다.
+부족 기술만 추천하므로 화면에서 오는 값은 `none`이나 `learned`입니다.
+`learned`(배워봄)일 때만 `courses[]`의 순서가 달라집니다: 중급 과정이 앞에 오되, `match`가 `certain`인 과정이 `uncertain`인 과정보다 먼저입니다.
+그 밖에는 순서를 바꾸지 않습니다. 과정을 더하거나 빼지 않습니다(`backend/api.py`의 `_with_level`).

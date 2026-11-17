@@ -127,9 +127,10 @@ def _render_gap(ctx: Ctx):
     c1.metric("분석한 공고", f"{demand['total_postings']}건", border=True)
     c2.metric("주요 요구 기술", f"{len(gap_rows)}개", help="공고의 20% 이상이 요구한 기술", border=True)
     partial = [r for r in missing if r["level"] == LEARNED]
-    c3.metric("그중 보유", f"{len(have)}개", help=f"{LEVEL_LABEL[USED]}으로 고른 기술", border=True)
+    c3.metric(f"그중 {LEVEL_LABEL[USED]}", f"{len(have)}개", border=True)
+    # 배워봄은 부족에 세되, 몇 개가 배워봄인지 카드에 바로 보이게 한다(아래 차트는 배워봄을 절반 보유로 그린다)
     c4.metric("부족", f"{len(missing)}개", border=True,
-              help=f"{LEVEL_LABEL[NONE]} {len(missing) - len(partial)}개, {LEVEL_LABEL[LEARNED]}(보강 필요) {len(partial)}개")
+              delta=f"그중 {LEVEL_LABEL[LEARNED]} {len(partial)}개" if partial else None, delta_color="off")
 
     with st.container(border=True):
         st.subheader("능력 범주별 Gap")
@@ -149,7 +150,7 @@ def _render_gap(ctx: Ctx):
                     {
                         "기술": r["skill"],
                         "영역": r["area"],
-                        "내 수준": f"{LEVEL_LABEL[LEARNED]} · 보강" if r["level"] == LEARNED else LEVEL_LABEL[NONE],
+                        "내 수준": f"보강({LEVEL_LABEL[LEARNED]})" if r["level"] == LEARNED else LEVEL_LABEL[NONE],
                         "요구 공고": f"{r['postings']} / {r['of']}",
                         "요구 비율": r["ratio"],
                         "그중 필수": r["required_ratio"],

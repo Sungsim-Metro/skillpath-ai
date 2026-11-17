@@ -49,6 +49,14 @@ def demo():
     assert [c["title"] for c in base["courses"]] == [c["title"] for c in api._load("recommendations.json")[0]["courses"]]
     assert up["courses"][0]["level"] == "중급" and base["courses"][0]["level"] == "기초"
     assert sorted(c["title"] for c in up["courses"]) == sorted(c["title"] for c in base["courses"])
+    # 수준이 없으면 순서를 건드리지 않는다(확실한 중급이 불확실한 기초보다 앞에 있던 순서 그대로). 배워봄이어도 불확실은 맨 뒤다
+    mixed = {"gap_skill": "X", "demand": {}, "courses": [
+        {"title": "a", "level": "기초", "match": "certain"}, {"title": "b", "level": "중급", "match": "certain"},
+        {"title": "c", "level": "기초", "match": "uncertain"}, {"title": "d", "level": "중급", "match": "uncertain"}]}
+    assert [c["title"] for c in api._with_level(mixed, "none")["courses"]] == ["a", "b", "c", "d"]
+    assert [c["title"] for c in api._with_level(mixed, "used")["courses"]] == ["a", "b", "c", "d"]
+    assert [c["title"] for c in api._with_level(mixed, "learned")["courses"]] == ["b", "a", "d", "c"]
+    assert [c["title"] for c in mixed["courses"]] == ["a", "b", "c", "d"]   # 받은 목록은 바꾸지 않는다
 
     # 시장 Gap: 비중은 각각 합이 100, Gap 은 그 차이
     market = api.get_market_gap(JOB)

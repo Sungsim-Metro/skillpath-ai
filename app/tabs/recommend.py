@@ -21,7 +21,11 @@ def _render_recommendations(ctx: Ctx):
             st.subheader(rec["gap_skill"])
             st.caption(f"공고 {d['of']}건 중 {d['postings']}건이 요구 · 그중 필수 {d['required_ratio']:.0%}")
             if rec.get("user_level") == LEARNED and rec["courses"]:
-                st.caption(f"{LEVEL_LABEL[LEARNED]}으로 고른 기술이라 {COURSE_LEVEL_FIRST[LEARNED]} 과정을 먼저 놓았습니다.")
+                if rec["courses"][0].get("level") == COURSE_LEVEL_FIRST[LEARNED]:
+                    st.caption(f"{LEVEL_LABEL[LEARNED]}으로 고른 기술이라 {COURSE_LEVEL_FIRST[LEARNED]} 과정을 먼저 놓았습니다.")
+                else:
+                    st.caption(f"{LEVEL_LABEL[LEARNED]}으로 고른 기술이지만 확실한 {COURSE_LEVEL_FIRST[LEARNED]} 과정을 찾지 못해 "
+                               "찾은 과정을 그대로 보여줍니다.")
             if not rec["courses"] and area_of.get(rec["gap_skill"]) == COMMON_AREA:
                 st.markdown(f"여러 영역에 걸친 기술이라 한 영역의 과정으로 잇지 않았습니다. "
                             f"AWS 기초·자격증 과정 연결을 준비하고 있습니다. {PENDING}")

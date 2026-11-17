@@ -28,7 +28,7 @@ from threading import Lock
 from time import monotonic
 
 from backend.dynamodb import DynamoDBStore, json_numbers
-from backend.levels import COURSE_LEVEL_FIRST, LEVEL_WEIGHT, NONE, USED, normalize_owned, whole
+from backend.levels import COURSE_LEVEL_FIRST, LEARNED, LEVEL_WEIGHT, NONE, USED, normalize_owned, whole
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SAMPLE_DIR = DATA_DIR / "sample"
@@ -218,9 +218,9 @@ def get_market_gap(job_category: str) -> dict:
 def get_recommendations(job_category: str, gap_skills: list[str], levels: dict[str, str] | None = None) -> list[dict]:
     """부족 기술마다 추천(③)을 돌려준다. 찾은 과정이 없으면 courses 가 빈 목록이다.
 
-    levels 는 {기술: 수준}이다. 배워봄인 기술은 중급 과정을, 그 밖은 기초 과정을 먼저 놓는다
-    (backend/levels.py 의 COURSE_LEVEL_FIRST). 주지 않으면 전과 같다(기초 먼저).
-    과정을 새로 찾거나 빼지 않고 순서만 바꾼다. 추천마다 user_level 에 그 기술의 수준을 적는다.
+    levels 는 부족 기술의 수준 {기술: 수준}이다. 배워봄인 기술만 중급 과정을 앞으로 옮기고(확실한 과정이 불확실한 과정보다 먼저),
+    그 밖에는 순서를 바꾸지 않는다. 주지 않으면 전과 같다. 과정을 새로 찾거나 빼지 않는다.
+    추천마다 user_level 에 그 기술의 수준을 적는다.
 
     가짜 모드는 data/sample 의 추천을 읽는다. 실제 모드는 수요 숫자를 코드로 만들고(get_demand),
     과정 찾기와 추천 이유는 ai.recommend 가 맡는다(Bedrock 은 reason 만 쓴다).
@@ -273,10 +273,15 @@ def get_recommendations(job_category: str, gap_skills: list[str], levels: dict[s
 
 
 def _with_level(rec: dict, level: str) -> dict:
-    """추천 1건에 user_level 을 적고, 그 수준에 먼저 볼 난이도의 과정을 앞으로 옮긴다(나머지 순서는 그대로)."""
-    first = COURSE_LEVEL_FIRST.get(level, COURSE_LEVEL_FIRST[NONE])
+    """추천 1건에 user_level 을 적는다. 배워봄일 때만 중급 과정을 앞으로 옮긴다.
+
+    수준이 없음이면 순서를 건드리지 않는다(과정 검색이 정한 순서: 확실한 과정 먼저, 그 안에서 기초 먼저).
+    배워봄이어도 "불확실" 과정이 "확실" 과정을 앞지르지 않는다. 같은 조건 안의 순서는 그대로 둔다.
+    """
     rec = {**rec, "user_level": level}
-    rec["courses"] = sorted(rec["courses"], key=lambda c: c.get("level") != first)
+    if level == LEARNED:
+        first = COURSE_LEVEL_FIRST[LEARNED]
+        rec["courses"] = sorted(rec["courses"], key=lambda c: (c.get("match") == "uncertain", c.get("level") != first))
     return rec
 
 
