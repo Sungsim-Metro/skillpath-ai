@@ -211,6 +211,64 @@ def collect_and_process():
             rp.RAW_DIR, rp.list_page, rp.load_or_fetch = old
 
 
+def adjacent_roles():
+    """인접 직무: 제목은 안 맞아도 직군이 dev 이고 본문에 AWS 가 있으면 채택하고 번호를 data/raw/인접직무.json 에 남긴다."""
+    import contextlib
+    import io
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import pipeline.rocketpunch as rp
+
+    def raw(job_id, title, category, body):
+        return {"jobId": job_id, "title": title, "jobCategory": category, "company": {"name": f"회사{job_id}"},
+                "description": body, "webUrl": f"https://example.com/{job_id}"}
+
+    raws = {
+        "1": raw(1, "클라우드 엔지니어", "dev", "Java"),            # 제목 통과(본문 AWS 없음)
+        "2": raw(2, "백엔드 개발자", "dev", "AWS 운영 경험"),       # 인접: dev + AWS
+        "3": raw(3, "데이터 엔지니어", "dataAi", "AWS 운영 경험"),  # dataAi 는 받지 않는다
+        "4": raw(4, "백엔드 개발자", "dev", "Java 개발"),           # AWS 없음
+        "5": raw(5, "영업 매니저", "salesCs", "AWS 클라우드 영업"),  # 직군이 dev 가 아니다
+        "6": raw(6, "백엔드 개발자", "dev", "Awsome 서비스 개발"),   # aws 가 다른 글자에 걸리지 않는다
+    }
+    old = rp.RAW_DIR, rp.load_or_fetch
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        rp.RAW_DIR, rp.load_or_fetch = tmp, lambda job_id: raws[str(job_id)]
+        terms = list(rp.ROLE_TERMS)
+        marked = lambda: json.loads((tmp / "인접직무.json").read_text(encoding="utf-8")) if (tmp / "인접직무.json").exists() else []
+        try:
+            def run(job_id, ok):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return rp.process(job_id, "클라우드 엔지니어", terms, ok)
+
+            # 기본(adjacent_ok=False)은 제목만 본다
+            assert [run(i, False) for i in range(1, 7)] == [True, False, False, False, False, False]
+            assert marked() == []
+            # 켜면 dev + AWS 인 공고만 더 들어온다. role 은 그대로라 직무 검사를 지난다
+            assert [run(i, True) for i in range(1, 7)] == [True, True, False, False, False, False]
+            assert marked() == ["rp-2"], marked()
+            posting = json.loads(next(tmp.glob("rp-2_*.posting.json")).read_text(encoding="utf-8"))
+            assert posting["role"] == "클라우드 엔지니어" and "AWS" in posting["text"]
+            assert not list(tmp.glob("rp-3_*")) and not list(tmp.glob("rp-5_*"))
+            # 나중에 제목 기준에 들어가거나(단어를 더했을 때) 채택하지 않기로 하면 표시도 posting 도 같이 사라진다
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert rp.process(2, "클라우드 엔지니어", ["백엔드"], True) is True
+            assert marked() == [], marked()
+            run(2, True)
+            assert marked() == ["rp-2"]
+            run(2, False)
+            assert marked() == [] and not list(tmp.glob("rp-2_*.posting.json"))
+        finally:
+            rp.RAW_DIR, rp.load_or_fetch = old
+    # 제목 단어: ML Ops(띄어쓰기)와 솔루션 아키텍트는 통과, 다른 아키텍트는 아니다
+    for title, ok in (("ML Ops", True), ("Resident Solution Architect", True), ("MLOps Engineer", True),
+                      ("Software Architect", False), ("백엔드 개발자", False)):
+        assert bool(rp.matched_terms({"title": title})) is ok, title
+
+
 def manual_ids():
     """사이트 검색에서 모은 번호: 중복은 하나만, 검색어·날짜와 함께 기록, fetch --manual 은 아직 안 받은 번호만 받는다."""
     import contextlib
@@ -347,6 +405,7 @@ if __name__ == "__main__":
     names()
     export_eval()
     collect_and_process()
+    adjacent_roles()
     manual_ids()
     dedupe_flow()
     print("통과")

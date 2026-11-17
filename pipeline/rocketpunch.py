@@ -53,8 +53,13 @@ SECTIONS = (
 # 이전에는 본문에 aws 가 있는지로 걸렀는데, 그러면 남은 공고의 AWS 수요율이 계산상 항상 100% 가 되고
 # 직무가 맞아도 aws 를 안 쓴 공고(SRE·DevOps 등)는 버려진다(2026-11-15 팀 피드백). 이제 aws 는 거르는 조건이 아니라
 # 수요를 세는 대상이다. 단어 목록은 사람이 고치는 값이다(--terms 로 바꿔 시험할 수 있다).
+# "ml ops"(띄어쓴 표기)와 솔루션 아키텍트를 더했다(2026-11-17: 159453 'ML Ops', 159227 'Resident Solution Architect' 가 직무가 맞는데 탈락했다).
 ROLE_TERMS = ("클라우드", "cloud", "인프라", "infra", "infrastructure", "devops", "sre", "site reliability",
-              "mlops", "시스템 엔지니어")
+              "mlops", "ml ops", "시스템 엔지니어", "solution architect", "솔루션 아키텍트")
+# 인접 직무: 제목은 직무 단어에 안 맞지만 직군이 개발(dev)이고 본문에 AWS 가 나오면 함께 채택한다(2026-11-17, 공고를 모으는 것이 우선이라는 팀 합의).
+# 사이트 검색이 본문 전문 검색이라 백엔드·풀스택 공고가 많이 섞여 들어오기 때문이다. 직군 코드가 dev 일 때만 받고 dataAi 는 받지 않는다(AI 직무는 하지 않는다).
+# role 은 그대로 둬서 ②·배치의 직무 검사를 지나가고(필드를 추가하지 않는다), 채택 근거는 data/raw/인접직무.json 에 번호로 남긴다.
+ADJACENT_CATEGORY = "dev"
 
 
 def load_env_file() -> None:
@@ -231,19 +236,40 @@ def _posting_files(posting_id: str) -> list[Path]:
     return [*RAW_DIR.glob(f"{posting_id}_*.posting.json"), *RAW_DIR.glob(f"{posting_id}.posting.json")]
 
 
-def process(job_id, role: str, terms) -> bool:
-    """상세를 받아(있으면 재사용) 직무(제목) 필터를 적용하고, 통과하면 posting 을 저장한다."""
-    posting = to_posting(load_or_fetch(str(job_id)), role)
+def _is_adjacent(raw: dict, posting: dict) -> bool:
+    """제목 필터에는 안 맞지만 직군이 dev 이고 본문에 AWS 가 나오는 공고."""
+    return raw.get("jobCategory") == ADJACENT_CATEGORY and bool(matched_terms(posting, ["aws"], fields=("title", "text")))
+
+
+def _mark_adjacent(posting_id: str, adjacent: bool) -> None:
+    """인접 직무로 채택한 공고 번호를 data/raw/인접직무.json 에 남긴다(제목 필터로 통과하면 뺀다). 달라질 때만 쓴다."""
+    path = RAW_DIR / "인접직무.json"
+    ids = set(json.loads(path.read_text(encoding="utf-8"))) if path.exists() else set()
+    new = ids | {posting_id} if adjacent else ids - {posting_id}
+    if new != ids:
+        RAW_DIR.mkdir(parents=True, exist_ok=True)
+        write_json(path, sorted(new))
+
+
+def process(job_id, role: str, terms, adjacent_ok: bool = False) -> bool:
+    """상세를 받아(있으면 재사용) 직무(제목) 필터를 적용하고, 통과하면 posting 을 저장한다.
+    adjacent_ok 이면 제목이 안 맞아도 인접 직무(직군 dev + 본문 AWS)를 채택하고 data/raw/인접직무.json 에 번호를 남긴다(fetch·collect 의 기본, --title-only 로 끈다)."""
+    raw = load_or_fetch(str(job_id))
+    posting = to_posting(raw, role)
     hits = matched_terms(posting, terms)
+    adjacent = adjacent_ok and not hits and _is_adjacent(raw, posting)
+    keep = bool(hits) or adjacent
     out = posting_path(posting)
-    if hits:
+    if keep:
         write_json(out, posting)
         maybe_upload(out)
+    _mark_adjacent(posting["id"], adjacent)
     for old in _posting_files(posting["id"]):
-        if not hits or old != out:
+        if not keep or old != out:
             old.unlink()  # 새 파일 저장과 업로드가 끝난 뒤 예전 이름의 파일을 정리한다
-    print(f"{'통과' if hits else '탈락'}\t{posting['id']}\t필터 {hits or '없음'}\t본문 {len(posting['text'])}자\t{posting['title'][:40]}")
-    return bool(hits)
+    label = "통과" if hits else ("인접" if adjacent else "탈락")
+    print(f"{label}	{posting['id']}	필터 {hits or ('dev+AWS' if adjacent else '없음')}	본문 {len(posting['text'])}자	{posting['title'][:40]}")
+    return keep
 
 
 MANUAL_FILE = ROOT / "data" / "manual_job_ids.json"  # 사람이 사이트 검색 결과에서 모은 공고 번호(번호만, 원문 없음)
@@ -416,7 +442,7 @@ def cmd_fetch(args) -> None:
         print("받을 번호가 없습니다.")
     for job_id in ids:
         try:
-            process(job_id, args.role, args.terms)
+            process(job_id, args.role, args.terms, not getattr(args, "title_only", False))
         except JobNotFound as e:  # 없는 번호는 기록하고 건너뛴다. 429 같은 다른 종료는 그대로 멈춘다
             print(f"없음\trp-{job_id}\t로켓펀치에 없는 공고(번호 오타나 삭제). 기록하고 건너뜀: {str(e)[:80]}")
             RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -448,7 +474,7 @@ def cmd_collect(args) -> None:
                     stale.unlink()
                 print(f"건너뜀\trp-{it['jobId']}\t제목이 직무 단어에 안 맞아 상세를 받지 않음\t{it['title'][:40]}")
                 continue
-            kept += process(it["jobId"], args.role, args.terms)
+            kept += process(it["jobId"], args.role, args.terms, not getattr(args, "title_only", False))
             if kept >= args.n:
                 break
         if kept >= args.n or not items:
@@ -591,6 +617,7 @@ def main() -> None:
         sp.add_argument("--terms", nargs="+", default=list(ROLE_TERMS), help="제목 기준 직무 필터 단어")
         sp.set_defaults(run=run)
     for sp in (f, c):
+        sp.add_argument("--title-only", action="store_true", help="인접 직무(직군 dev + 본문 AWS)를 채택하지 않고 제목 직무 단어만으로 거른다")
         sp.add_argument("--job-category", default="cloud_engineer", help="DynamoDB에 저장할 서비스 직무 코드")
         sp.add_argument("--collected", help="수집일 또는 기간. DynamoDB 저장 시 필수")
         sp.add_argument("--force", action="store_true", help="저장된 동일 입력의 추출 결과도 다시 분석")
