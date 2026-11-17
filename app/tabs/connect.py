@@ -10,6 +10,8 @@ from ai import coffeechat
 from backend import api, communities
 from backend.jobs import JOBS
 
+MEETUP_HOME = "https://www.meetup.com/awskrug/"
+
 
 def _community_line(c: dict, areas: list[str] | None = None) -> str:
     why = f" · 부족 영역: {', '.join(areas)}" if areas else ""
@@ -34,34 +36,46 @@ def render_connect(ctx: Ctx):
     missing_skills = [r["skill"] for r in ctx.missing]
 
     st.markdown("**① 부족한 영역을 다루는 AWS 사용자 모임(AWSKRUG) 소모임**")
+    others = [*found["general"], *found["region"]]
     if found["topic"]:
         st.markdown("\n".join(_community_line(t["community"], t["areas"]) for t in found["topic"]))
-    else:
-        st.write("부족한 영역에 맞는 주제 소모임을 확인하지 못했습니다.")
-    with st.expander("처음이거나 지역이 다르면"):
-        st.markdown("\n".join(_community_line(c) for c in [*found["general"], *found["region"]]))
+        first = found["topic"][0]["community"]
+        with st.expander("처음이거나 서울이 아니면 (입문·대학생·지역 모임)"):
+            st.markdown("\n".join(_community_line(c) for c in others))
+    else:  # AWS 처럼 여러 영역에 걸친 기술만 부족할 때: 주제 모임 대신 입문·대학생 모임을 바로 보여 준다
+        st.write("부족한 기술이 한 주제에 묶이지 않아 주제 소모임 대신 입문·대학생·지역 모임을 보여 드립니다.")
+        st.markdown("\n".join(_community_line(c) for c in others))
+        first = found["general"][0]
     left, right = st.columns(2)
-    left.link_button("모임 일정 보기 (Meetup)", found["topic"][0]["community"]["link"] if found["topic"] else found["general"][0]["link"],
-                     icon=":material/open_in_new:", width="stretch")
-    right.link_button("AWSKRUG Slack", meta["join"]["slack"], icon=":material/open_in_new:", width="stretch")
-    st.caption(
-        f"{meta['join']['text']} 목록은 사람이 고른 것이고 {meta['checked']}에 확인했습니다. {meta['limits']}"
-        + (f" 이번 진단에서 맞는 소모임이 없던 영역: {', '.join(found['unmatched'])}." if found["unmatched"] else "")
-    )
+    left.link_button("이 모임의 일정 안내 보기 (Meetup)", first["link"], icon=":material/open_in_new:", width="stretch")
+    right.link_button("전체 일정 보기 (Meetup)", MEETUP_HOME, icon=":material/open_in_new:", width="stretch")
+    extra = ""
+    if found.get("skipped"):
+        extra += f" 그 밖에 맞는 소모임이 있는 영역: {', '.join(found['skipped'])}."
+    if found["unmatched"]:
+        extra += f" 맞는 소모임을 확인하지 못한 영역: {', '.join(found['unmatched'])}."
+    st.caption(f"확인한 일정은 대부분 서울 오프라인이고 참가비와 사전 신청이 있습니다.{extra}")
+    with st.expander("이 목록을 어떻게 만들었나"):
+        st.caption(f"{meta['join']['text']} 목록은 사람이 공개 일정을 보고 고른 것이고 {meta['checked']}에 확인했습니다. {meta['limits']}")
+        st.link_button("AWSKRUG Slack", meta["join"]["slack"], icon=":material/open_in_new:")
 
     st.markdown("**② 커피챗 요청 메시지 초안과 물어볼 질문**")
     st.caption("부족한 기술을 바탕으로 AI가 초안을 씁니다. 받는 분과 내 정보는 빈칸으로 두니 직접 채워서 보내세요.")
     key = (ctx.job, tuple(missing_skills[:coffeechat.MAX_SKILLS]), tuple(ctx.owned[:coffeechat.MAX_SKILLS]))
     if st.button("초안 만들기", key="coffeechat_btn"):
         result, err = load(coffeechat.draft, JOBS[ctx.job], missing_skills, list(ctx.owned))
-        if err:
-            notice("메시지 초안", err)
-        st.session_state["coffeechat"] = (key, result[0] if result else None)
+        made = result[0] if result else coffeechat.fallback_draft(JOBS[ctx.job], missing_skills)
+        st.session_state["coffeechat"] = (key, made, bool(err))
+        st.session_state["coffeechat_text"] = made["message"]  # 입력창은 키에 남은 값을 쓰므로 새 초안을 직접 넣는다
     saved = st.session_state.get("coffeechat")
     if saved and saved[1]:
+        if saved[2]:
+            st.caption("AI 초안을 만들지 못해 기본 문안을 보여 드립니다. 고쳐서 쓰세요.")
         if saved[0] != key:
             st.caption("보유 기술이 바뀌었습니다. 초안을 다시 만들면 지금 진단에 맞게 바뀝니다.")
-        st.text_area("메시지 초안 (복사해서 고쳐 쓰세요)", value=saved[1]["message"], height=220, key="coffeechat_text")
+        st.text_area("메시지 초안 (여기서 고쳐 쓰세요)", height=220, key="coffeechat_text")
+        st.caption("복사하려면 아래 상자 오른쪽 위의 복사 단추를 누르세요(위에서 고친 내용이 그대로 들어 있습니다).")
+        st.code(st.session_state.get("coffeechat_text", saved[1]["message"]), language=None, wrap_lines=True)
         st.markdown("\n".join(f"{i}. {md_escape(q)}" for i, q in enumerate(saved[1]["questions"], start=1)))
 
     st.markdown("**③ 직접 찾아보기**")

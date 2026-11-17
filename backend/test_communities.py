@@ -31,7 +31,13 @@ class CommunitiesTest(unittest.TestCase):
         found = communities.suggest(api.get_area_gap(JOB, ["Python", "Linux", "Git"]))
         ids = [t["community"]["id"] for t in found["topic"]]
         self.assertIn("container", ids)            # 컴퓨팅·서버가 부족하다
-        self.assertIn("네트워크", found["unmatched"])  # 맞는 소모임이 없는 영역은 없다고 알린다
+        self.assertNotIn("네트워크", found["unmatched"])  # 네트워크 소모임이 있다(2026-11-17 재확인)
+        gaps = [{"area_id": a, "area": a, "demand": 10, "owned": 0} for a in ("C6", "C8")]
+        self.assertEqual(communities.suggest(gaps)["unmatched"], ["C8"])  # 맞는 소모임이 없는 영역은 없다고 알린다
+        many = [{"area_id": a, "area": a, "demand": d, "owned": 0} for a, d in (("C1", 30), ("C7", 20), ("C5", 19), ("C4", 18))]
+        wide = communities.suggest(many)
+        self.assertEqual([t["areas"][0] for t in wide["topic"]], ["C1", "C7", "C5"])  # 영역마다 하나씩 먼저
+        self.assertEqual(wide["skipped"], ["C4"])                                    # 자리가 없어 빠진 영역은 알린다
         self.assertLessEqual(len(ids), communities.MAX_TOPIC)
         owned_all = [s["skill"] for s in api.get_demand(JOB)["skills"]]
         full = communities.suggest(api.get_area_gap(JOB, owned_all))

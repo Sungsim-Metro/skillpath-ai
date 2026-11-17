@@ -1,8 +1,8 @@
 {
- "note": "AWS한국사용자모임(AWSKRUG) 소모임 목록. 사람이 골라 적은 데이터이고 코드는 조회만 한다. 사람(개인) 정보는 넣지 않는다. areas 는 data/skill_areas.json 의 영역 id 로, 모임 이름의 주제를 보고 사람이 짝지었다. last_seen 은 그 모임의 일정을 공개 페이지에서 확인한 가장 최근 날짜다. 일정·장소·참가비는 바뀌므로 화면에서는 링크로 보내고 여기 적지 않는다.",
- "source": "AWSKRUG Meetup 페이지(https://www.meetup.com/awskrug/)와 공개 행사 목록",
+ "note": "AWS한국사용자모임(AWSKRUG) 소모임 목록. 사람이 골라 적은 데이터이고 코드는 조회만 한다. 사람(개인) 정보는 넣지 않는다. areas 는 data/skill_areas.json 의 영역 id 로, 모임 이름의 주제를 보고 사람이 짝지었다. last_seen 은 그 모임의 일정을 공개 페이지에서 확인한 가장 최근 날짜다. link 는 확인한 일정의 주소가 있으면 그 주소, 없으면 전체 일정 페이지다. 일정·장소·참가비는 바뀌므로 화면에서는 링크로 보내고 모임마다 적지 않는다.",
+ "source": "AWSKRUG Meetup 페이지(https://www.meetup.com/awskrug/)와 공개 행사 목록(https://github.com/brave-people/Dev-Event)",
  "checked": "2026-11-17",
- "limits": "모임별 주소가 아니라 전체 일정 페이지로 연결합니다. 확인한 일정은 모두 오프라인이고 대부분 서울입니다. 대전·충청권 모임과 온라인 참여 여부는 확인하지 못했습니다. 스토리지·데이터베이스, 네트워크, 운영·모니터링, 비용 최적화 영역은 맞는 소모임을 확인하지 못했습니다.",
+ "limits": "확인한 일정은 모두 오프라인이고 대부분 서울 강남입니다. 대전·충청권 모임과 온라인 참여 여부는 확인하지 못했습니다. 확인한 11월 일정은 참가비(7,000~10,000원)와 사전 신청 마감이 있었고, 건물 출입 때문에 이름·소속·연락처를 적어 내야 했습니다. 비용 최적화 영역은 맞는 소모임을 확인하지 못했습니다. 운영·모니터링은 전용 모임이 아니라 플랫폼엔지니어링 소모임으로 이었습니다. 지난 일정의 주소는 그 회차의 안내이므로 다음 일정은 전체 일정 페이지에서 확인합니다.",
  "join": {
   "slack": "https://slack.awskr.org",
   "text": "일정은 Meetup 페이지에서 보고 참가 신청(RSVP)을 합니다. 문의는 AWSKRUG Slack의 소모임 채널에서 합니다."
@@ -16,7 +16,7 @@
    ],
    "kind": "topic",
    "place": "서울(오프라인)",
-   "link": "https://www.meetup.com/awskrug/",
+   "link": "https://www.meetup.com/awskrug/events/317143207/",
    "last_seen": "2026-11-24 일정",
    "note": ""
   },
@@ -41,7 +41,7 @@
    ],
    "kind": "topic",
    "place": "서울(오프라인)",
-   "link": "https://www.meetup.com/awskrug/",
+   "link": "https://www.meetup.com/awskrug/events/317392910/",
    "last_seen": "2026-11-24 일정",
    "note": ""
   },
@@ -53,8 +53,8 @@
    ],
    "kind": "topic",
    "place": "서울(오프라인)",
-   "link": "https://www.meetup.com/awskrug/",
-   "last_seen": "2026-07-23 일정",
+   "link": "https://www.meetup.com/awskrug/events/316366209/",
+   "last_seen": "2026-09-15 일정",
    "note": ""
   },
   {
@@ -83,14 +83,38 @@
    "note": ""
   },
   {
+   "id": "network",
+   "name": "AWSKRUG 네트워크 #network 소모임",
+   "areas": [
+    "C3"
+   ],
+   "kind": "topic",
+   "place": "서울(오프라인)",
+   "link": "https://www.meetup.com/awskrug/events/316307770/",
+   "last_seen": "2026-09-08 일정",
+   "note": ""
+  },
+  {
+   "id": "data",
+   "name": "AWSKRUG #Data x AIEngineering 소모임",
+   "areas": [
+    "C2"
+   ],
+   "kind": "topic",
+   "place": "서울(오프라인)",
+   "link": "https://www.meetup.com/awskrug/events/317406828/",
+   "last_seen": "2026-11-26 일정",
+   "note": "데이터와 AI 엔지니어링을 함께 다룬다. 데이터베이스 운영만 다루는 모임은 아니다."
+  },
+  {
    "id": "junior",
    "name": "AWSKRUG #Junior 소모임",
    "areas": [],
    "kind": "general",
    "place": "서울(오프라인)",
-   "link": "https://www.meetup.com/awskrug/",
+   "link": "https://www.meetup.com/awskrug/events/316937476/",
    "last_seen": "2026-11-05 일정",
-   "note": "이름으로 보아 주니어 대상 모임이다. 다루는 주제는 확인하지 못했다."
+   "note": "주니어 대상 모임. 2026-11-05 일정은 경력 이야기와 입문 발표였다."
   },
   {
    "id": "ausg",

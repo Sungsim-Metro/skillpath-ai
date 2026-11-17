@@ -30,6 +30,7 @@ def suggest(area_rows: list[dict]) -> dict:
       general: 영역과 무관하게 보여줄 모임(입문·대학생)
       region:  지역 모임
       unmatched: 부족한데 맞는 소모임을 확인하지 못한 영역 이름
+      skipped: 맞는 소모임은 있지만 자리가 모자라 보여 주지 못한 영역 이름
     공통·미분류처럼 영역 id 가 모임과 짝지어지지 않는 것은 unmatched 에 넣지 않는다(모임 주제로 볼 수 없는 묶음이다).
     """
     data = load()
@@ -37,22 +38,37 @@ def suggest(area_rows: list[dict]) -> dict:
         (r for r in area_rows if r["demand"] > r["owned"] and r["area_id"] not in ("COMMON", "UNCLASSIFIED")),
         key=lambda r: r["demand"] - r["owned"], reverse=True,
     )
-    topic, used, unmatched = [], {}, []
+    topics = [c for c in data["communities"] if c["kind"] == "topic"]
+    hits_of = {row["area"]: [c for c in topics if row["area_id"] in c["areas"]] for row in short}
+    unmatched = [row["area"] for row in short if not hits_of[row["area"]]]
+    topic, used = [], {}
+
+    def take(area: str, c: dict) -> bool:
+        if c["id"] in used:
+            if area not in used[c["id"]]["areas"]:
+                used[c["id"]]["areas"].append(area)
+            return True
+        if len(topic) < MAX_TOPIC:
+            used[c["id"]] = {"community": c, "areas": [area]}
+            topic.append(used[c["id"]])
+            return True
+        return False
+
+    # 먼저 부족이 큰 영역부터 영역마다 모임 하나씩. 한 영역의 모임 여러 개가 자리를 다 차지해 다른 영역이 조용히 빠지지 않게 한다
+    covered = set()
     for row in short:
-        hits = [c for c in data["communities"] if c["kind"] == "topic" and row["area_id"] in c["areas"]]
-        if not hits:
-            unmatched.append(row["area"])
-        for c in hits:
-            if c["id"] in used:
-                used[c["id"]]["areas"].append(row["area"])
-            elif len(topic) < MAX_TOPIC:
-                used[c["id"]] = {"community": c, "areas": [row["area"]]}
-                topic.append(used[c["id"]])
+        if any(take(row["area"], c) for c in hits_of[row["area"]][:1]):
+            covered.add(row["area"])
+    for row in short:  # 남는 자리는 같은 순서로 나머지 모임을 채운다
+        for c in hits_of[row["area"]][1:]:
+            take(row["area"], c)
+    skipped = [row["area"] for row in short if hits_of[row["area"]] and row["area"] not in covered]
     return {
         "topic": topic,
         "general": [c for c in data["communities"] if c["kind"] == "general"],
         "region": [c for c in data["communities"] if c["kind"] == "region"],
         "unmatched": unmatched,
+        "skipped": skipped,
         "meta": {k: data[k] for k in ("source", "checked", "limits", "join")},
     }
 
