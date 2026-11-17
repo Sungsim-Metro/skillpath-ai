@@ -83,11 +83,11 @@ AWS 운영 경험 우대
 | `courses[].evidence` | object \| null | 과정 쪽 근거 문장 (2026-11-16 추가). 과정 원문에서 이 기술을 다룬다는 문장을 찾지 못하면 `null`이고 화면은 "불확실"로 표시한다 |
 | `courses[].evidence.text` | string | 과정 원문의 문장 그대로. 지어내지 않고 코드가 골라 온다 |
 | `courses[].evidence.field` | string | 문장이 있는 칸. `objectives`(학습 목표) 또는 `title`(과정 제목) |
-| `courses[].evidence.about` | string | `skill`: 문장에 이 기술 이름이 나온다. `subskill`: 이름은 없고 같은 세부 능력을 다룬다 |
+| `courses[].evidence.about` | string | `skill`: 문장에 이 기술 이름이 나온다. `subskill`: 이름은 없고 같은 세부 능력을 다룬다. 이 기술의 근거가 아니므로 화면은 인용하지 않고 "직접 다루지 않습니다"로 표시한다 |
 | `courses[].evidence.subskill` | string \| null | `about`이 `subskill`일 때 그 세부 능력 이름 |
 
 `evidence`는 공고 원문이나 ② 추출 근거 문장이 아니라 **과정** 쪽 근거입니다. LLM을 쓰지 않고 `pipeline/search.py`의 `skill_evidence`가 고르며,
-`evidence_in_course`로 그 문장이 과정 원문의 해당 칸에 실제로 있는지 검사합니다. 설명(description) 칸은 근거로 쓰지 않습니다.
+`evidence_in_course`로 그 문장이 과정 원문의 해당 칸에 **문장 하나로** 실제로 있는지 검사합니다(일부 조각은 통과하지 못함). 설명(description) 칸은 근거로 쓰지 않습니다.
 
 ## ④ 수요 집계 (`demand`) — backend → app  · 11/10 회의 승인 대기
 

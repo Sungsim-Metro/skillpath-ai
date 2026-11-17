@@ -89,10 +89,20 @@ def _names(skill: str) -> list[str]:
     return [skill, *aliases]
 
 
+# 이름 바로 뒤에 이 낱말이 오면 다른 제품이다("SQL Server" 는 SQL 질의가 아니고 "VPC Lattice" 는 VPC 가 아니다).
+# 실제 과정 원문에서 잘못 걸린 것만 적는다. 늘리기 전에 그 문장을 직접 확인한다.
+NOT_THIS_SKILL = {"sql": ("Server",), "vpc": ("Lattice",)}
+
+
 def _mentions(text: str, names: list[str]) -> bool:
-    return any(
-        re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}(?![A-Za-z0-9])", text, re.I) for n in names if n.isascii()
-    )
+    for n in names:
+        if not n.isascii():
+            continue
+        other = "|".join(re.escape(w) for w in NOT_THIS_SKILL.get(n.lower().split()[-1], ()))  # "Amazon VPC" 같은 별칭도 같은 규칙
+        tail = rf"(?!\s+(?:{other})(?![A-Za-z0-9]))" if other else ""
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}(?![A-Za-z0-9]){tail}", text, re.I):
+            return True
+    return False
 
 
 def subskills_of(skill: str) -> list[str]:
@@ -201,9 +211,12 @@ def skill_evidence(skill: str, course_id: str, subskill_id: str | None = None) -
 
 
 def evidence_in_course(evidence: dict, course_id: str) -> bool:
-    """근거 문장이 그 과정 원문의 해당 칸에 실제로 있는지. 공백 차이만 무시한다."""
+    """근거 문장이 그 과정 원문의 해당 칸에 문장 하나로 실제로 있는지. 공백 차이만 무시한다. 문장의 일부나 두 문장에 걸친 조각은 통과하지 못한다."""
     course = _courses().get(course_id)
     if course is None or evidence.get("field") not in ("objectives", "title"):
         return False
     squash = lambda t: re.sub(r"\s+", " ", t.replace("\xa0", " ")).strip()  # noqa: E731
-    return bool(evidence.get("text")) and squash(evidence["text"]) in squash(course[evidence["field"]])
+    text = evidence.get("text")
+    if not isinstance(text, str) or not squash(text):
+        return False
+    return squash(text) in {squash(s) for s in _sentences(course, evidence["field"])}  # 조각이 아니라 문장 하나와 같아야 한다

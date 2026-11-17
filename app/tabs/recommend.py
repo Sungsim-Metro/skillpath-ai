@@ -49,17 +49,21 @@ def _render_evidence(skill: str, course: dict):
     if "evidence" not in course:  # 근거 필드가 없는 예전 형식의 추천은 아무것도 붙이지 않는다
         return
     ev = course["evidence"]
+    name = md_escape(skill)
     if not ev:
-        st.caption(f"{UNCERTAIN} 과정의 제목과 학습 목표에서 {md_escape(skill)} 관련 문장을 찾지 못했습니다. "
-                   "관련 기초 과정으로 보고, 링크에서 내용을 확인하세요.")
+        st.caption(f"{UNCERTAIN} 과정의 제목과 학습 목표에서 {name} 관련 문장을 찾지 못했습니다. "
+                   f"{name} 내용을 다루는지 확인되지 않은 과정입니다. 링크에서 내용을 확인하세요.")
         return
-    where = FIELD_LABEL.get(ev["field"], ev["field"])
-    if ev["about"] == "skill":
-        lead = f"과정의 {where}에서 찾은 근거 · {md_escape(skill)}"
-    else:
-        lead = (f"과정의 {where}에서 찾은 근거 · {md_escape(skill)} 이름은 없고 같은 세부 능력"
-                + (f"({md_escape(ev['subskill'])})" if ev.get("subskill") else "") + "을 다룸")
-    st.markdown(f"> {md_escape(ev['text'])}  \n> :gray[{lead}]")
+    if ev["about"] != "skill":  # 다른 기술의 문장을 인용 블록으로 보여 주면 근거처럼 읽힌다. 직접 다루지 않는다는 사실을 먼저 적는다
+        area = f"({md_escape(ev['subskill'])})" if ev.get("subskill") else ""
+        st.caption(f"{UNCERTAIN} 이 과정은 {name} 내용을 직접 다루지 않습니다. 같은 영역{area}의 과정입니다. "
+                   f"과정이 다루는 내용(영문 원문): “{md_escape(ev['text'])}”")
+        return
+    if ev["field"] == "title":  # 바로 위에 제목이 있으니 되풀이하지 않는다
+        st.caption(f"과정 제목에 {name} 이름이 있습니다.")
+        return
+    st.caption(f"{name} 관련 근거 · 이 과정의 {FIELD_LABEL.get(ev['field'], ev['field'])}(영문 원문)")
+    st.markdown(f"> {md_escape(ev['text'])}")
 
 
 def render(ctx: Ctx):
