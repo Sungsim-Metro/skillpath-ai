@@ -136,6 +136,24 @@ def test_checks():
     assert agent.check_answer("JSON 아님", allowed)[0] is None
     assert agent.strip_numbers("AWS는 40건 중 31건입니다. 작년보다 2배입니다.\n- EC2 3개", allowed) == "AWS는 40건 중 31건입니다."
     assert agent.answer_numbers("EC2와 S3") == set()  # 글자에 붙은 숫자는 이름의 일부
+    # 꾸민 목록 번호도 뺀다 (11/17 실제 실행에서 숫자 1, 2 가 걸린 원인 후보)
+    decorated = "**1. AWS**\n### 2. Linux\n- 3) Docker\n> **4.** Git\n__5.__ CI/CD\n  6. Kubernetes"
+    assert agent.answer_numbers(decorated) == set(), agent.answer_numbers(decorated)
+    assert agent.check_answer({"answer": decorated + " 40건 중 31건", "scope": "in"}, allowed)[2] is None
+    # 줄 맨 앞이어도 목록 번호가 아닌 숫자는 그대로 검사한다
+    assert agent.answer_numbers("12.5%가 필수") == {12.5}
+    assert agent.answer_numbers("**12건** 중 3건") == {12.0, 3.0}
+    assert agent.answer_numbers("31건이 요구\n2배 늘었습니다") == {31.0, 2.0}
+
+
+def test_prompt_has_no_digits():
+    # 모델이 지침의 숫자를 답에 옮기면 숫자 검사에 걸리므로, 모델이 읽는 글에는 숫자를 두지 않는다(11/17)
+    import json as _json
+    import re as _re
+
+    seen = agent.prompt.SYSTEM + agent.prompt.RETRY_MESSAGE + _json.dumps(agent.prompt.TOOLS, ensure_ascii=False)
+    assert not _re.search(r"\d", seen), _re.findall(r".{0,12}\d.{0,12}", seen)
+    assert "get_skill_demand 를 다시 부르지 않습니다" in agent.prompt.SYSTEM
 
 
 def test_history_numbers_and_format():
