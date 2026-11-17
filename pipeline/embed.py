@@ -65,17 +65,26 @@ def _model_id() -> str:
     return model_id
 
 
+def _request_body(model_id: str, text: str) -> dict:
+    """Titan 요청 본문. normalize 는 Text Embeddings V2 에만 있는 칸이다(G1 Text 는 inputText 만 받는다)."""
+    body = {"inputText": text}
+    if "embed-text-v2" in model_id:
+        body["normalize"] = True
+    return body
+
+
 def _titan(text: str) -> list[float]:
+    model_id = _model_id()
     res = _client().invoke_model(
-        modelId=_model_id(),
-        body=json.dumps({"inputText": text, "normalize": True}),
+        modelId=model_id,
+        body=json.dumps(_request_body(model_id, text)),
         contentType="application/json",
         accept="application/json",
     )
     body = json.loads(res["body"].read())
     _usage["calls"] += 1
     _usage["tokens"] += body.get("inputTextTokenCount", 0)
-    return body["embedding"]
+    return _unit(body["embedding"])  # 모델이 길이를 맞춰 주지 않아도 길이 1 로 돌려준다
 
 
 def embed_many(texts: list[str]) -> list[list[float]]:
@@ -85,15 +94,18 @@ def embed_many(texts: list[str]) -> list[list[float]]:
     model = _model_id()
     cache = json.loads(CACHE_FILE.read_text(encoding="utf-8")) if CACHE_FILE.exists() else {}
     out, dirty = [], False
-    for t in texts:
-        key = f"{model}:{hashlib.sha1(t.encode('utf-8')).hexdigest()}"
-        if key not in cache:
-            cache[key] = [round(x, 6) for x in _titan(t)]
-            dirty = True
-        out.append(cache[key])
-    if dirty:
-        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_FILE.write_text(json.dumps(cache), encoding="utf-8")
+    try:
+        for t in texts:
+            key = f"{model}:{hashlib.sha1(t.encode('utf-8')).hexdigest()}"
+            if key not in cache:
+                cache[key] = [round(x, 6) for x in _titan(t)]
+                dirty = True
+            out.append(cache[key])
+    finally:
+        # 중간에 호출 제한 등으로 실패해도 그때까지 받은 벡터는 남긴다. 다시 돌리면 남은 문장만 부른다
+        if dirty:
+            CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CACHE_FILE.write_text(json.dumps(cache), encoding="utf-8")
     return out
 
 
