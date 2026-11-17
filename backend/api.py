@@ -82,7 +82,8 @@ def get_demand(job_category: str) -> dict:
         cached = _demand_cache.get(cache_key)
         if cached is not None and now - cached[0] < DEMAND_CACHE_SECONDS:
             return deepcopy(cached[1])
-        snapshot = DynamoDBStore.from_env().get_demand_snapshot(job_category)
+        # 화면은 수요 집계만 읽는다. 추출 테이블 이름과 권한이 없는 서버(배포한 화면)에서도 돌아야 한다
+        snapshot = DynamoDBStore.from_env(demand_only=True).get_demand_snapshot(job_category)
         if snapshot is None:
             raise LookupError(f"완성된 직무 수요 집계가 없습니다: {job_category}")
         demand = json_numbers(snapshot["demand"])

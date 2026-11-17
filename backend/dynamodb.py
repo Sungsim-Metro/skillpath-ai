@@ -49,7 +49,14 @@ class DynamoDBStore:
         self.demand_table = demand_table
 
     @classmethod
-    def from_env(cls, *, resource=None) -> DynamoDBStore:
+    def from_env(cls, *, resource=None, demand_only: bool = False) -> DynamoDBStore:
+        """demand_only=True 는 화면용이다. 수요 집계 테이블 이름과 읽기 권한만 있으면 된다(추출 테이블은 쓰지 않는다)."""
+        if demand_only:
+            demand = os.getenv("DYNAMODB_DEMAND_TABLE", "").strip()
+            if not demand:
+                raise ValueError("DYNAMODB_DEMAND_TABLE을 설정하세요.")
+            dynamodb = resource if resource is not None else _resource()
+            return cls(None, dynamodb.Table(demand))
         extractions, demand = table_names()
         dynamodb = resource if resource is not None else _resource()
         return cls(dynamodb.Table(extractions), dynamodb.Table(demand))

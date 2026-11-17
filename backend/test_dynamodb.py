@@ -204,6 +204,33 @@ class DemandReadTest(unittest.TestCase):
                     self.assertEqual(api.get_demand("cloud_engineer")["total_postings"], 2)
         self.assertEqual(store.get_demand_snapshot.call_count, 2)
 
+    def test_screen_reads_demand_without_extractions_table(self) -> None:
+        """배포한 화면에는 수요 집계 테이블 이름만 준다. 추출 테이블 설정이 없어도 실제 모드로 읽는다."""
+        table = Mock()
+        table.get_item.return_value = {"Item": {"job_category": "cloud_engineer", "demand": {
+            "total_postings": Decimal(3), "skills": [
+                {"skill": "Docker", "postings": Decimal(2), "required": Decimal(1), "preferred": Decimal(1),
+                 "evidence_samples": [{"posting_id": "rp-1", "url": None, "evidence": "Docker 운영 경험"}]},
+            ],
+        }}}
+        resource = Mock()
+        resource.Table.return_value = table
+        with patch.dict(os.environ, {"BEDROCK_MOCK": "0", "DYNAMODB_DEMAND_TABLE": "test-demand"}, clear=True):
+            with patch("backend.dynamodb._resource", return_value=resource):
+                demand = api.get_demand("cloud_engineer")
+                rows = api.get_gap("cloud_engineer", [])
+        resource.Table.assert_called_once_with("test-demand")
+        table.get_item.assert_called_once_with(Key={"job_category": "cloud_engineer"}, ConsistentRead=True)
+        self.assertEqual(demand["total_postings"], 3)
+        self.assertEqual([(r["skill"], r["ratio"], r["required_ratio"]) for r in rows], [("Docker", 0.67, 0.5)])
+
+    def test_screen_without_demand_table_fails_before_sdk_creation(self) -> None:
+        with patch.dict(os.environ, {"BEDROCK_MOCK": "0"}, clear=True):
+            with patch("backend.dynamodb._resource") as resource:
+                with self.assertRaises(ValueError):
+                    api.get_demand("cloud_engineer")
+                resource.assert_not_called()
+
     def test_mock_mode_does_not_access_dynamodb(self) -> None:
         with patch.dict(os.environ, {"BEDROCK_MOCK": "1"}, clear=True):
             with patch.object(api.DynamoDBStore, "from_env") as factory:
