@@ -88,14 +88,14 @@ AWS 운영 경험 우대
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `review.status` | string | `passed`(통과), `revised`(이유를 한 번 고침), `uncertain`(불확실), `unreviewed`(검증 호출 실패, 추천은 그대로) |
+| `review.status` | string | `passed`(반박 없음), `revised`(이유를 한 번 고침), `uncertain`(불확실), `overruled`(`coverage` 반박을 코드 검사가 기각), `unreviewed`(검증 호출 실패, 추천은 그대로) |
 | `review.issue` | string \| null | 반박의 종류. `coverage`(과정이 이 기술을 다루지 않음), `reason`(이유가 학습 목표에 없는 내용을 말함), `level`(수준에 맞지 않음) |
-| `review.comment` | string \| null | 화면에 보여줄 한 문장 |
-| `review.quote` | string \| null | 검증 에이전트가 근거로 든 과정 원문 문장. 과정의 제목·학습 목표에 그대로 있는지 코드로 검사한 것 |
-| `review.overruled` | boolean | `coverage` 반박을 코드 검사가 기각했을 때만 `true` |
+| `review.comment` | string \| null | 화면에 보여줄 한 문장(120자 이하). `revised`와 `overruled`는 코드의 고정 문구 |
+| `review.quote` | string \| null | 검증 에이전트가 근거로 든 과정 원문 문장. 과정의 제목 전체나 학습 목표 한 항목 전체와 같은지 코드로 검사한 것 |
 
-`coverage` 반박이 받아들여지면 `courses[].match`가 `uncertain`으로 낮아집니다. 검증으로 `match`가 올라가는 일은 없습니다.
-`revised`면 `courses[].reason`이 고쳐 쓴 문장입니다.
+`coverage` 반박은 과정 제목에 기술 이름이 있거나 학습 목표의 절반 이상이 그 이름을 말하면 기각하고, 그 밖에는 받아들여 `courses[].match`를 `uncertain`으로 낮춥니다. 검증으로 `match`가 올라가는 일은 없습니다.
+`revised`면 `courses[].reason`이 고쳐 쓴 문장입니다. 지적받은 낱말이 남았거나 수요 숫자를 잃은 수정은 받아들이지 않고 `uncertain`으로 둡니다.
+`passed`는 "검증 에이전트가 반박하지 않았다"는 뜻이지 내용이 옳다는 보증이 아닙니다. 화면도 "반박 없음"으로 표시합니다.
 
 ## ④ 수요 집계 (`demand`) — backend → app  · 11/10 회의 승인 대기
 

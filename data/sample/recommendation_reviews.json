@@ -1,11 +1,17 @@
 {
- "_note": "가짜 모드에서 RECOMMEND_DEBATE=1 일 때 화면이 보여주는 검증 결과 예시. 키는 gap_skill → 과정 제목(recommendations.json). 없는 과정은 통과로 본다. 실제 모드에서는 쓰지 않는다.",
+ "_note": "가짜 모드에서 RECOMMEND_DEBATE=1 일 때 화면이 보여주는 검증 결과 예시. 키는 gap_skill → 과정 제목(recommendations.json). 여기 없는 과정에는 아무 표시도 붙지 않는다. 실제 모드에서는 쓰지 않는다.",
  "AWS": {
-  "(예시) Architecting on AWS": {
-   "status": "uncertain",
-   "issue": "level",
+  "(예시) AWS Cloud Practitioner Essentials": {
+   "status": "passed",
+   "issue": null,
    "quote": null,
-   "comment": "(예시) 선수지식이 AWS 기초 서비스 이해라 처음 배우는 사람이 바로 듣기 어렵습니다."
+   "comment": null
+  },
+  "(예시) Architecting on AWS": {
+   "status": "overruled",
+   "issue": "coverage",
+   "quote": null,
+   "comment": "(예시) 검증 에이전트가 이 기술을 다루지 않는다고 반박했지만, 과정 제목에 이 기술 이름이 있어 코드 검사로 기각했습니다."
   }
  },
  "Kubernetes": {
@@ -13,7 +19,23 @@
    "status": "revised",
    "issue": "reason",
    "quote": null,
-   "comment": "(예시) 추천 이유에 학습 목표에 없는 내용이 있어 고쳐 썼습니다."
+   "comment": "(예시) 추천 이유에 학습 목표에서 확인되지 않는 내용이 있어 그 부분을 빼고 다시 썼습니다."
+  }
+ },
+ "Docker": {
+  "(예시) 컨테이너 기초와 Amazon ECS": {
+   "status": "passed",
+   "issue": null,
+   "quote": null,
+   "comment": null
+  }
+ },
+ "CI/CD": {
+  "(예시) AWS CodePipeline으로 배포 자동화": {
+   "status": "uncertain",
+   "issue": "reason",
+   "quote": null,
+   "comment": "(예시) 추천 이유에 학습 목표에서 확인되지 않는 내용이 있습니다. 고쳐 쓰지 못해 불확실로 둡니다."
   }
  }
 }

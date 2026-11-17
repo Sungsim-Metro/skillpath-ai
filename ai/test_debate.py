@@ -1,5 +1,6 @@
 """추천 대 검증 에이전트 흐름 확인(가짜 모드). 실행: python -m ai.test_debate"""
 import json
+import logging
 import os
 import unittest
 from unittest import mock
@@ -18,6 +19,8 @@ def demand_of(skill: str) -> dict:
 
 class DebateTest(unittest.TestCase):
     def setUp(self):
+        logging.disable(logging.CRITICAL)  # 일부러 낸 실패의 로그는 출력하지 않는다
+        self.addCleanup(logging.disable, logging.NOTSET)
         patcher = mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1", "RECOMMEND_DEBATE": "1"})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -48,8 +51,8 @@ class DebateTest(unittest.TestCase):
 
     def test_coverage_objection_is_overruled_when_name_is_in_course(self):
         course = self.build("AWS")[0]["courses"][0]
-        self.assertEqual(course["review"]["status"], "passed")
-        self.assertTrue(course["review"]["overruled"])
+        self.assertEqual(course["review"]["status"], "overruled")  # 통과와 구분해 표시한다
+        self.assertEqual(course["match"], rec.build_recommendation("AWS", demand_of("AWS"))[0]["courses"][0]["match"])  # 기각이면 그대로
 
     def test_coverage_objection_lowers_match_when_name_is_absent(self):
         courses = self.build("Terraform")[0]["courses"]
@@ -57,10 +60,34 @@ class DebateTest(unittest.TestCase):
         self.assertEqual(courses[0]["match"], "uncertain")
         self.assertEqual([c["review"]["status"] for c in courses[1:]], ["passed", "passed"])
 
+    def test_coverage_objection_lowers_a_certain_match(self):
+        """학습 목표 열 개 중 한 줄에만 이름이 나오는 과정: 검색은 certain 으로 줬지만 반박을 받아들여 낮춘다."""
+        before = rec.build_recommendation("CI/CD", demand_of("CI/CD"))[0]["courses"]
+        after = self.build("CI/CD")[0]["courses"]
+        self.assertEqual((before[0]["match"], after[0]["match"]), ("certain", "uncertain"))
+        self.assertEqual(after[0]["review"]["status"], "uncertain")
+        self.assertEqual([c["match"] for c in after[1:]], [c["match"] for c in before[1:]])
+
+    def test_rewording_the_claim_is_not_a_revision(self):
+        course = {"title": "Amazon EKS Networking", "objectives": ["Describe EKS networking"], "match": "certain"}
+        r = {"verdict": "objection", "issue": "reason", "claim": "서비스 메시 운영", "comment": "없습니다.", "quote": None}
+        old = "공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 서비스 메시 운영을 다룹니다."
+        decide = lambda new: debate._decide("Kubernetes", course, r, old, new, frozenset({40.0, 17.0}))[0]["status"]  # noqa: E731
+        self.assertEqual(decide("공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 서비스 메시의 운영을 다룹니다."), "uncertain")
+        self.assertEqual(decide("이 과정은 EKS 네트워킹을 설명합니다."), "uncertain")  # 수요 숫자를 잃었다
+        self.assertEqual(decide(None), "uncertain")
+        self.assertEqual(decide("공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 EKS 네트워킹을 설명합니다."), "revised")
+
+    def test_failed_calls_are_recorded(self):
+        with mock.patch.object(debate, "review", side_effect=BedrockJSONError("가짜 실패", {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10})):
+            _, result = self.build("Docker")
+        self.assertEqual(result.calls[-1], {"stage": "review", "failed": True, "inputTokens": 7, "outputTokens": 3, "totalTokens": 10})
+        self.assertEqual(result.usage["totalTokens"], sum(c["totalTokens"] for c in result.calls))
+
     def test_match_is_never_raised(self):
-        before = {c["title"]: c["match"] for s in ("Docker", "Kubernetes", "AWS", "Terraform")
+        before = {c["title"]: c["match"] for s in ("Docker", "Kubernetes", "AWS", "Terraform", "CI/CD")
                   for c in rec.build_recommendation(s, demand_of(s))[0]["courses"]}
-        for skill in ("Docker", "Kubernetes", "AWS", "Terraform"):
+        for skill in ("Docker", "Kubernetes", "AWS", "Terraform", "CI/CD"):
             for c in self.build(skill)[0]["courses"]:
                 self.assertFalse(before[c["title"]] == "uncertain" and c["match"] == "certain")
 
@@ -88,7 +115,7 @@ class DebateTest(unittest.TestCase):
     def test_validate_reviews_rejects_made_up_grounds(self):
         courses = rec.candidate_courses("Docker")
         reasons = {c["course_id"]: "이 과정은 컨테이너를 다룹니다." for c in courses}
-        review_input = debate.review_input_of("Docker", courses, reasons, None)
+        review_input = debate.review_input_of("Docker", demand_of("Docker"), courses, reasons, None)
         ok = {"course_id": None, "verdict": "pass", "issue": None, "claim": None, "quote": None, "comment": None}
 
         def reviews(first):
@@ -101,6 +128,9 @@ class DebateTest(unittest.TestCase):
             {**ok, "course_id": cid, "verdict": "objection", "issue": "level", "comment": "어렵습니다."},  # user_level 이 없다
             {**ok, "course_id": cid, "verdict": "objection", "issue": "coverage", "comment": "Azure Functions 과정이 낫습니다."},
             {**ok, "course_id": cid, "verdict": "maybe"},
+            {**ok, "course_id": cid, "verdict": "objection", "issue": "reason", "claim": "다", "comment": "근거가 없습니다."},  # 너무 짧다
+            {**ok, "course_id": cid, "verdict": "objection", "issue": "coverage", "quote": courses[0]["title"][:5], "comment": "다루지 않습니다."},  # 제목의 조각
+            {**ok, "course_id": cid, "verdict": "objection", "issue": "coverage", "comment": "다루지 않습니다. " * 20},  # 너무 길다
         ]
         for first in bad:
             with self.assertRaises(ValueError, msg=first):
@@ -108,6 +138,18 @@ class DebateTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             debate.validate_reviews({"reviews": [{**ok, "course_id": cid}]}, review_input)  # 과정이 빠졌다
         debate.validate_reviews(reviews({**ok, "course_id": cid}), review_input)
+        # 수요 문장은 코드가 계산한 값이라 반박 대상이 아니다
+        reasons[cid] = "공고 40건 중 20건이 Docker를 요구합니다. 이 과정은 컨테이너를 다룹니다."
+        review_input = debate.review_input_of("Docker", demand_of("Docker"), courses, reasons, None)
+        with self.assertRaises(ValueError):
+            debate.validate_reviews(reviews({**ok, "course_id": cid, "verdict": "objection", "issue": "reason",
+                                             "claim": "공고 40건 중 20건이 Docker를 요구합니다", "comment": "근거가 없습니다."}), review_input)
+        self.assertIn("code_check", review_input["courses"][0])
+        self.assertEqual(review_input["demand"]["postings"], 20)
+
+    def test_prompt_example_passes_its_own_checks(self):
+        from ai.prompts import review_v1
+        debate.validate_reviews(review_v1._EXAMPLE_ANSWER, review_v1._EXAMPLE_INPUT)
 
 
 if __name__ == "__main__":

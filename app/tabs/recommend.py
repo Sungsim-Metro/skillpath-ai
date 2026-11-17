@@ -5,9 +5,10 @@ from app.common import COMMON_AREA, PENDING, UNCERTAIN, Ctx, load, md_escape, no
 from backend import api
 
 REVIEW_BADGE = {
-    "passed": ":green-badge[검증 통과]",
+    "passed": ":green-badge[검증: 반박 없음]",
     "revised": ":blue-badge[검증 뒤 수정]",
     "uncertain": ":orange-badge[검증: 불확실]",
+    "overruled": ":gray-badge[검증: 반박 기각]",
     "unreviewed": ":gray-badge[검증 못 함]",
 }
 
@@ -17,6 +18,8 @@ def _review_text(skill: str, course: dict) -> str:
     review = course.get("review") or api.sample_review(skill, course["title"])
     if not review:
         return ""
+    if review["status"] == "passed" and course["match"] == "uncertain":
+        return ""  # 이미 "불확실"인 카드에 초록 표시를 나란히 붙이지 않는다
     text = f" {REVIEW_BADGE.get(review['status'], '')}"
     if review.get("comment"):
         text += f"  \n:gray[검증: {md_escape(review['comment'])}]"

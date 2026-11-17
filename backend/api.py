@@ -230,7 +230,10 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
         return [by_skill[skill] if skill in by_skill else {"gap_skill": skill, "demand": demand, "courses": []}
                 for skill, demand in pairs]
 
-    key = (job_category, tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
+    from ai.debate import UNREVIEWED, build_recommendation, debate_enabled  # RECOMMEND_DEBATE=1 이면 검증 에이전트를 거친다. 꺼져 있으면 ai.recommend 와 같다
+
+    # 검증을 켠 결과와 끈 결과가 섞이지 않게 켜짐 여부도 키에 넣는다
+    key = (job_category, debate_enabled(), tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
     with _recommend_cache_lock:
         cached = _recommend_cache.get(key)
         if cached is not None:
@@ -238,14 +241,14 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
     if cached is not None:
         return deepcopy(cached)
 
-    from ai.debate import build_recommendation  # RECOMMEND_DEBATE=1 이면 검증 에이전트를 거친다. 꺼져 있으면 ai.recommend 와 같다
-
     out = []
     for skill, demand in pairs:
         rec, result = build_recommendation(skill, demand)
         out.append(rec)
         if result is not None:
-            logger.info("추천 %s: 시도 %d회, 토큰 %s", skill, result.attempts, result.usage.get("totalTokens", 0))
+            logger.info("추천 %s: 호출 %d회, 토큰 %s", skill, len(result.calls) or result.attempts, result.usage.get("totalTokens", 0))
+    if any((c.get("review") or {}).get("status") == UNREVIEWED for r in out for c in r["courses"]):
+        return out  # 검증 호출이 실패한 결과는 캐시하지 않는다. 다음 요청에서 다시 검증한다
     with _recommend_cache_lock:  # 실패하면 여기까지 오지 않으므로 오류는 캐시하지 않는다
         _recommend_cache[key] = deepcopy(out)
         _recommend_cache.move_to_end(key)
@@ -292,11 +295,11 @@ def sample_review(gap_skill: str, course_title: str) -> dict | None:
     """가짜 모드에서 화면 확인용으로 쓰는 검증 결과 예시(③ courses[].review 와 같은 형식).
 
     실제 모드에서는 검증 결과가 ③ 안에 담겨 오므로 이 함수는 None 을 돌려준다.
-    가짜 모드에서도 RECOMMEND_DEBATE=1 일 때만 예시를 준다. 예시에 없는 과정은 "통과"다.
+    가짜 모드에서도 RECOMMEND_DEBATE=1 일 때만, 예시 파일에 있는 과정에만 준다. 없는 과정은 None 이다
+    (검증하지 않은 과정에 "반박 없음"을 붙이지 않는다).
     """
-    from ai.debate import PASSED, debate_enabled
+    from ai.debate import debate_enabled
 
     if not is_mock() or not debate_enabled():
         return None
-    table = _load("recommendation_reviews.json")
-    return table.get(gap_skill, {}).get(course_title) or {"status": PASSED, "issue": None, "comment": None, "quote": None}
+    return _load("recommendation_reviews.json").get(gap_skill, {}).get(course_title)
