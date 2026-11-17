@@ -50,6 +50,43 @@ class Pending(str):
     """아직 구현 전이라 값을 못 받은 구역의 안내 문구. 오류와 구분해 '개발 중'으로 보여준다."""
 
 
+# 실제 모드(AWS)에서 자주 나는 오류의 안내. 키는 AWS 오류 코드나 예외 이름이다.
+# 화면을 보는 사람은 터미널을 볼 수 없으므로 다시 해 볼 일인지 운영자가 고칠 일인지를 알려 준다.
+_BUSY = "요청이 몰려 잠시 처리하지 못했습니다. 1분쯤 뒤에 다시 시도해 주세요."
+_SETUP = "서버의 AWS 설정 문제입니다. 운영자에게 알려 주세요."
+AWS_ERROR_HINT = {
+    "ThrottlingException": _BUSY,
+    "TooManyRequestsException": _BUSY,
+    "ServiceQuotaExceededException": _BUSY,
+    "ProvisionedThroughputExceededException": _BUSY,
+    "ServiceUnavailableException": _BUSY,
+    "ModelNotReadyException": _BUSY,
+    "ModelTimeoutException": _BUSY,
+    "InternalServerException": _BUSY,
+    "ReadTimeoutError": _BUSY,
+    "ConnectTimeoutError": _BUSY,
+    "EndpointConnectionError": _BUSY,
+    "AccessDeniedException": _SETUP,
+    "UnrecognizedClientException": _SETUP,
+    "ExpiredTokenException": _SETUP,
+    "ResourceNotFoundException": _SETUP,
+    "ValidationException": _SETUP,
+    "ProfileNotFound": _SETUP,
+    "NoCredentialsError": _SETUP,
+    "NoRegionError": _SETUP,
+}
+
+
+def error_kind(e: Exception) -> str:
+    """오류 종류. AWS 가 돌려준 오류면 그 코드(ThrottlingException 등), 아니면 예외 이름이다.
+
+    오류 메시지에는 계정 ID 나 역할 이름이 들어 있을 수 있어 쓰지 않는다. 코드에는 그런 값이 없다.
+    """
+    response = getattr(e, "response", None)  # botocore ClientError
+    code = response.get("Error", {}).get("Code") if isinstance(response, dict) else None
+    return code if isinstance(code, str) and code.isidentifier() else type(e).__name__
+
+
 def load(fn, *args):
     """backend 함수를 부르고 (결과, 안내 문구)를 돌려준다.
 
@@ -63,7 +100,9 @@ def load(fn, *args):
         return None, Pending(str(e))
     except Exception as e:  # noqa: BLE001 - 시연 중 한 구역 오류로 화면 전체가 멈추지 않게
         logger.exception("%s 호출 실패", fn.__name__)
-        return None, f"불러오지 못했습니다({type(e).__name__}). 실행한 터미널의 로그를 확인하세요."
+        kind = error_kind(e)
+        hint = AWS_ERROR_HINT.get(kind, "실행한 터미널의 로그를 확인하세요.")
+        return None, f"불러오지 못했습니다({kind}). {hint}"
 
 
 def notice(title: str, err: str, will_show: str = ""):
