@@ -38,7 +38,7 @@ TABS = [
     ("부족 역량", tab_gap.render),
     ("학습 추천", tab_recommend.render),
     ("공고 직접 분석", tab_extract.render),
-    ("진단 보고서", tab_report.render),
+    ("보고서", tab_report.render),  # 폰 폭에서 탭 줄이 잘리지 않게 짧게
 ]
 
 st.set_page_config(page_title="skillpath-ai", layout="wide")

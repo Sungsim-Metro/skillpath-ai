@@ -44,6 +44,25 @@ class ReportTest(unittest.TestCase):
         self.assertNotIn("javascript:alert(1)", bad)
         self.assertNotIn("<b>x</b>", bad)
 
+    def test_report_says_why_recommendations_are_missing_or_partial(self):
+        from app.report import build_report
+
+        demand = {"total_postings": 40, "skills": [], "sources": []}
+        gap = [{"skill": s, "owned": False, "area": "A", "postings": 10, "of": 40, "ratio": 0.25, "required_ratio": 0.5} for s in ("X", "Y")]
+        rec = {"gap_skill": "X", "demand": {"of": 40, "postings": 10, "required_ratio": 0.5}, "courses": [
+            {"title": "T", "url": "https://example.com", "level": "기초", "prerequisites": "없음", "reason": "이유", "match": "uncertain",
+             "evidence": {"text": "OTHER SKILL SENTENCE", "field": "objectives", "about": "subskill", "subskill": "S"}},
+            {"title": "T2", "url": "https://example.com", "level": "기초", "prerequisites": "없음", "reason": "이유", "match": "certain",
+             "evidence": {"text": "REAL SENTENCE", "field": "objectives", "about": "skill", "subskill": None}}]}
+        build = lambda **kw: build_report(job_title="직무", demand=demand, gap_rows=gap, area_rows=[], owned=[], **kw)  # noqa: E731
+        failed = build(recommendations=[], recommend_failed=True)
+        self.assertIn("추천을 불러오지 못해", failed)
+        self.assertNotIn("부족한 기술이 없어", failed)
+        partial = build(recommendations=[rec])
+        self.assertIn("이번에 추천하지 않은 기술: Y", partial)
+        self.assertIn("REAL SENTENCE", partial)
+        self.assertNotIn("OTHER SKILL SENTENCE", partial)   # 같은 영역일 뿐인 문장은 인용하지 않는다(화면과 같은 기준)
+
     def test_report_tab_has_download_button(self):
         self.assertTrue([b for b in AppTest.from_file(MAIN, default_timeout=60).run().get("download_button") if b.key == "report_btn"])
 
