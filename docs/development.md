@@ -67,12 +67,20 @@ API Gateway는 쓰지 않습니다(2026-11-13). 수업 교안에 없고, 화면�
 
 | 위치 | 내용 |
 | --- | --- |
-| `app/main.py` | 사이드바와 탭 4개(시장 수요, 부족 역량, 학습 추천, 공고 분석). 가짜 데이터로 동작 |
-| `backend/api.py` | 화면이 부르는 함수 4개: `get_demand`, `get_gap`, `get_recommendations`, `extract_posting`. 지금은 가짜 데이터를 돌려주고, 담당자가 실제 구현으로 교체 |
+| `app/main.py`, `app/tabs/` | 사이드바와 탭(시장 수요, 부족 역량, 학습 추천, 공고 직접 분석). `backend/api.py` 함수만 부른다 |
+| `backend/api.py` | 화면이 부르는 함수. 실제 모드(`BEDROCK_MOCK=0`)에서 `get_demand` 는 DynamoDB 수요 집계를 읽고, `get_recommendations` 와 `extract_posting` 은 Bedrock Converse 를 부른다. 교육 공급 집계(`_get_supply`)는 가짜 모드에만 있다 |
+| `backend/dynamodb.py`, `backend/demand.py` | 테이블 생성, 추출 결과·수요 집계 저장과 조회, 고유 공고 기준 재집계 |
+| `ai/bedrock.py`, `ai/extract.py`, `ai/recommend.py` | Bedrock Converse 호출(JSON 검사, 1회 재시도, 토큰 기록), 기술 추출과 근거 검사, 추천 이유 |
+| `pipeline/rocketpunch.py`, `pipeline/storage.py` | 공고 수집과 S3 보관 |
+| `pipeline/extraction_batch.py` | 사람이 실행하는 일괄 처리: S3 의 공고 → Bedrock 추출 → DynamoDB 저장 → 수요 집계 공개 |
+| `pipeline/search.py`, `pipeline/aliases.py`, `pipeline/ncs.py` | 저장소의 연결표로 하는 과정 검색, 별칭 사전, NCS 연결. 임베딩이나 Knowledge Base 를 쓰지 않는다 |
+| `pipeline/embed.py` | Titan 임베딩 호출. 별칭 후보 제안(`pipeline/suggest.py`) 같은 개발 도구에서만 쓴다 |
+| `deploy/` | 화면을 서버 한 대에 띄우는 안내와 실제 모드 사전 점검 |
 | `data/sample/` | ①~④ 형식의 예시 JSON |
 | `.github/workflows/` | PR 자동 리뷰(`claude-review.yml`), 댓글 호출(`claude.yml`) |
 
-`pipeline/`은 아직 README만 있습니다. `ai/`의 추출 정답지 10건과 추출 v1은 PR #46에 있습니다.
+위 표의 "AWS 서비스와 쓰는 이유" 가운데 Lambda 함수, Knowledge Base, Bedrock Agents, Guardrails, CloudWatch 대시보드는 이 저장소에 코드가 없다.
+담당 이슈에서 다룬다([#18](https://github.com/Sungsim-Metro/skillpath-ai/issues/18), [#24](https://github.com/Sungsim-Metro/skillpath-ai/issues/24), [#25](https://github.com/Sungsim-Metro/skillpath-ai/issues/25), [#38](https://github.com/Sungsim-Metro/skillpath-ai/issues/38)).
 
 ## 품질 확인 계획
 
