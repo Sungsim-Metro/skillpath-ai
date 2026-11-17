@@ -34,7 +34,7 @@ def read_rows(path: Path | None = None) -> list[dict]:
 def _valid(row) -> bool:
     """집계에 쓸 수 있는 줄인가. 칸이 빠졌거나 형식이 다른 줄은 세지 않는다(화면이 한 줄 때문에 멈추지 않게)."""
     return (isinstance(row, dict) and isinstance(row.get("ts"), str) and isinstance(row.get("stage"), str)
-            and all(type(row.get(k)) is int for k in ("inputTokens", "outputTokens")))
+            and all(type(row.get(k)) is int and row[k] >= 0 for k in ("inputTokens", "outputTokens")))
 
 
 def load_pricing() -> dict:
@@ -43,9 +43,10 @@ def load_pricing() -> dict:
 
 def cost_of(row: dict, pricing: dict) -> float | None:
     """호출 1건의 비용. 그 모델의 단가가 없으면 None."""
-    price = pricing["models"].get(row.get("model", ""))
-    if not price:
-        return None
+    model = row.get("model", "")
+    price = pricing.get("models", {}).get(model) if isinstance(model, str) else None
+    if not isinstance(price, dict) or not all(isinstance(price.get(k), (int, float)) for k in ("input_per_1k", "output_per_1k")):
+        return None  # 단가가 없거나 한쪽만 적혔거나 숫자가 아니면 계산하지 않는다
     return row["inputTokens"] / 1000 * price["input_per_1k"] + row["outputTokens"] / 1000 * price["output_per_1k"]
 
 
@@ -58,10 +59,10 @@ def summarize(rows: list[dict] | None = None, pricing: dict | None = None) -> di
         costs = [cost_of(r, pricing) for r in group]
         return {
             "calls": len(group),
-            "retries": sum(r.get("attempt", 1) > 1 for r in group),
+            "retries": sum(isinstance(r.get("attempt"), int) and r["attempt"] > 1 for r in group),
             "input_tokens": sum(r["inputTokens"] for r in group),
             "output_tokens": sum(r["outputTokens"] for r in group),
-            "cost": round(sum(c for c in costs if c is not None), 4),
+            "cost": round(sum(c for c in costs if c is not None), 6),
             "unpriced_calls": sum(c is None for c in costs),
         }
 
@@ -72,9 +73,10 @@ def summarize(rows: list[dict] | None = None, pricing: dict | None = None) -> di
         "by_stage": [{"stage": s, "label": STAGE_LABEL.get(s, s), **total([r for r in real if r["stage"] == s])} for s in stages],
         "by_day": [{"day": d, **total([r for r in real if r["ts"][:10] == d])} for d in days],
         "mock_calls": len(rows) - len(real),
-        "models": sorted({r.get("model", "") for r in real}),
-        "first": real[0]["ts"] if real else None,
-        "last": real[-1]["ts"] if real else None,
+        "models": sorted({r["model"] if isinstance(r.get("model"), str) else "" for r in real}),
+        "unpriced_models": sorted({r["model"] if isinstance(r.get("model"), str) else "" for r in real if cost_of(r, pricing) is None}),
+        "first": min(r["ts"] for r in real) if real else None,
+        "last": max(r["ts"] for r in real) if real else None,
         "pricing": {k: pricing.get(k) for k in ("source", "checked", "currency")},
-        "priced_models": sorted(pricing["models"]),
+        "priced_models": sorted(pricing.get("models", {})),
     }

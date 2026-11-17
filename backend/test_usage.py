@@ -69,5 +69,26 @@ class UsageTest(unittest.TestCase):
             self.assertTrue(pricing["source"] and pricing["checked"])   # 단가를 적었으면 출처와 확인일도 있어야 한다
 
 
+    def test_partial_pricing_and_odd_rows(self):
+        rows = [row(), row(model="unknown", i=900000), {**row(), "ts": "2026-11-16T09:00:00", "attempt": "x", "model": ["m"]}]
+        s = usage.summarize(rows, PRICING)
+        self.assertEqual(s["unpriced_models"], ["", "unknown"])            # 단가가 있는 모델은 경고 목록에 없다
+        self.assertEqual((s["first"], s["last"]), (min(r["ts"] for r in rows), max(r["ts"] for r in rows)))  # 파일 순서가 아니라 시각
+        self.assertIsNone(usage.cost_of(row(), {"models": {"m1": {"input_per_1k": 0.003}}}))       # 한쪽 단가만 있으면 계산 안 함
+        self.assertFalse(usage._valid({**row(), "inputTokens": -5}))
+
+    def test_record_survives_odd_usage_and_can_be_switched_off(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"USAGE_LOG": str(Path(d) / "u.jsonl")}):
+            recorder.record("mock_bedrock_recommend.json", 1, {"inputTokens": None}, False)   # 멈추지 않는다
+            recorder.record("mock_bedrock_recommend.json", 1, None, False)
+            rows = usage.read_rows(Path(d) / "u.jsonl")
+            self.assertEqual((len(rows), rows[0]["inputTokens"]), (1, 0))
+            self.assertRegex(rows[0]["ts"], r"^\d{4}-\d\d-\d\dT")
+            with mock.patch.dict(os.environ, {"USAGE_LOG": "off"}):
+                recorder.record("mock_bedrock_recommend.json", 1, {}, False)
+            self.assertFalse(Path("off").exists())
+            self.assertEqual(len(usage.read_rows(Path(d) / "u.jsonl")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

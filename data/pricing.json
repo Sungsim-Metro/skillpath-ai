@@ -1,5 +1,5 @@
 {
- "note": "Bedrock 모델 단가. 토큰·비용 화면(backend/usage.py)이 읽는다. 키는 BEDROCK_MODEL_ID 값 그대로이고, 값은 토큰 1,000개당 가격이다. 단가는 AWS 요금 페이지에서 직접 확인해 적고 source 와 checked 를 함께 고친다. 여기에 없는 모델은 화면에 '단가 미설정'으로 나오고 비용을 계산하지 않는다. 추측한 값을 적지 않는다.",
+ "note": "Bedrock 모델 단가. 토큰·비용 화면(backend/usage.py)이 읽는다. 키는 BEDROCK_MODEL_ID 값 그대로이고, 값은 토큰 1,000개당 가격이다(input_per_1k, output_per_1k 둘 다 숫자로). 요금 페이지가 100만 토큰당으로 적었으면 1000으로 나눠 적는다. 단가는 AWS 요금 페이지에서 직접 확인해 적고 source 와 checked 를 함께 고친다. 여기에 없는 모델은 화면에 '단가 미설정'으로 나오고 비용을 계산하지 않는다. 추측한 값을 적지 않는다.",
  "source": "",
  "checked": "",
  "currency": "USD",
