@@ -369,6 +369,49 @@ class ExtractionBatchTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_batch([self.path, second], exclusions={"rp-2": "outside current policy"})
 
+    def write_adjacent(self, *posting_ids):
+        (self.root / "인접직무.json").write_text(json.dumps(list(posting_ids)), encoding="utf-8")
+
+    def test_adjacent_posting_is_selected_only_when_listed_and_enabled(self):
+        adjacent = self.write_posting("rp-2", title="Backend Engineer", text="AWS and Docker")
+        other = self.write_posting("rp-3", title="Designer", text="Figma")  # 제목도 안 맞고 인접 표시도 없다
+        self.write_adjacent("rp-2")
+        paths = [self.path, adjacent, other]
+        # 켜면 표시된 인접 공고가 입력에 들어가고, 표시 없는 공고는 여전히 빠진다. 규칙 버전에도 인접 규칙이 드러난다
+        result = self.run_batch(paths, include_adjacent=True)
+        self.assertTrue(result["published"])
+        self.assertEqual((result["target"], result["adjacent_selected"], result["skipped_by_selection"]), (2, 1, 1))
+        self.assertEqual(set(self.store.extractions), {"rp-1", "rp-2"})
+        self.assertEqual(self.store.snapshot["demand"]["total_postings"], 2)
+        self.assertEqual(
+            self.store.snapshot["policy"]["selection_version"],
+            "cloud-role-title-v1" + batch.ADJACENT_VERSION_SUFFIX,
+        )
+        # 기본(끔)은 예전처럼 제목만 본다. 인접 공고는 조용히 사라지지 않고 건너뛴 수로 요약에 남는다
+        result = self.run_batch(paths)
+        self.assertEqual((result["target"], result["adjacent_selected"], result["skipped_by_selection"]), (1, 0, 2))
+        self.assertEqual(self.store.snapshot["demand"]["total_postings"], 1)
+        self.assertEqual(self.store.snapshot["policy"]["selection_version"], "cloud-role-title-v1")
+
+    def test_adjacent_enabled_without_list_file_skips_like_title_only(self):
+        adjacent = self.write_posting("rp-2", title="Backend Engineer", text="AWS and Docker")
+        result = self.run_batch([self.path, adjacent], include_adjacent=True)
+        self.assertEqual((result["target"], result["adjacent_selected"], result["skipped_by_selection"]), (1, 0, 1))
+
+    def test_adjacent_posting_can_be_excluded_by_hand(self):
+        adjacent = self.write_posting("rp-2", title="Backend Engineer", text="AWS and Docker")
+        self.write_adjacent("rp-2")
+        result = self.run_batch([self.path, adjacent], include_adjacent=True, exclusions={"rp-2": "manual review"})
+        self.assertEqual((result["target"], result["excluded"]), (1, 1))
+        self.assertEqual(self.store.snapshot["quality"]["eligible_postings"], 2)
+
+    def test_selection_version_marks_adjacent_rule(self):
+        base = batch.selection_version_for_terms(batch.DEFAULT_TERMS)
+        self.assertEqual(batch.selection_version_for_terms(batch.DEFAULT_TERMS, include_adjacent=True), base + batch.ADJACENT_VERSION_SUFFIX)
+        custom = batch.selection_version_for_terms(["Docker"])
+        self.assertEqual(batch.selection_version_for_terms(["Docker"], include_adjacent=True), custom + batch.ADJACENT_VERSION_SUFFIX)
+        self.assertEqual(batch.selection_version_for_terms(["aws"], "custom-v2", include_adjacent=True), "custom-v2")  # 직접 준 이름은 그대로
+
     def test_selection_version_tracks_effective_filter(self):
         defaults = [term.upper() for term in reversed(batch.DEFAULT_TERMS)] + [" cloud "]
         self.assertEqual(batch.selection_version_for_terms(defaults), "cloud-role-title-v1")

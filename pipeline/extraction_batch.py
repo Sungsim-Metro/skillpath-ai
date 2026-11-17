@@ -23,6 +23,9 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
 DEFAULT_SELECTION_VERSION = "cloud-role-title-v1"
 DEFAULT_TERMS = ROLE_TERMS
+# 인접 직무(직군 dev + 본문 AWS)를 함께 선정하면 선정 규칙 버전 뒤에 붙인다. 번호는 수집 단계가 data/raw/인접직무.json 에 남긴다.
+ADJACENT_FILE = "인접직무.json"
+ADJACENT_VERSION_SUFFIX = "+adjacent-dev-aws-v1"
 
 
 @dataclass(frozen=True)
@@ -72,25 +75,37 @@ def _normalized_terms(terms: tuple[str, ...] | list[str]) -> tuple[str, ...]:
 
 def selection_version_for_terms(
     terms: tuple[str, ...] | list[str], override: str | None = None,
+    include_adjacent: bool = False,
 ) -> str:
-    """실제로 적용하는 선정 필터에 맞는 규칙 버전을 만든다."""
+    """실제로 적용하는 선정 필터에 맞는 규칙 버전을 만든다. 인접 직무를 함께 선정하면 접미사를 붙인다."""
     normalized = _normalized_terms(terms)
     if override is not None:
         if not override.strip():
             raise ValueError("선정 규칙 버전은 빈 문자열일 수 없습니다.")
         return override.strip()
     if normalized == _normalized_terms(DEFAULT_TERMS):
-        return DEFAULT_SELECTION_VERSION
-    serialized = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
-    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:12]
-    return f"cloud-title-terms-{digest}"
+        version = DEFAULT_SELECTION_VERSION
+    else:
+        serialized = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+        version = f"cloud-title-terms-{hashlib.sha256(serialized.encode('utf-8')).hexdigest()[:12]}"
+    return version + ADJACENT_VERSION_SUFFIX if include_adjacent else version
+
+
+def _adjacent_ids(directory: Path) -> set[str]:
+    """공고 파일이 있는 폴더의 인접직무.json 에 적힌 공고 번호. 파일이 없으면 빈 집합."""
+    path = directory / ADJACENT_FILE
+    return set(json.loads(path.read_text(encoding="utf-8"))) if path.exists() else set()
 
 
 def _freeze_inputs(
     paths: list[Path], job_category: str, settings: dict,
     target: storage.S3Target, exclusions: dict[str, str], terms: tuple[str, ...],
-) -> tuple[list[BatchInput], list[dict], int]:
-    """파일 목록과 내용을 고정하고 공고별 입력 오류를 기록한다."""
+    include_adjacent: bool = False,
+) -> tuple[list[BatchInput], list[dict], int, dict[str, int]]:
+    """파일 목록과 내용을 고정하고 공고별 입력 오류를 기록한다.
+
+    제목에 직무 단어가 있는 공고를 선정한다. include_adjacent 이면 인접직무.json 에 번호가 있는 공고도 선정한다.
+    선정에서 빠진 공고는 조용히 사라지지 않게 개수를 세어 돌려준다(skipped_by_selection)."""
     from pipeline.rocketpunch import matched_terms
 
     by_id: dict[str, Path] = {}
@@ -103,6 +118,8 @@ def _freeze_inputs(
         by_id[posting_id] = path
     inputs, failures = [], []
     eligible_ids = set()
+    counts = {"skipped_by_selection": 0, "adjacent_selected": 0}
+    adjacent: dict[Path, set[str]] = {}
     for posting_id, path in by_id.items():
         try:
             content = path.read_bytes()
@@ -114,7 +131,15 @@ def _freeze_inputs(
             if not isinstance(posting.get("title"), str):
                 raise ValueError("공고 title은 문자열이어야 합니다.")
             if not matched_terms(posting, terms, fields=("title",)):
-                continue
+                if not include_adjacent:
+                    counts["skipped_by_selection"] += 1
+                    continue
+                if path.parent not in adjacent:
+                    adjacent[path.parent] = _adjacent_ids(path.parent)
+                if posting_id not in adjacent[path.parent]:
+                    counts["skipped_by_selection"] += 1
+                    continue
+                counts["adjacent_selected"] += 1
             eligible_ids.add(posting_id)
             if posting_id in exclusions:
                 continue
@@ -129,7 +154,7 @@ def _freeze_inputs(
     unknown = exclusions.keys() - eligible_ids
     if unknown:
         raise ValueError(f"현재 선정 목록에 없는 제외 공고: {', '.join(sorted(unknown))}")
-    return inputs, failures, len(inputs) + len(failures)
+    return inputs, failures, len(inputs) + len(failures), counts
 
 
 def _read_s3_posting(batch_input: BatchInput, target: storage.S3Target, s3) -> dict:
@@ -177,7 +202,7 @@ def run_batch(
     paths: list[Path], *, job_category: str, collected: str,
     force: bool = False, exclusions: dict[str, str] | None = None,
     selection_version: str | None = None, terms: tuple[str, ...] | list[str] = DEFAULT_TERMS,
-    store=None, s3_client=None,
+    include_adjacent: bool = False, store=None, s3_client=None,
 ) -> dict:
     """완성 집계만 공개하고 실행 요약을 반환한다. 호출자가 요약 JSON을 한 번 출력한다.
 
@@ -187,13 +212,13 @@ def run_batch(
     if not collected.strip():
         raise ValueError("수집일 또는 수집 기간을 지정하세요.")
     terms = _normalized_terms(terms)
-    selection_version = selection_version_for_terms(terms, selection_version)
+    selection_version = selection_version_for_terms(terms, selection_version, include_adjacent)
     exclusions = dict(exclusions or {})
     parse_exclusions([f"{posting_id}={reason}" for posting_id, reason in exclusions.items()])
     target = storage.target_from_env()
     settings = extraction_settings()
-    inputs, failures, target_count = _freeze_inputs(
-        paths, job_category, settings, target, exclusions, terms,
+    inputs, failures, target_count, selection_counts = _freeze_inputs(
+        paths, job_category, settings, target, exclusions, terms, include_adjacent,
     )
     summary = {
         "run_id": uuid4().hex,
@@ -203,6 +228,7 @@ def run_batch(
         "reused": 0,
         "failed": len(failures),
         "excluded": len(exclusions),
+        **selection_counts,
         "failures": failures,
         "usage": {name: 0 for name in USAGE_KEYS},
         "published": False,
@@ -276,13 +302,14 @@ def main() -> int:
     parser.add_argument("--exclude", action="append", default=[], metavar="ID=REASON")
     parser.add_argument("--terms", nargs="+", default=list(DEFAULT_TERMS), help="공고 제목의 직무 선정 단어")
     parser.add_argument("--selection-version", help="선정 규칙 버전. 기본값은 필터에서 계산")
+    parser.add_argument("--title-only", action="store_true", help="인접 직무(인접직무.json)를 선정하지 않고 제목 단어만 쓴다")
     args = parser.parse_args()
     load_env_file()
     summary = run_batch(
         sorted(RAW_DIR.glob("rp-*.posting.json")), job_category=args.job_category,
         collected=args.collected, force=args.force,
         exclusions=parse_exclusions(args.exclude), selection_version=args.selection_version,
-        terms=args.terms,
+        terms=args.terms, include_adjacent=not args.title_only,
     )
     print(json.dumps(summary, ensure_ascii=False))
     return 0 if summary["published"] else 1

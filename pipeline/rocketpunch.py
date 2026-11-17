@@ -398,6 +398,7 @@ def batch_options(args) -> dict | None:
     job_category = getattr(args, "job_category", "cloud_engineer")
     validate_configuration(job_category)
     validate_role(job_category, args.role)
+    include_adjacent = not getattr(args, "title_only", False)  # 수집에서 채택한 인접 직무를 배치도 선정한다
     collected = getattr(args, "collected", None)
     if not collected or not collected.strip():
         raise ValueError("DynamoDB 저장에는 --collected로 수집일 또는 기간을 지정하세요.")
@@ -407,9 +408,10 @@ def batch_options(args) -> dict | None:
         "force": getattr(args, "force", False),
         "exclusions": parse_exclusions(getattr(args, "exclude", [])),
         "selection_version": selection_version_for_terms(
-            args.terms, getattr(args, "selection_version", None)
+            args.terms, getattr(args, "selection_version", None), include_adjacent
         ),
         "terms": args.terms,
+        "include_adjacent": include_adjacent,
     }
 
 

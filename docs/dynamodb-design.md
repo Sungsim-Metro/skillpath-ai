@@ -161,6 +161,10 @@ flowchart LR
 - 수집기와 배치는 공고 제목을 `pipeline/rocketpunch.py`의 `ROLE_TERMS`와 비교해 직무를 선정한다.
   기본 선정 버전은 `cloud-role-title-v1`이며, `--terms`로 바꾼 제목 필터는 단어 목록의 해시를 버전에 반영한다.
   적용한 버전은 집계의 `policy.selection_version`에 기록한다.
+- 수집기가 인접 직무(직군 `dev`이고 본문에 AWS가 있는 공고)로 채택한 공고는 번호를 `data/raw/인접직무.json`에 남긴다.
+  배치는 기본으로 제목 단어에 안 맞아도 이 파일에 번호가 있는 공고를 함께 선정하고(`--title-only`로 끔), 선정 버전 뒤에
+  `+adjacent-dev-aws-v1`을 붙인다. 선정에서 빠진 공고 수는 요약의 `skipped_by_selection`, 인접 규칙으로 들어온 수는
+  `adjacent_selected`에 남는다. 두 값은 요약(stdout)에만 있고 DynamoDB에는 저장하지 않는다.
 - 추출이 반복해서 실패하는 공고는 실행 인자로 제외를 지정한다. 제외한 공고는 분모에 넣지 않고
   `quality.excluded_postings`에 공고 ID와 사유를 남긴다. 지정 없이 실패한 공고를 건너뛰고 공개하지 않는다.
 
