@@ -1,0 +1,5 @@
+# /etc/caddy/Caddyfile. 주소를 팀 도메인의 하위 주소로 바꾼다. DNS A 레코드가 서버의 고정 IP 를 가리켜야 한다.
+# Caddy 가 인증서를 받아 HTTPS 로 열고, Streamlit 이 쓰는 웹소켓(/_stcore/stream)도 그대로 넘긴다.
+skillpath.example.com {
+    reverse_proxy 127.0.0.1:8501
+}

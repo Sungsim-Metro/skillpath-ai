@@ -1,0 +1,39 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PostingObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::BUCKET_NAME/skillpath/rocketpunch/*"
+    },
+    {
+      "Sid": "ExtractionItems",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"],
+      "Resource": "arn:aws:dynamodb:ap-northeast-2:ACCOUNT_ID:table/EXTRACTIONS_TABLE_NAME"
+    },
+    {
+      "Sid": "DemandSnapshot",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:ap-northeast-2:ACCOUNT_ID:table/DEMAND_TABLE_NAME"
+    },
+    {
+      "Sid": "CreateTablesOnce",
+      "Effect": "Allow",
+      "Action": ["dynamodb:CreateTable", "dynamodb:DescribeTable"],
+      "Resource": "arn:aws:dynamodb:ap-northeast-2:ACCOUNT_ID:table/*"
+    },
+    {
+      "Sid": "InvokeModels",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/MODEL_ID_WITHOUT_PROFILE_PREFIX",
+        "arn:aws:bedrock:ap-northeast-2:ACCOUNT_ID:inference-profile/INFERENCE_PROFILE_ID_IF_USED",
+        "arn:aws:bedrock:ap-northeast-2::foundation-model/EMBED_MODEL_ID"
+      ]
+    }
+  ]
+}

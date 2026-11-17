@@ -1,0 +1,19 @@
+# /etc/systemd/system/skillpath.service 로 복사한다. 경로와 사용자는 서버에 맞게 고친다.
+[Unit]
+Description=skillpath-ai Streamlit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/skillpath-ai
+# 값은 저장소의 .env 에 둔다(app/main.py 가 읽는다). 이 파일에 키나 모델 ID 를 적지 않는다.
+# 프로세스는 하나만 띄운다. 추천 캐시와 호출 기록이 프로세스 안과 서버 디스크에 있다.
+ExecStart=/home/ubuntu/skillpath-ai/.venv/bin/streamlit run app/main.py \
+    --server.address 127.0.0.1 --server.port 8501 --server.headless true \
+    --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
