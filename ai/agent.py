@@ -18,6 +18,10 @@
 - 도구만 부르다 MAX_TURNS 에 걸리면 정해진 안내와 uncertain_reason "max_turns".
 - 가드레일(#24)은 guard_input 자리만 있다. 지금은 항상 통과한다.
 
+명령 (저장소 루트에서)
+  python -m ai.agent --warmup        시연 전 준비. 사전 이름 임베딩 캐시를 만든다(실제 모드). 호출 수와 걸린 시간을 출력
+  python -m ai.agent "질문"           한 번 물어보고 결과를 JSON 으로 출력
+
 기록: 대화 1건마다 도구 순서·횟수, 모델 호출 수, 재질문 여부와 이유(number / format), 토큰, 응답 시간을 로그에 남긴다.
 사용자 메시지와 답 원문, 도구 입력(보유 기술)은 로그에 남기지 않는다(CLAUDE.md 보안: 대화 기록은 로그에 출력하지 않음).
 """
@@ -32,7 +36,8 @@ from typing import Optional
 
 from ai.bedrock import BedrockJSONError, SAMPLE_DIR, USAGE_KEYS, add_usage, converse_tools, is_mock, parse_json_object
 from ai.prompts import agent_v1 as prompt
-from ai.recommend import _numbers, candidate_courses
+from ai.recommend import candidate_courses
+from ai.recommend import extract_numbers as _numbers
 from backend import api
 from pipeline.aliases import _index, _key, normalize_skill, normalize_skills
 
@@ -42,6 +47,7 @@ TOP_COURSES = 3      # search_courses 가 돌려주는 과정 수
 MAX_TURNS = 4        # 도구 호출 반복 한도(모델 호출 수)
 MAX_SKILLS = 30      # get_gap 입력 기술 수 한도
 CLOSE_MIN = 0.5      # 문자열 비교 후보의 최소 비슷도 (도카↔도커 0.5, 파이선↔파이썬 0.67)
+MAX_SUGGEST = 5      # get_gap 한 번에 maybe 후보를 찾는 표기 수. 실제 모드는 표기마다 임베딩 호출이 들어서 나머지는 null
 MOCK_FILE = "mock_bedrock_agent.json"
 PROMPT_VERSION = prompt.VERSION
 
@@ -110,7 +116,8 @@ def tool_get_gap(user_skills: list) -> dict:
         "of": total,
         "basis": "recognized_skills" if known else "no_skills",  # 부족 기술을 무엇 기준으로 셌는지
         "recognized_skills": known,
-        "unrecognized": [{"input": u, "maybe": maybe_skill(u)} for u in unknown],
+        "unrecognized": [{"input": u, "maybe": maybe_skill(u) if i < MAX_SUGGEST else None}
+                         for i, u in enumerate(unknown)],
         "missing_top": [
             {"skill": r["skill"], "postings": r["postings"], "required_pct": round(r["required_ratio"] * 100)}
             for r in rows if not r["owned"]
@@ -264,12 +271,15 @@ def chat(message: str, history: Optional[list] = None) -> dict:
 
     reason = None
     retried = None  # 재질문 이유: None(없음), "number"(숫자 검사), "format"(JSON 형식). 로그에만 남긴다
+    bad_numbers: dict[str, list[float]] = {}  # 검사에 걸린 숫자만(원문 없이) 로그에 남긴다. {"1차": [...], "2차": [...]}
     if loop.stop == "max_turns":
         answer, scope, reason = MAX_TURNS_ANSWER, "in", "max_turns"
     else:
         said = [message, *((h or {}).get("content", "") for h in (history or []))]
         allowed = _walk_numbers(outputs) | set().union(*(_numbers(t) for t in said))
         data, bad, error = check_answer(loop.text, allowed)
+        if bad:
+            bad_numbers["1차"] = bad
         if error is not None:
             retried = "number" if bad else "format"
             retry = converse_tools(
@@ -281,6 +291,8 @@ def chat(message: str, history: Optional[list] = None) -> dict:
             model_calls += retry.model_calls
             allowed |= _walk_numbers(outputs)
             data2, bad2, error2 = check_answer(retry.text, allowed) if retry.stop == "end_turn" else (None, [], "도구를 다시 불렀습니다")
+            if bad2:
+                bad_numbers["2차"] = bad2
             if error2 is None:
                 data = data2
             else:
@@ -300,8 +312,58 @@ def chat(message: str, history: Optional[list] = None) -> dict:
 
     result = _result(answer, calls, usage, started, reason)
     logger.info(
-        "상담 1건: 도구 %s, 도구 %d회, 모델 %d회, 재질문 %s, 토큰 %s, %dms, 불확실 %s (prompt=%s)",
-        [c["name"] for c in calls], len(calls), model_calls, retried or "없음", usage.get("totalTokens", 0),
-        result["latency_ms"], reason, PROMPT_VERSION,
+        "상담 1건: 도구 %s, 도구 %d회, 모델 %d회, 재질문 %s, 근거 없는 숫자 %s, 토큰 %s, %dms, 불확실 %s (prompt=%s)",
+        [c["name"] for c in calls], len(calls), model_calls, retried or "없음",
+        {k: [f"{n:g}" for n in v] for k, v in bad_numbers.items()} or "없음",
+        usage.get("totalTokens", 0), result["latency_ms"], reason, PROMPT_VERSION,
     )
     return result
+
+
+# ── 시연 전 준비와 한 번 물어보기 ─────────────────────────────────────
+def warmup() -> int:
+    """pipeline.suggest 가 쓰는 사전 이름 임베딩을 모두 캐시(data/raw/embed_cache.json)에 만든다. 실제 모드에서만.
+
+    캐시가 없으면 첫 되묻기 질문에서 사전 이름 200개를 임베딩하느라 40초 넘게 걸린다(11/17 실측 39.5초).
+    이미 캐시에 있는 이름은 다시 부르지 않으므로 여러 번 돌려도 된다.
+    """
+    from pipeline import embed
+    from pipeline.suggest import suggest
+
+    if embed.is_mock():  # .env 를 읽어 BEDROCK_MOCK·EMBED_MODEL_ID 를 올린다
+        print("가짜 모드(BEDROCK_MOCK=1)라 임베딩을 부르지 않습니다. BEDROCK_MOCK=0 과 EMBED_MODEL_ID 를 설정한 뒤 다시 실행하세요.")
+        return 1
+    before, started = embed.usage()["calls"], time.monotonic()
+    top = suggest("도커", top=1)  # 사전 이름 전체와 질의 1개를 임베딩한다
+    calls = embed.usage()["calls"] - before
+    print(f"임베딩 호출 {calls}번, {time.monotonic() - started:.1f}초. 캐시: {embed.CACHE_FILE.name} (data/raw/, 커밋하지 않음)")
+    print(f"확인: '도커' → {top[0]['canonical']} (점수 {top[0]['score']})")
+    return 0
+
+
+def main() -> int:
+    import argparse
+    import sys
+
+    sys.stdout.reconfigure(encoding="utf-8")
+    ap = argparse.ArgumentParser(description="학습 상담 에이전트 (#25)")
+    ap.add_argument("message", nargs="?", help="한 번 물어볼 질문. 결과(답, 도구, 토큰, 시간)를 JSON 으로 출력한다")
+    ap.add_argument("--warmup", action="store_true", help="시연 전 준비: 사전 이름 임베딩 캐시를 만든다(실제 모드)")
+    args = ap.parse_args()
+    if args.warmup:
+        return warmup()
+    if args.message:
+        print(json.dumps(chat(args.message), ensure_ascii=False, indent=1))
+        return 0
+    ap.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(SAMPLE_DIR.parent.parent / ".env")  # 이미 설정된 환경 변수는 덮어쓰지 않는다
+    except ImportError:
+        pass
+    raise SystemExit(main())

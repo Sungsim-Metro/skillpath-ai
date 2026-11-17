@@ -9,6 +9,7 @@
 - [5. Dev Map(현황판) 보는 법](#5-dev-map현황판-보는-법)
 - [6. 공개용 저장소](#6-공개용-저장소)
 - [7. 막혔을 때](#7-막혔을-때)
+- [8. 시연 전 준비 (실제 모드)](#8-시연-전-준비-실제-모드)
 
 ## 1. 처음 한 번
 
@@ -167,3 +168,25 @@ PR 올림 → 공개 검사 → 병합 → 검사 다시 → 통과하면 공개
 | 공개 검사가 ❌ | 로그의 `파일:줄번호`를 고칩니다. 정말 문제없는 내용이면 형섭에게 알립니다 |
 | 화면이 안 뜸 | `.env`에 `BEDROCK_MOCK=1`이 있는지, 가상환경이 켜져 있는지 확인합니다 |
 | Windows에서 `LF will be replaced by CRLF` 경고 | 무시해도 됩니다. 바꾸지 않은 파일이 전부 수정됨으로 보이면 `git config core.autocrlf true` |
+
+## 8. 시연 전 준비 (실제 모드)
+
+시연이나 사용자 테스트 직전, 화면을 띄울 PC(서버)에서 한 번 합니다. 상담 에이전트(#25)의 첫 되묻기 질문이 느리지 않게 임베딩 캐시를 미리 만들고, AWS가 실제로 불리는지 확인하는 절차입니다.
+
+```bash
+# 1) AWS 로그인 확인. 만료됐으면 다시 로그인 (AWS_PROFILE은 .env와 같은 값)
+aws sts get-caller-identity --profile "$AWS_PROFILE" > /dev/null && echo "로그인 OK" || aws sso login --profile "$AWS_PROFILE"
+
+# 2) .env 확인: BEDROCK_MOCK=0, BEDROCK_MODEL_ID, EMBED_MODEL_ID, DYNAMODB_DEMAND_TABLE
+#    EMBED_MODEL_ID는 data/courses/course_vectors.json 의 "model" 과 같아야 과정 검색이 임베딩을 씁니다
+
+# 3) 임베딩 캐시 만들기. 처음이면 호출 약 200번, 40초 안팎. 이미 있으면 0번
+python -m ai.agent --warmup
+
+# 4) 질문 1개 시험. 답·도구 순서·토큰·응답 시간이 JSON으로 나옵니다
+python -m ai.agent "Python, Docker 해봤는데 클라우드 엔지니어 되려면 뭐부터 공부해요?"
+```
+
+- 3)에서 "가짜 모드라 임베딩을 부르지 않습니다"가 나오면 `.env`의 `BEDROCK_MOCK`이 `1`입니다.
+- 캐시는 `data/raw/embed_cache.json`에 생깁니다. 커밋하지 않습니다.
+- 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`).

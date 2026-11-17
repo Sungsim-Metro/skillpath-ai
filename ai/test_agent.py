@@ -59,6 +59,32 @@ def test_tool_results_are_short():
     assert courses and all(set(c) == {"title", "level", "match"} for c in courses)  # 선수지식은 뺀다
 
 
+def test_suggest_is_limited_per_call():
+    raws = ["도카", "파이선", "쿠버", "리녹스", "테라폼즈", "도커스", "Dokcer"]  # 모두 후보가 있는 표기
+    out = agent.tool_get_gap(raws)["unrecognized"]
+    assert [u["input"] for u in out] == raws
+    assert all(u["maybe"] for u in out[:agent.MAX_SUGGEST]) and agent.MAX_SUGGEST == 5
+    assert [u["maybe"] for u in out[agent.MAX_SUGGEST:]] == [None, None]  # 6번째부터는 찾지 않는다(실제 모드 임베딩 호출 수 제한)
+
+
+def test_warmup_does_nothing_in_mock_mode():
+    import pipeline.embed as embed
+
+    old = embed._titan
+    embed._titan = lambda text: (_ for _ in ()).throw(AssertionError("가짜 모드에서 임베딩을 불렀습니다"))
+    try:
+        assert agent.warmup() == 1
+    finally:
+        embed._titan = old
+
+
+def test_extract_numbers_public_name():
+    import ai.recommend as rec
+
+    assert rec.extract_numbers("공고 40건 중 31건, EC2") == {40.0, 31.0}
+    assert rec._numbers is rec.extract_numbers  # 예전 이름도 그대로 쓸 수 있다
+
+
 def test_out_of_scope():
     r = agent.chat("오늘 점심 뭐 먹을까요?")
     assert r["tool_calls"] == []
@@ -155,9 +181,12 @@ def test_log_has_no_conversation_text():
 
 
 def test_log_records_retry_reason():
-    assert "재질문 number" in _agent_log("AWS는 공고 몇 건에 나와요?")
+    text = _agent_log("AWS는 공고 몇 건에 나와요?")
+    assert "재질문 number" in text and "근거 없는 숫자 {'1차': ['35', '80']}" in text
     text = _agent_log("Terraform은 얼마나 필요해요?")
-    assert "재질문 number" in text and "늘었습니다" not in text  # 이유만 남기고 지운 문장은 남기지 않는다
+    assert "근거 없는 숫자 {'1차': ['2'], '2차': ['30']}" in text  # 걸린 숫자만 남긴다
+    assert "늘었습니다" not in text and "Terraform" not in text  # 지운 문장과 원문은 남기지 않는다
+    assert "근거 없는 숫자 없음" in _agent_log(QUESTION)
 
 
 class FakeClient:
