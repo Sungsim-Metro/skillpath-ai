@@ -1,0 +1,214 @@
+"""상담 에이전트(#25) 확인. 실행: python -m ai.test_agent
+
+가짜 모드(BEDROCK_MOCK=1)로 data/sample/mock_bedrock_agent.json 대본을 끝까지 돌린다. AWS 는 부르지 않는다.
+converse_tools 의 실제 호출 형식(toolConfig, toolResult)은 가짜 클라이언트를 바꿔 끼워 확인한다.
+"""
+import copy
+import io
+import logging
+import os
+
+os.environ["BEDROCK_MOCK"] = "1"
+
+import ai.bedrock as bedrock  # noqa: E402
+from ai import agent  # noqa: E402
+from ai.bedrock import BedrockJSONError  # noqa: E402
+
+QUESTION = "Python, Docker 해봤는데 클라우드 엔지니어 되려면 뭐부터 공부해요?"
+KEYS = {"answer", "tool_calls", "usage", "latency_ms", "uncertain", "uncertain_reason"}
+
+
+def names(r):
+    return [c["name"] for c in r["tool_calls"]]
+
+
+def test_normal():
+    r = agent.chat(QUESTION)
+    assert set(r) == KEYS, set(r)
+    assert names(r) == ["get_gap", "search_courses", "search_courses"], names(r)
+    assert r["tool_calls"][0]["input"] == {"user_skills": ["Python", "Docker"]}
+    assert all(c["ok"] for c in r["tool_calls"])
+    assert "40건 중 31건" in r["answer"] and "77%" in r["answer"]
+    assert r["uncertain"] is False and r["uncertain_reason"] is None
+    assert set(r["usage"]) == set(bedrock.USAGE_KEYS) and isinstance(r["latency_ms"], int)
+
+
+def test_ambiguous_skill_is_asked_back_not_replaced():
+    r = agent.chat("파이선이랑 도카 써봤어요. 뭐 배우면 돼요?")
+    assert r["tool_calls"][0]["input"] == {"user_skills": ["파이선", "도카"]}  # 모델은 표기를 고치지 않고 넘긴다
+    out = agent.tool_get_gap(["파이선", "도카"])
+    assert out["recognized_skills"] == [] and out["basis"] == "no_skills"  # 자동으로 Python·Docker 로 바꾸지 않는다
+    assert out["unrecognized"] == [{"input": "파이선", "maybe": "Python"}, {"input": "도카", "maybe": "Docker"}]
+    assert "Python" in [m["skill"] for m in out["missing_top"]]  # 그래서 보유로 치지 않는다
+    assert "'파이선'은(는) 'Python'을(를) 말씀하신 건가요?" in r["answer"]
+    assert "'도카'은(는) 'Docker'을(를) 말씀하신 건가요?" in r["answer"]
+    assert r["uncertain"] is False
+    # 후보가 없는 표기, 비슷해 보여도 다른 기술은 후보로 내지 않는다(시연에 엉뚱한 되묻기가 나오지 않게)
+    assert agent.maybe_skill("점심") is None
+    assert [agent.maybe_skill(x) for x in ("자바스크립트", "JavaScript", "쿠버", "리녹스")] == [None, None, "Kubernetes", "Linux"]
+    assert agent.ASK_BACK_UNKNOWN.format(input="점심").startswith("'점심'은(는) 아직 사전에 없는")
+
+
+def test_tool_results_are_short():
+    gap = agent.tool_get_gap(["Python", "Docker", "쿠버"])
+    assert set(gap) == {"of", "basis", "recognized_skills", "unrecognized", "missing_top"}
+    assert gap["basis"] == "recognized_skills" and gap["recognized_skills"] == ["Python", "Docker"]
+    assert len(gap["missing_top"]) == agent.TOP_GAP == 3
+    assert all(set(m) == {"skill", "postings", "required_pct"} for m in gap["missing_top"])
+    courses = agent.tool_search_courses("Kubernetes")["courses"]
+    assert courses and all(set(c) == {"title", "level", "match"} for c in courses)  # 선수지식은 뺀다
+
+
+def test_out_of_scope():
+    r = agent.chat("오늘 점심 뭐 먹을까요?")
+    assert r["tool_calls"] == []
+    assert "취업 준비" in r["answer"]
+    assert r["uncertain"] is False  # 범위 밖 안내는 불확실로 두지 않는다
+
+
+def test_made_up_number_is_retried_once():
+    r = agent.chat("AWS는 공고 몇 건에 나와요?")
+    assert names(r) == ["get_skill_demand"]
+    assert "31건" in r["answer"] and "35" not in r["answer"] and "80%" not in r["answer"]
+    assert r["uncertain"] is False
+
+
+def test_made_up_number_twice_is_removed():
+    r = agent.chat("Terraform은 얼마나 필요해요?")
+    assert r["answer"] == "Terraform은 공고 40건 중 14건에 나옵니다.", r["answer"]  # 근거 없는 30% 문장만 지움
+    assert r["uncertain"] is True and r["uncertain_reason"] == "number_check"
+
+
+def test_no_tool_is_uncertain():
+    r = agent.chat("클라우드 엔지니어는 무슨 일을 해요?")
+    assert r["tool_calls"] == []
+    assert r["uncertain"] is True and r["uncertain_reason"] == "no_tool"
+
+
+def test_max_turns():
+    r = agent.chat("AWS랑 Linux 계속 찾아 주세요")
+    assert len(r["tool_calls"]) == agent.MAX_TURNS == 4
+    assert r["answer"] == agent.MAX_TURNS_ANSWER
+    assert r["uncertain_reason"] == "max_turns"
+
+
+def test_json_failure_raises():
+    try:
+        agent.chat("형식 시험입니다")
+    except BedrockJSONError:
+        return
+    raise AssertionError("JSON 이 두 번 모두 틀리면 오류를 그대로 내야 합니다")
+
+
+def test_checks():
+    allowed = {40.0, 31.0, 77.0}
+    data, bad, err = agent.check_answer('{"answer": "1. AWS: 40건 중 31건\\n2. Linux", "scope": "in"}', allowed)
+    assert err is None, err  # 목록 번호는 숫자 검사에서 뺀다
+    data, bad, err = agent.check_answer('{"answer": "AWS 40건 중 33건", "scope": "in"}', allowed)
+    assert bad == [33.0] and "33" in err
+    assert agent.check_answer('{"answer": "x", "scope": "maybe"}', allowed)[2] is not None
+    assert agent.check_answer("JSON 아님", allowed)[0] is None
+    assert agent.strip_numbers("AWS는 40건 중 31건입니다. 작년보다 2배입니다.\n- EC2 3개", allowed) == "AWS는 40건 중 31건입니다."
+    assert agent.answer_numbers("EC2와 S3") == set()  # 글자에 붙은 숫자는 이름의 일부
+
+
+def test_history_numbers_and_format():
+    history = [{"role": "user", "content": QUESTION}, {"role": "assistant", "content": "AWS는 공고 40건 중 31건이 요구합니다."}]
+    assert len(agent._history_messages(history)) == 2
+    r = agent.chat("클라우드 엔지니어는 무슨 일을 해요?", history)
+    assert r["uncertain_reason"] == "no_tool"
+    for bad in ([{"role": "assistant", "content": "x"}], [{"role": "user", "content": "x"}]):
+        try:
+            agent._history_messages(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"잘못된 history 를 받았습니다: {bad}")
+
+
+def test_guard_hook():
+    old = agent.guard_input
+    agent.guard_input = lambda m: "이 질문에는 답할 수 없습니다."
+    try:
+        r = agent.chat(QUESTION)
+    finally:
+        agent.guard_input = old
+    assert r["answer"] == "이 질문에는 답할 수 없습니다." and r["tool_calls"] == []
+
+
+def _agent_log(question: str) -> str:
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    log = logging.getLogger("ai.agent")
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    try:
+        agent.chat(question)
+    finally:
+        log.removeHandler(handler)
+    return buf.getvalue()
+
+
+def test_log_has_no_conversation_text():
+    text = _agent_log(QUESTION)
+    assert "상담 1건" in text and "get_gap" in text and "ms" in text and "재질문 없음" in text
+    assert "뭐부터" not in text and "Docker" not in text and "31건" not in text  # 질문·보유 기술·답은 남기지 않는다
+
+
+def test_log_records_retry_reason():
+    assert "재질문 number" in _agent_log("AWS는 공고 몇 건에 나와요?")
+    text = _agent_log("Terraform은 얼마나 필요해요?")
+    assert "재질문 number" in text and "늘었습니다" not in text  # 이유만 남기고 지운 문장은 남기지 않는다
+
+
+class FakeClient:
+    """Converse 를 흉내 낸다. 첫 호출은 도구 두 개(하나는 실패), 둘째 호출은 글."""
+
+    def __init__(self):
+        self.calls = []
+
+    def converse(self, **kw):
+        self.calls.append(copy.deepcopy(kw))  # boto3 처럼 부른 순간의 내용을 남긴다
+        usage = {"inputTokens": 100, "outputTokens": 10, "totalTokens": 110}
+        if len(self.calls) == 1:
+            content = [{"toolUse": {"toolUseId": "a1", "name": "get_skill_demand", "input": {"skill": "AWS"}}},
+                       {"toolUse": {"toolUseId": "a2", "name": "broken", "input": {}}}]
+            return {"output": {"message": {"role": "assistant", "content": content}}, "stopReason": "tool_use", "usage": usage}
+        return {"output": {"message": {"role": "assistant", "content": [{"text": "끝"}]}}, "stopReason": "end_turn", "usage": usage}
+
+
+def test_converse_tools_real_request_shape():
+    fake = FakeClient()
+    old_client, old_env = bedrock._client, dict(os.environ)
+    bedrock._client = lambda: fake
+    os.environ.update({"BEDROCK_MOCK": "0", "BEDROCK_MODEL_ID": "test-model"})
+
+    def run_tool(name, inp):
+        if name == "broken":
+            raise RuntimeError("일부러 실패")
+        return {"skill": inp["skill"], "postings": 31}
+
+    try:
+        res = bedrock.converse_tools("시스템", [{"role": "user", "content": [{"text": "질문"}]}],
+                                     agent.prompt.TOOLS, run_tool, mock_file=agent.MOCK_FILE, mock_key="x")
+    finally:
+        bedrock._client = old_client
+        os.environ.clear()
+        os.environ.update(old_env)
+    first = fake.calls[0]
+    assert first["modelId"] == "test-model"
+    assert [t["toolSpec"]["name"] for t in first["toolConfig"]["tools"]] == ["get_gap", "get_skill_demand", "search_courses"]
+    results = fake.calls[1]["messages"][-1]
+    assert results["role"] == "user"
+    tr = [b["toolResult"] for b in results["content"]]
+    assert tr[0] == {"toolUseId": "a1", "content": [{"json": {"skill": "AWS", "postings": 31}}], "status": "success"}
+    assert tr[1]["toolUseId"] == "a2" and tr[1]["status"] == "error"
+    assert res.text == "끝" and res.stop == "end_turn" and res.model_calls == 2
+    assert res.usage == {"inputTokens": 200, "outputTokens": 20, "totalTokens": 220}
+    assert [c["ok"] for c in res.tool_calls] == [True, False]
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+    print("통과")
