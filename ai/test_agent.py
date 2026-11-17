@@ -54,7 +54,7 @@ def test_tool_results_are_short():
     assert set(gap) == {"of", "basis", "recognized_skills", "unrecognized", "missing_top"}
     assert gap["basis"] == "recognized_skills" and gap["recognized_skills"] == ["Python", "Docker"]
     assert len(gap["missing_top"]) == agent.TOP_GAP == 3
-    assert all(set(m) == {"skill", "postings", "required_pct"} for m in gap["missing_top"])
+    assert all(set(m) == {"skill", "postings", "required_pct", "summary"} for m in gap["missing_top"])
     courses = agent.tool_search_courses("Kubernetes")["courses"]
     assert courses and all(set(c) == {"title", "level", "match"} for c in courses)  # 선수지식은 뺀다
 
@@ -144,6 +144,39 @@ def test_checks():
     assert agent.answer_numbers("12.5%가 필수") == {12.5}
     assert agent.answer_numbers("**12건** 중 3건") == {12.0, 3.0}
     assert agent.answer_numbers("31건이 요구\n2배 늘었습니다") == {31.0, 2.0}
+
+
+def test_demand_pairs():
+    # 11/17 실제 답: "CI/CD 4건 중 4건"(실제 12건 중 4건). 숫자 4·4 는 각각 도구 결과에 있어 숫자 검사로는 못 잡았다
+    facts = {"pairs": {(12, 12), (12, 4)}, "triples": {(12, 12, 83), (12, 4, 100), (12, 4, 50)}}
+    assert agent.check_pairs("CI/CD: 4건 중 4건 등장, 필수 비율 100%", facts) == ["(4, 4)"]
+    assert agent.check_pairs("CI/CD: 12건 중 4건 등장", facts) == []
+    assert agent.check_pairs("공고 12건 중 4건, 필수 100%", facts) == []
+    assert agent.check_pairs("12건 중 4건(필수 100%)", facts) == []
+    assert agent.check_pairs("12건 가운데 12건, 그중 필수 비율 83%", facts) == []
+    assert agent.check_pairs("12건 중 4건(필수 70%)", facts) == ["(12, 4, 70%)"]  # 짝은 맞아도 필수 %가 틀림
+    # summary 를 그대로 옮기면 통과한다
+    gap = agent.tool_get_gap(["Python", "Docker"])
+    facts = agent.demand_facts([gap], [])
+    assert all(agent.check_pairs(row["summary"], facts) == [] for row in gap["missing_top"])
+    assert gap["missing_top"][0]["summary"] == "공고 40건 중 31건, 필수 77%"
+    demand = agent.tool_get_skill_demand("AWS")
+    assert demand["summary"] == "공고 40건 중 31건, 필수 77%"
+    assert agent.tool_get_skill_demand("없는기술")["summary"] == "수요 집계에 없는 기술"
+    # 문장 지우기는 틀린 짝이 든 문장만
+    kept = agent.strip_numbers("AWS는 공고 40건 중 31건입니다. Kubernetes는 17건 중 17건입니다.", {40.0, 31.0, 17.0}, facts)
+    assert kept == "AWS는 공고 40건 중 31건입니다."
+
+
+def test_wrong_pair_is_retried_then_removed():
+    r = agent.chat("짝 시험: Python, Docker 다음은?")
+    assert "공고 40건 중 17건" in r["answer"] and "17건 중 17건" not in r["answer"] and r["uncertain"] is False
+    text = _agent_log("짝 시험: Python, Docker 다음은?")
+    assert "재질문 pair" in text and "짝 틀림 {'1차': ['(17, 17)']}" in text and "Kubernetes" not in text
+    r = agent.chat("짝 두 번: Python, Docker 다음은?")
+    assert r["answer"] == "- AWS: 공고 40건 중 31건, 필수 77%", r["answer"]  # 두 번 다 틀린 Kubernetes 문장만 지움
+    assert r["uncertain_reason"] == "pair_check"
+    assert "짝 틀림 {'1차': ['(17, 17)'], '2차': ['(40, 17, 31%)']}" in _agent_log("짝 두 번: Python, Docker 다음은?")
 
 
 def test_prompt_has_no_digits():

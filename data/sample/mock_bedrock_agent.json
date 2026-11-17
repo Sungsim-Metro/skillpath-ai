@@ -10,6 +10,8 @@
   "max_turns": ["계속 찾아"],
   "mixed": ["같이 불러"],
   "text_answer": ["글로만"],
+  "pair_fixed": ["짝 시험"],
+  "pair_twice": ["짝 두 번"],
   "json_fail": ["형식 시험"]
  },
  "normal": [
@@ -52,6 +54,16 @@
  "text_answer": [
   [{"toolUse": {"toolUseId": "t1", "name": "get_skill_demand", "input": {"skill": "AWS"}}}],
   [{"text": "{\"answer\": \"AWS는 공고 40건 중 31건에 나오고, 그중 77%가 필수입니다.\", \"scope\": \"in\"}"}]
+ ],
+ "pair_fixed": [
+  [{"toolUse": {"toolUseId": "t1", "name": "get_gap", "input": {"user_skills": ["Python", "Docker"]}}}],
+  [{"toolUse": {"toolUseId": "t2", "name": "answer", "input": {"answer": "- AWS: 공고 40건 중 31건, 필수 77%\n- Kubernetes: 17건 중 17건, 필수 47%", "scope": "in"}}}],
+  [{"toolUse": {"toolUseId": "t3", "name": "answer", "input": {"answer": "- AWS: 공고 40건 중 31건, 필수 77%\n- Kubernetes: 공고 40건 중 17건, 필수 47%", "scope": "in"}}}]
+ ],
+ "pair_twice": [
+  [{"toolUse": {"toolUseId": "t1", "name": "get_gap", "input": {"user_skills": ["Python", "Docker"]}}}],
+  [{"toolUse": {"toolUseId": "t2", "name": "answer", "input": {"answer": "- AWS: 공고 40건 중 31건, 필수 77%\n- Kubernetes: 17건 중 17건입니다.", "scope": "in"}}}],
+  [{"toolUse": {"toolUseId": "t3", "name": "answer", "input": {"answer": "- AWS: 공고 40건 중 31건, 필수 77%\n- Kubernetes: 40건 중 17건(필수 31%)입니다.", "scope": "in"}}}]
  ],
  "json_fail": [
   [{"text": "그냥 글로 답합니다."}],

@@ -12,6 +12,10 @@
 코드가 하는 검사
 - 답의 숫자는 이번 대화의 도구 결과와 사용자 메시지(이전 대화 포함)에 있는 것만 허용한다(ai.recommend 의 숫자 검사 방식).
   실패하면 이유를 알려 한 번 다시 묻고, 그래도 실패하면 근거 없는 숫자가 든 문장을 지운다(uncertain_reason "number_check").
+- 수요 짝: 답의 "n건 중 m건"(뒤에 "필수 k%" 가 붙은 변형 포함)이 도구 결과의 (전체 공고 수, 그 기술의 공고 수[, 필수 %])
+  짝과 맞는지 본다. 숫자가 각각 도구 결과에 있어도 짝이 틀리면("12건 중 4건"을 "4건 중 4건"으로) 걸린다. 처리는 숫자 검사와
+  같다(1번 다시 묻고, 그래도 틀리면 그 문장을 지움 → uncertain_reason "pair_check"). 도구 결과에는 코드가 만든 summary
+  ("공고 12건 중 4건, 필수 100%")를 넣어 모델이 그대로 옮기게 한다(11/17 실제 실행에서 짝을 잘못 지은 답이 나옴).
 - 마지막 답은 answer 도구({"answer", "scope"})로 받는다. answer 가 불리면 반복이 끝난다. 다른 도구와 같은 차례에 불리면
   다른 도구를 먼저 실행하고 answer 에는 "결과를 보고 다시 부르라"는 오류를 돌려줘 다시 묻는다(ai.bedrock.converse_tools).
   안전장치: answer 없이 글로 답하면 그 글을 JSON 으로 읽고, 아니면 형식 재질문. 두 번 모두 실패하면 BedrockJSONError(CLAUDE.md 코드 규칙).
@@ -58,6 +62,7 @@ NO_NUMBER_ANSWER = "근거를 확인할 수 있는 숫자 없이 답을 정리�
 ASK_BACK = "'{input}'은(는) '{maybe}'을(를) 말씀하신 건가요?"
 ASK_BACK_UNKNOWN = "'{input}'은(는) 아직 사전에 없는 기술이라 부족 기술 계산에 넣지 않았습니다. 다른 이름으로 알려 주시겠어요?"
 ASK_BACK_MARK = "말씀하신 건가요"
+PAIR_ERROR = "답의 '건 중 건' 수요가 도구 결과와 짝이 맞지 않습니다: {pairs}. 수요를 말할 때는 도구 결과의 summary 를 그대로 옮기세요"
 
 # 목록 번호는 숫자 검사에서 뺀다. 줄 맨 앞의 "1. ", 꾸민 것("**1.", "### 1.", "- 1)", "> **2.**")까지.
 # 번호 뒤에는 빈칸·꾸밈 기호·줄 끝만 온다("12.5%"·"12건" 같은 줄 맨 앞 숫자는 그대로 검사한다)
@@ -109,6 +114,11 @@ def _pct(part: int, whole: int) -> int:
     return round(part / whole * 100) if whole else 0
 
 
+def demand_summary(of: int, postings: int, required_pct: int) -> str:
+    """수요를 말하는 문장 조각. 코드가 만들고, 모델은 그대로 옮긴다(숫자 짝을 잘못 짓지 않게, 11/17)."""
+    return f"공고 {of}건 중 {postings}건, 필수 {required_pct}%"
+
+
 def tool_get_gap(user_skills: list) -> dict:
     if not isinstance(user_skills, list):
         raise ValueError("user_skills 는 목록이어야 합니다")
@@ -123,8 +133,10 @@ def tool_get_gap(user_skills: list) -> dict:
         "unrecognized": [{"input": u, "maybe": maybe_skill(u) if i < MAX_SUGGEST else None}
                          for i, u in enumerate(unknown)],
         "missing_top": [
-            {"skill": r["skill"], "postings": r["postings"], "required_pct": round(r["required_ratio"] * 100)}
+            {"skill": r["skill"], "postings": r["postings"], "required_pct": pct,
+             "summary": demand_summary(total, r["postings"], pct)}
             for r in rows if not r["owned"]
+            for pct in [round(r["required_ratio"] * 100)]
         ][:TOP_GAP],
     }
 
@@ -137,9 +149,10 @@ def tool_get_skill_demand(skill: str) -> dict:
     s = next((x for x in demand["skills"] if x["skill"].lower() == name), None)
     if s is None:
         return {"skill": canon or skill, "found": False, "of": total,
-                "maybe": None if canon else maybe_skill(skill)}
+                "maybe": None if canon else maybe_skill(skill), "summary": "수요 집계에 없는 기술"}
+    pct = _pct(s["required"], s["postings"])
     return {"skill": s["skill"], "found": True, "postings": s["postings"], "of": total,
-            "required_pct": _pct(s["required"], s["postings"])}
+            "required_pct": pct, "summary": demand_summary(total, s["postings"], pct)}
 
 
 def tool_search_courses(skill: str) -> dict:
@@ -204,11 +217,50 @@ def check_answer(raw, allowed: set[float]) -> tuple[Optional[dict], list[float],
     return data, [], None
 
 
-def strip_numbers(answer: str, allowed: set[float]) -> str:
-    """근거 없는 숫자가 든 문장을 지운다(줄 단위로 나눈 뒤 문장 단위)."""
+# "공고 12건 중 4건", "12건 가운데 4건(필수 100%)", "12건 중 4건, 필수 100%", "12건 중 4건, 그중 필수 비율 100%"
+_PAIR = re.compile(
+    r"(\d+)\s*건\s*(?:중|가운데)\s*(\d+)\s*건"
+    r"(?:\s*[(,·]?\s*(?:그중\s*)?필수(?:\s*비율)?\s*(?:은|는|이)?\s*(\d+)\s*%)?"
+)
+
+
+def demand_facts(outputs: list[dict], texts: list[str]) -> dict:
+    """맞는 수요 짝. 도구 결과의 (전체 공고 수, 그 기술의 공고 수)와 (…, 필수 %), 그리고 사용자·이전 대화에 이미 나온 짝."""
+    pairs, triples = set(), set()
+
+    def add(of, postings, pct=None):
+        pairs.add((int(of), int(postings)))
+        if pct is not None:
+            triples.add((int(of), int(postings), int(pct)))
+
+    for out in outputs:
+        for row in out.get("missing_top", []):
+            add(out["of"], row["postings"], row.get("required_pct"))
+        if out.get("found"):
+            add(out["of"], out["postings"], out.get("required_pct"))
+    for text in texts:
+        for n, m, k in _PAIR.findall(text):
+            add(n, m, k or None)
+    return {"pairs": pairs, "triples": triples}
+
+
+def check_pairs(answer: str, facts: dict) -> list[str]:
+    """답의 "n건 중 m건"(필수 k% 포함)이 맞는 짝인지. 틀린 짝을 "(n, m)" / "(n, m, k%)" 로 돌려준다(숫자만)."""
+    wrong = []
+    for n, m, k in _PAIR.findall(answer):
+        if (int(n), int(m)) not in facts["pairs"]:
+            wrong.append(f"({n}, {m})")
+        elif k and (int(n), int(m), int(k)) not in facts["triples"]:
+            wrong.append(f"({n}, {m}, {k}%)")
+    return wrong
+
+
+def strip_numbers(answer: str, allowed: set[float], facts: Optional[dict] = None) -> str:
+    """근거 없는 숫자나 틀린 수요 짝이 든 문장을 지운다(줄 단위로 나눈 뒤 문장 단위)."""
     lines = []
     for line in answer.splitlines():
-        kept = [s for s in _SENTENCE.split(line) if not (answer_numbers(s) - allowed)]
+        kept = [s for s in _SENTENCE.split(line)
+                if not (answer_numbers(s) - allowed) and not (facts and check_pairs(s, facts))]
         if " ".join(kept).strip():
             lines.append(" ".join(kept))
     return "\n".join(lines).strip()
@@ -296,8 +348,9 @@ def chat(message: str, history: Optional[list] = None) -> dict:
     calls, model_calls = list(loop.tool_calls), loop.model_calls
 
     reason = None
-    retried = None  # 재질문 이유: None(없음), "number"(숫자 검사), "format"(answer 도구 없이 JSON 아닌 글 등). 로그에만 남긴다
+    retried = None  # 재질문 이유: None(없음), "number"(숫자), "pair"(n건 중 m건 짝), "format"(answer 도구 없이 JSON 아닌 글 등). 로그에만
     bad_numbers: dict[str, list[float]] = {}  # 검사에 걸린 숫자만(원문 없이) 로그에 남긴다. {"1차": [...], "2차": [...]}
+    wrong_pairs: dict[str, list[str]] = {}    # 틀린 수요 짝만(숫자만) 로그에 남긴다. {"1차": ["(4, 4)"]}
     via = {"final_tool": "answer도구", "end_turn": "글"}.get(loop.stop, "-")  # 마지막 답을 어떻게 받았는지(로그)
     if loop.stop == "max_turns":
         answer, scope, reason = MAX_TURNS_ANSWER, "in", "max_turns"
@@ -305,29 +358,39 @@ def chat(message: str, history: Optional[list] = None) -> dict:
         said = [message, *((h or {}).get("content", "") for h in (history or []))]
         allowed = _walk_numbers(outputs) | set().union(*(_numbers(t) for t in said))
         data, bad, error = check_answer(_final_answer(loop), allowed)
+        pairs_bad = check_pairs(data["answer"], demand_facts(outputs, said)) if error is None else []
         if bad:
             bad_numbers["1차"] = bad
+        if pairs_bad:
+            wrong_pairs["1차"] = pairs_bad
+            error = PAIR_ERROR.format(pairs=", ".join(pairs_bad))
         if error is not None:
-            retried = "number" if bad else "format"
+            retried = "number" if bad else "pair" if pairs_bad else "format"
             retry = converse_tools(prompt.SYSTEM, loop.messages + [_retry_turn(loop, error)], prompt.TOOLS, run_tool,
                                    max_turns=1, mock_turn_start=model_calls + 1, **tool_args)
             add_usage(usage, retry.usage)
             calls += list(retry.tool_calls)
             model_calls += retry.model_calls
             allowed |= _walk_numbers(outputs)
+            facts = demand_facts(outputs, said)
             raw2 = _final_answer(retry)
             data2, bad2, error2 = check_answer(raw2, allowed) if raw2 is not None else (None, [], "도구를 다시 불렀습니다")
+            pairs_bad2 = check_pairs(data2["answer"], facts) if error2 is None else []
             via = {"final_tool": "answer도구", "end_turn": "글"}.get(retry.stop, "-")
             if bad2:
                 bad_numbers["2차"] = bad2
+            if pairs_bad2:
+                wrong_pairs["2차"] = pairs_bad2
+                error2 = PAIR_ERROR.format(pairs=", ".join(pairs_bad2))
             if error2 is None:
                 data = data2
             else:
+                kept_bad = (bad2, pairs_bad2) if data2 is not None else (bad, pairs_bad)
                 data = data2 if data2 is not None else data
                 if data is None:
                     raise BedrockJSONError(f"상담 답이 두 번 모두 형식 검사를 통과하지 못했습니다: {error} / {error2}", usage)
-                data = {**data, "answer": strip_numbers(data["answer"], allowed) or NO_NUMBER_ANSWER}
-                reason = "number_check"
+                data = {**data, "answer": strip_numbers(data["answer"], allowed, facts) or NO_NUMBER_ANSWER}
+                reason = "pair_check" if kept_bad[1] and not kept_bad[0] else "number_check"
         answer, scope = data["answer"].strip(), data["scope"]
 
         unknown = [u for out in outputs for u in out.get("unrecognized", [])]
@@ -339,9 +402,9 @@ def chat(message: str, history: Optional[list] = None) -> dict:
 
     result = _result(answer, calls, usage, started, reason)
     logger.info(
-        "상담 1건: 도구 %s, 도구 %d회, 모델 %d회, 답 %s, 재질문 %s, 근거 없는 숫자 %s, 토큰 %s, %dms, 불확실 %s (prompt=%s)",
+        "상담 1건: 도구 %s, 도구 %d회, 모델 %d회, 답 %s, 재질문 %s, 근거 없는 숫자 %s, 짝 틀림 %s, 토큰 %s, %dms, 불확실 %s (prompt=%s)",
         [c["name"] for c in calls], len(calls), model_calls, via, retried or "없음",
-        {k: [f"{n:g}" for n in v] for k, v in bad_numbers.items()} or "없음",
+        {k: [f"{n:g}" for n in v] for k, v in bad_numbers.items()} or "없음", wrong_pairs or "없음",
         usage.get("totalTokens", 0), result["latency_ms"], reason, PROMPT_VERSION,
     )
     return result
