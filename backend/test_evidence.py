@@ -28,6 +28,7 @@ def test_course_evidence():
     # 이름 뒤에 다른 제품 이름이 오면 그 기술이 아니다
     assert not _mentions("Describe how Amazon RDS for SQL Server works.", ["SQL"])
     assert not _mentions("Explain the benefits of Amazon VPC Lattice", ["VPC", "Amazon VPC"])
+    assert _mentions("Configuring and Deploying VPCs with Multiple Subnets", ["VPC"])  # 복수형도 같은 이름
     assert _mentions("Write SQL queries", ["SQL"]) and _mentions("Create a VPC.", ["VPC"]) and _mentions("SQL", ["SQL"])
     assert all(c["match"] != "certain" or "SQL Server" not in _courses()[c["course_id"]]["title"] for c in search_courses("SQL"))
     # 가짜 추천 예시에도 evidence 가 있다(없음을 뜻하는 null 포함)

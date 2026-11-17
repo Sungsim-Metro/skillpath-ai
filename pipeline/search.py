@@ -100,7 +100,7 @@ def _mentions(text: str, names: list[str]) -> bool:
             continue
         other = "|".join(re.escape(w) for w in NOT_THIS_SKILL.get(n.lower().split()[-1], ()))  # "Amazon VPC" 같은 별칭도 같은 규칙
         tail = rf"(?!\s+(?:{other})(?![A-Za-z0-9]))" if other else ""
-        if re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}(?![A-Za-z0-9]){tail}", text, re.I):
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}s?(?![A-Za-z0-9]){tail}", text, re.I):  # 복수형("VPCs")도 같은 이름이다
             return True
     return False
 

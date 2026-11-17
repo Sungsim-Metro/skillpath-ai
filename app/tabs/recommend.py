@@ -54,10 +54,12 @@ def _render_evidence(skill: str, course: dict):
         st.caption(f"{UNCERTAIN} 과정의 제목과 학습 목표에서 {name} 관련 문장을 찾지 못했습니다. "
                    f"{name} 내용을 다루는지 확인되지 않은 과정입니다. 링크에서 내용을 확인하세요.")
         return
-    if ev["about"] != "skill":  # 다른 기술의 문장을 인용 블록으로 보여 주면 근거처럼 읽힌다. 직접 다루지 않는다는 사실을 먼저 적는다
+    if ev["about"] != "skill":  # 다른 기술의 문장을 인용 블록으로 보여 주면 근거처럼 읽힌다. 코드가 아는 사실(이름이 없다)만 먼저 적는다
         area = f"({md_escape(ev['subskill'])})" if ev.get("subskill") else ""
-        st.caption(f"{UNCERTAIN} 이 과정은 {name} 내용을 직접 다루지 않습니다. 같은 영역{area}의 과정입니다. "
-                   f"과정이 다루는 내용(영문 원문): “{md_escape(ev['text'])}”")
+        text = f"과정 제목과 학습 목표에 {name} 이름이 없습니다. 같은 영역{area}의 과정입니다."
+        if ev["field"] != "title":  # 제목은 바로 위에 있으니 되풀이하지 않는다
+            text += f" 과정이 다루는 내용(영문 원문): “{md_escape(ev['text'])}”"
+        st.caption(text)
         return
     if ev["field"] == "title":  # 바로 위에 제목이 있으니 되풀이하지 않는다
         st.caption(f"과정 제목에 {name} 이름이 있습니다.")
