@@ -211,6 +211,53 @@ def collect_and_process():
             rp.RAW_DIR, rp.list_page, rp.load_or_fetch = old
 
 
+def collect_adjacent():
+    """collect 는 제목 선판정으로 상세를 받지 않아 새 공고에는 인접 규칙이 안 걸린다. --any-title 로 상세를 받으면 걸리고, 건너뛴 공고의 인접 표시는 지워진다."""
+    import contextlib
+    import io
+    import json
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import pipeline.rocketpunch as rp
+
+    detail = {"jobId": 3, "title": "백엔드 개발자", "jobCategory": "dev", "company": {"name": "회사3"},
+              "description": "AWS 운영 경험", "webUrl": "https://example.com/3"}
+    old = rp.RAW_DIR, rp.list_page, rp.load_or_fetch
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        calls: list[str] = []
+
+        def fake_fetch(job_id):
+            calls.append(job_id)
+            return detail
+
+        rp.RAW_DIR, rp.list_page, rp.load_or_fetch = tmp, lambda params: [{"jobId": 3, "title": "백엔드 개발자"}], fake_fetch
+        base = dict(keyword=None, codes=None, sort="DATE_DESC", size=10, pages=1, n=999,
+                    role="클라우드 엔지니어", terms=list(rp.ROLE_TERMS))
+        marked = lambda: json.loads((tmp / "인접직무.json").read_text(encoding="utf-8")) if (tmp / "인접직무.json").exists() else []
+        try:
+            def run(**kw):
+                calls.clear()
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rp.cmd_collect(SimpleNamespace(**{**base, **kw}))
+
+            # 기본: 제목이 안 맞아 상세를 받지 않으므로 새 공고는 채택되지 않는다. 예전에 인접으로 표시돼 있었다면 표시도 지운다
+            (tmp / "인접직무.json").write_text(json.dumps(["rp-3"]), encoding="utf-8")
+            (tmp / "rp-3_회사3_예전.posting.json").write_text("{}", encoding="utf-8")
+            run(any_title=False)
+            assert calls == [] and marked() == [] and not list(tmp.glob("rp-3_*.posting.json")), (calls, marked())
+            # --any-title: 상세를 받아 dev + AWS 이면 인접으로 채택하고 번호를 남긴다
+            run(any_title=True)
+            assert calls == ["3"] and marked() == ["rp-3"] and list(tmp.glob("rp-3_*.posting.json"))
+            # --title-only 이면 상세를 받아도 채택하지 않는다
+            run(any_title=True, title_only=True)
+            assert marked() == [] and not list(tmp.glob("rp-3_*.posting.json"))
+        finally:
+            rp.RAW_DIR, rp.list_page, rp.load_or_fetch = old
+
+
 def adjacent_roles():
     """인접 직무: 제목은 안 맞아도 직군이 dev 이고 본문에 AWS 가 있으면 채택하고 번호를 data/raw/인접직무.json 에 남긴다."""
     import contextlib
@@ -405,6 +452,7 @@ if __name__ == "__main__":
     names()
     export_eval()
     collect_and_process()
+    collect_adjacent()
     adjacent_roles()
     manual_ids()
     dedupe_flow()

@@ -253,7 +253,7 @@ def _mark_adjacent(posting_id: str, adjacent: bool) -> None:
 
 def process(job_id, role: str, terms, adjacent_ok: bool = False) -> bool:
     """상세를 받아(있으면 재사용) 직무(제목) 필터를 적용하고, 통과하면 posting 을 저장한다.
-    adjacent_ok 이면 제목이 안 맞아도 인접 직무(직군 dev + 본문 AWS)를 채택하고 data/raw/인접직무.json 에 번호를 남긴다(fetch·collect 의 기본, --title-only 로 끈다)."""
+    adjacent_ok 이면 제목이 안 맞아도 인접 직무(직군 dev + 본문 AWS)를 채택하고 data/raw/인접직무.json 에 번호를 남긴다(fetch·collect 의 기본, --title-only 로 끈다. collect 는 제목 선판정 때문에 상세를 받은 공고에만 적용)."""
     raw = load_or_fetch(str(job_id))
     posting = to_posting(raw, role)
     hits = matched_terms(posting, terms)
@@ -454,7 +454,9 @@ def cmd_collect(args) -> None:
     """목록 → (제목 선판정) → 상세 → 직무 필터. 통과가 --n 건이 되거나 429 가 오면 멈춘다. 다시 실행하면 이어서 한다.
 
     목록에는 제목이 이미 있다. 직무 필터가 제목만 보므로 제목이 안 맞는 공고는 상세를 받기 전에 건너뛴다(상세 1회 절약).
-    이미 받은 원본이 있으면 호출이 들지 않으니 그대로 처리한다."""
+    이미 받은 원본이 있으면 호출이 들지 않으니 그대로 처리한다.
+    인접 직무(직군 dev + 본문 AWS)는 상세가 있어야 판정할 수 있어서, 이 선판정이 있으면 **새로 받는 공고에는 적용되지 않는다**.
+    새 공고에도 적용하려면 --any-title 로 상세를 받는다(목록의 공고마다 조회 1회가 들어서 한도를 더 쓴다). 사이트 검색 번호를 받는 fetch --manual 은 항상 적용된다."""
     options = batch_options(args)
     kept = seen = skipped = 0
     for page in range(1, args.pages + 1):
@@ -472,6 +474,7 @@ def cmd_collect(args) -> None:
                 # 예전 기준으로 통과해 저장된 posting 이 원본 없이 남아 있어도 이제는 탈락이므로 같이 지운다
                 for stale in _posting_files(f"rp-{it['jobId']}"):
                     stale.unlink()
+                _mark_adjacent(f"rp-{it['jobId']}", False)  # 인접 직무로 표시돼 있었다면 같이 뺀다(posting 이 없는데 표시만 남지 않게)
                 print(f"건너뜀\trp-{it['jobId']}\t제목이 직무 단어에 안 맞아 상세를 받지 않음\t{it['title'][:40]}")
                 continue
             kept += process(it["jobId"], args.role, args.terms, not getattr(args, "title_only", False))
