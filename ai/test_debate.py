@@ -19,6 +19,7 @@ def demand_of(skill: str) -> dict:
 
 class DebateTest(unittest.TestCase):
     def setUp(self):
+        debate._recent.clear()
         logging.disable(logging.CRITICAL)  # 일부러 낸 실패의 로그는 출력하지 않는다
         self.addCleanup(logging.disable, logging.NOTSET)
         patcher = mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1", "RECOMMEND_DEBATE": "1"})
@@ -77,6 +78,29 @@ class DebateTest(unittest.TestCase):
         self.assertEqual(decide("이 과정은 EKS 네트워킹을 설명합니다."), "uncertain")  # 수요 숫자를 잃었다
         self.assertEqual(decide(None), "uncertain")
         self.assertEqual(decide("공고 40건 중 17건이 Kubernetes를 요구합니다. 이 과정은 EKS 네트워킹을 설명합니다."), "revised")
+
+    def test_common_words_do_not_block_a_real_revision(self):
+        course = {"title": "Amazon EKS Networking", "objectives": ["Describe EKS networking"], "match": "certain"}
+        self.assertFalse(debate._claim_remains("Kubernetes", course, "이 과정은 컨테이너 격리와 서비스 메시 운영을 다룹니다.",
+                                               "이 과정은 EKS 네트워킹 구성을 다룹니다."))
+        self.assertTrue(debate._claim_remains("Kubernetes", course, "서비스 메시 운영", "이 과정은 서비스 메시의 운영을 다룹니다."))
+
+    def test_coverage_is_overruled_only_when_objectives_name_the_skill(self):
+        def course(title, objectives):
+            return {"title": title, "objectives": objectives}
+        self.assertFalse(debate._overrules_coverage("Docker", course("Docker Basics", ["Run containers"])))     # 제목에만 있다
+        self.assertTrue(debate._overrules_coverage("Docker", course("Docker Basics", ["Build a Docker image"])))
+        self.assertTrue(debate._overrules_coverage("Docker", course("Containers", ["Use Docker", "Tag Docker images", "a", "b", "c"])))
+        self.assertFalse(debate._overrules_coverage("Docker", course("Data", ["Use Docker", "a", "b", "c", "d"])))
+
+    def test_unreviewed_result_is_reused_briefly(self):
+        with mock.patch.object(debate, "review", side_effect=BedrockJSONError("가짜 실패")) as failing:
+            first, _ = self.build("Docker")
+            second, _ = self.build("Docker")
+        self.assertEqual(failing.call_count, 1)   # 잠깐은 다시 부르지 않는다
+        self.assertEqual(first, second)
+        with mock.patch.object(debate.time, "monotonic", return_value=debate.time.monotonic() + debate.RETRY_AFTER + 1):
+            self.assertEqual(self.build("Docker")[0]["courses"][0]["review"]["status"], "passed")  # 시간이 지나면 다시 검증한다
 
     def test_failed_calls_are_recorded(self):
         with mock.patch.object(debate, "review", side_effect=BedrockJSONError("가짜 실패", {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10})):

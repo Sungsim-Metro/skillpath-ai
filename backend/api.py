@@ -248,7 +248,7 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
         if result is not None:
             logger.info("추천 %s: 호출 %d회, 토큰 %s", skill, len(result.calls) or result.attempts, result.usage.get("totalTokens", 0))
     if any((c.get("review") or {}).get("status") == UNREVIEWED for r in out for c in r["courses"]):
-        key = None  # 검증 호출이 실패한 결과는 다시 쓰지 않는다. 아무도 찾지 않는 키에 넣어 다음 요청에서 다시 검증하게 한다
+        key = None  # 검증 호출이 실패한 결과는 오래 쓰지 않는다. 아무도 찾지 않는 키에 넣는다. 잠깐의 재사용은 ai.debate 가 맡는다(RETRY_AFTER)
     with _recommend_cache_lock:  # 실패하면 여기까지 오지 않으므로 오류는 캐시하지 않는다
         _recommend_cache[key] = deepcopy(out)
         _recommend_cache.move_to_end(key)

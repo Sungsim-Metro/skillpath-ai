@@ -5,7 +5,7 @@
 2. 검증 에이전트: 과정마다 반박한다(ai/prompts/review_v1.py). 판정과 근거만 내고 결정은 하지 않는다.
 3. 추천 에이전트가 한 번만 고친다: "이유가 학습 목표에 없는 내용을 말한다"(reason)는 반박을 받은 과정만.
 4. 코드가 결정한다(_decide). LLM 의 판정을 그대로 믿지 않는다.
-   - coverage 반박: 과정 제목에 기술 이름이 있거나 학습 목표의 절반 이상이 그 이름을 말하면 기각한다("반박 기각"으로 따로 표시).
+   - coverage 반박: 학습 목표가 기술 이름을 말하고, 제목에도 있거나 두 곳 이상이거나 절반 이상이면 기각한다("반박 기각"으로 따로 표시).
      그 밖에는 받아들여 match 를 uncertain 으로 낮춘다(올리지는 않는다). 학습 목표 열 개 중 한 줄에만 스친 과정이 여기서 걸린다.
    - reason 반박: 고친 이유가 형식 검사를 통과하고, 지적받은 부분(claim)의 낱말이 남아 있지 않고, 수요 숫자를 잃지 않았으면 "수정됨".
      하나라도 아니면 원래 이유를 두고 "불확실".
@@ -30,6 +30,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
+from copy import deepcopy
 from typing import Optional
 
 import ai.recommend as rec
@@ -47,6 +49,10 @@ REVISED_COMMENT = "추천 이유에 학습 목표에서 확인되지 않는 내�
 REVISE_FAILED_COMMENT = "추천 이유에 학습 목표에서 확인되지 않는 내용이 있습니다. 고쳐 쓰지 못해 불확실로 둡니다."
 CLAIM_MIN, COMMENT_MAX = 4, 120
 _CLAIM_WORD = re.compile(r"[A-Za-z][A-Za-z0-9+#.-]*|[가-힣]{2,}")
+# 추천 이유에 늘 나오는 낱말. 남아 있어도 "지적받은 주장이 남았다"는 증거가 아니다
+COMMON_WORDS = frozenset("과정은 과정 다룹니다 배웁니다 설명합니다 익힙니다 소개합니다 방법을 방법 내용을 내용 등을 그리고 대한 위한 통해 있습니다 합니다".split())
+RETRY_AFTER = 60  # 초. 검증 호출이 실패한 추천은 이 시간 동안만 다시 쓴다(화면을 건드릴 때마다 Bedrock 을 다시 부르지 않게)
+_recent: dict = {}
 
 logger = logging.getLogger(__name__)
 
@@ -185,24 +191,28 @@ def _revise(skill: str, llm_input: dict, reasons: dict[str, str], objections: li
 
 
 def _overrules_coverage(skill: str, course: dict) -> bool:
-    """coverage 반박을 기각할 만큼 과정이 이 기술을 분명히 다루는가: 제목에 이름이 있거나 학습 목표의 절반 이상이 이름을 말한다."""
+    """coverage 반박을 기각할 만큼 과정이 이 기술을 분명히 다루는가.
+
+    학습 목표가 이름을 한 번도 말하지 않으면 기각하지 않는다(제목에만 있는 이름은 다른 제품일 수 있다).
+    학습 목표 한 곳 이상에 있고, 제목에도 있거나 두 곳 이상이거나 절반 이상이면 기각한다. 프롬프트의 coverage 기준과 같다.
+    """
     check = coverage_check(skill, course)
     hits, total = check["objectives_naming_skill"], check["objectives_total"]
-    return check["skill_in_title"] or (hits > 0 and hits * 2 >= total)
+    return hits >= 1 and (check["skill_in_title"] or hits >= 2 or hits * 2 >= total)
 
 
 def _claim_remains(skill: str, course: dict, claim: str, new_reason: str) -> bool:
     """지적받은 주장이 고친 이유에 남아 있는가. 조사만 바꾼 수정을 통과시키지 않으려고 낱말 단위로도 본다.
 
-    과정 원문이나 기술 이름에 있는 낱말은 남아도 된다(근거가 있는 말이다). 그 밖의 낱말이 절반 이상 남으면 고치지 않은 것으로 본다.
+    과정 원문이나 기술 이름에 있는 낱말, 추천 이유에 늘 나오는 낱말(COMMON_WORDS)은 남아도 된다. 그 밖의 낱말이 절반 넘게 남으면 고치지 않은 것으로 본다.
     """
     new = _squash(new_reason)
     if _squash(claim) in new:
         return True
     grounded = " ".join([course["title"], *course["objectives"], *_names(normalize_skill(skill) or skill)]).lower()
-    words = [w for w in dict.fromkeys(_CLAIM_WORD.findall(claim)) if w.lower() not in grounded]
+    words = [w for w in dict.fromkeys(_CLAIM_WORD.findall(claim)) if w.lower() not in grounded and w not in COMMON_WORDS]
     left = [w for w in words if w.lower() in new.lower()]
-    return bool(words) and len(left) * 2 >= len(words)
+    return bool(words) and len(left) * 2 > len(words)
 
 
 def _decide(skill: str, course: dict, r: dict, old_reason: str, new_reason: Optional[str],
@@ -245,8 +255,23 @@ def build_recommendation(skill: str, demand: dict, user_level: Optional[str] = N
     돌려주는 ConverseResult 의 usage 는 추천·검증·수정 호출의 합이고, calls 에는 호출마다 stage 가 적힌다(실패한 호출은 failed: true).
     data 와 attempts 는 첫 추천 호출의 값이다. 최종 이유는 recommendation 에서 읽는다.
     """
+    if not debate_enabled():
+        return rec.build_recommendation(skill, demand)
+    memo_key = (skill, demand["postings"], demand["of"], demand["required_ratio"], user_level)
+    kept = _recent.get(memo_key)
+    if kept and time.monotonic() - kept[0] < RETRY_AFTER:
+        return deepcopy(kept[1]), kept[2]
+    recommendation, result = _build(skill, demand, user_level)
+    _recent.pop(memo_key, None)
+    if any((c.get("review") or {}).get("status") == UNREVIEWED for c in recommendation["courses"]):
+        # 검증에 실패한 결과만 잠깐 붙잡아 둔다. backend 는 이런 결과를 캐시하지 않고 다시 부르는데, 그때마다 Bedrock 을 부르지 않게 한다
+        _recent[memo_key] = (time.monotonic(), deepcopy(recommendation), result)
+    return recommendation, result
+
+
+def _build(skill: str, demand: dict, user_level: Optional[str]) -> tuple[dict, Optional[ConverseResult]]:
     recommendation, result = rec.build_recommendation(skill, demand)
-    if not debate_enabled() or not recommendation["courses"] or result is None:
+    if not recommendation["courses"] or result is None:
         return recommendation, result
 
     courses = rec.candidate_courses(skill)

@@ -55,7 +55,6 @@ SYSTEM = f"""당신은 다른 에이전트가 쓴 AWS 교육과정 추천을 검
   1. reason: reason 이 objectives 에 없는 내용(서비스, 도구, 기능, 실습)을 다룬다고 말하는가. 그러면 issue "reason".
   2. coverage: 과정이 skill 을 실제로 가르치는가. title 에 skill 이 없고(code_check.skill_in_title 이 false),
      objectives 가운데 skill 을 직접 다루는 항목이 하나 이하일 때만 issue "coverage" 를 씁니다.
-     title 에 이름이 있어도 다른 제품의 이름일 뿐이면(예: 질의 언어가 아니라 데이터베이스 제품 이름) "coverage" 를 씁니다.
      code_check.match 가 "uncertain" 인 과정은 이미 불확실로 표시되므로 coverage 를 다시 적지 않습니다.
   3. level: user_level 이 "none"(처음)인데 prerequisites 가 실무 경력이나 다른 과정 수료를 요구하는가,
      또는 user_level 이 "learned"(배워봄)인데 level 이 "기초" 이고 objectives 가 소개·개념 설명뿐인가. 그러면 issue "level".
@@ -65,7 +64,7 @@ SYSTEM = f"""당신은 다른 에이전트가 쓴 AWS 교육과정 추천을 검
 - claim 은 issue 가 "reason" 일 때만 씁니다. reason 안에서 근거가 없는 구절을 4자 이상 글자 그대로 옮깁니다.
 - quote 는 title 전체 또는 objectives 의 한 항목 전체를 처음부터 끝까지 복사합니다(level 이면 prerequisites 전체도 됩니다).
   줄이거나 번역하거나 문장부호를 더하지 않습니다. 옮길 문장이 없으면 null 입니다.
-- comment 는 한국어 한 문장, 80자 안팎입니다. 숫자와 영어 칸 이름(objectives, reason, title, pass 등)을 쓰지 않습니다.
+- comment 는 한국어 한 문장, 80자 안팎입니다. 숫자와 영어 칸 이름(objectives, reason, title, description, audience, code_check, pass 등)을 쓰지 않습니다.
   "학습 목표", "추천 이유", "제목"이라고 씁니다. 서비스·도구 이름은 입력에 있는 영어 표기 그대로 둡니다.
 
 출력 형식: 아래 JSON 객체 하나만 출력합니다. 설명이나 코드 블록 표시는 붙이지 않습니다.
