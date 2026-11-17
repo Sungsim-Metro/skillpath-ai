@@ -230,16 +230,16 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
         return [by_skill[skill] if skill in by_skill else {"gap_skill": skill, "demand": demand, "courses": []}
                 for skill, demand in pairs]
 
-    from ai.debate import UNREVIEWED, build_recommendation, debate_enabled  # RECOMMEND_DEBATE=1 이면 검증 에이전트를 거친다. 꺼져 있으면 ai.recommend 와 같다
-
-    # 검증을 켠 결과와 끈 결과가 섞이지 않게 켜짐 여부도 키에 넣는다
-    key = (job_category, debate_enabled(), tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
+    key = (job_category, tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
+    key = (*key, os.getenv("RECOMMEND_DEBATE", "0") == "1")  # 검증을 켠 결과와 끈 결과가 섞이지 않게 켜짐 여부도 키에 넣는다
     with _recommend_cache_lock:
         cached = _recommend_cache.get(key)
         if cached is not None:
             _recommend_cache.move_to_end(key)  # 방금 쓴 것으로 표시
     if cached is not None:
         return deepcopy(cached)
+
+    from ai.debate import UNREVIEWED, build_recommendation  # RECOMMEND_DEBATE=1 이면 검증 에이전트를 거친다. 꺼져 있으면 ai.recommend 와 같다
 
     out = []
     for skill, demand in pairs:
@@ -248,7 +248,7 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
         if result is not None:
             logger.info("추천 %s: 호출 %d회, 토큰 %s", skill, len(result.calls) or result.attempts, result.usage.get("totalTokens", 0))
     if any((c.get("review") or {}).get("status") == UNREVIEWED for r in out for c in r["courses"]):
-        return out  # 검증 호출이 실패한 결과는 캐시하지 않는다. 다음 요청에서 다시 검증한다
+        key = None  # 검증 호출이 실패한 결과는 다시 쓰지 않는다. 아무도 찾지 않는 키에 넣어 다음 요청에서 다시 검증하게 한다
     with _recommend_cache_lock:  # 실패하면 여기까지 오지 않으므로 오류는 캐시하지 않는다
         _recommend_cache[key] = deepcopy(out)
         _recommend_cache.move_to_end(key)

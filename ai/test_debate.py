@@ -84,6 +84,29 @@ class DebateTest(unittest.TestCase):
         self.assertEqual(result.calls[-1], {"stage": "review", "failed": True, "inputTokens": 7, "outputTokens": 3, "totalTokens": 10})
         self.assertEqual(result.usage["totalTokens"], sum(c["totalTokens"] for c in result.calls))
 
+    def test_unreviewed_result_is_not_served_from_cache(self):
+        from backend import api
+        calls = []
+
+        def fake(skill, demand):
+            calls.append(skill)
+            status = "unreviewed" if len(calls) == 1 else "passed"
+            return {"gap_skill": skill, "demand": demand, "courses": [{"review": {"status": status}}]}, None
+
+        demand = {"total_postings": 40, "skills": [{"skill": "Docker", "postings": 20, "required": 9}]}
+        with mock.patch.object(api, "is_mock", return_value=False), mock.patch.object(api, "get_demand", return_value=demand), \
+                mock.patch.object(debate, "build_recommendation", side_effect=fake), \
+                mock.patch.object(api, "_recommend_cache", type(api._recommend_cache)()):
+            job = "cloud_engineer"
+            first = api.get_recommendations(job, ["Docker"])
+            second = api.get_recommendations(job, ["Docker"])
+            third = api.get_recommendations(job, ["Docker"])
+            with mock.patch.dict(os.environ, {"RECOMMEND_DEBATE": "0"}):
+                api.get_recommendations(job, ["Docker"])
+        self.assertEqual(first[0]["courses"][0]["review"]["status"], "unreviewed")
+        self.assertEqual(second, third)          # 통과한 결과는 캐시에서 온다
+        self.assertEqual(len(calls), 3)          # 실패 1 + 다시 검증 1 + 끈 상태 1(켠 결과를 돌려주지 않는다)
+
     def test_match_is_never_raised(self):
         before = {c["title"]: c["match"] for s in ("Docker", "Kubernetes", "AWS", "Terraform", "CI/CD")
                   for c in rec.build_recommendation(s, demand_of(s))[0]["courses"]}
