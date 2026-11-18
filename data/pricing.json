@@ -1,7 +1,16 @@
 {
  "note": "Bedrock 모델 단가. 토큰·비용 화면(backend/usage.py)이 읽는다. 키는 BEDROCK_MODEL_ID 값 그대로이고, 값은 토큰 1,000개당 가격이다(input_per_1k, output_per_1k 둘 다 숫자로). 요금 페이지가 100만 토큰당으로 적었으면 1000으로 나눠 적는다. 단가는 AWS 요금 페이지에서 직접 확인해 적고 source 와 checked 를 함께 고친다. 여기에 없는 모델은 화면에 '단가 미설정'으로 나오고 비용을 계산하지 않는다. 추측한 값을 적지 않는다.",
- "source": "",
- "checked": "",
+ "source": "[Anthropic Bedrock 요금표 7쪽 · Sonnet 4.6 Standard Global](https://assets.claude.com/5633dc848caa431115468f31c7085d695bbfb9cc.pdf#page=7) · [AWS 서울 온디맨드 요금표 · Titan V2 SKU X2GE9X2QXW5HY9KA](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/20261111013037/ap-northeast-2/index.json)",
+ "checked": "2026-11-19",
  "currency": "USD",
- "models": {}
+ "models": {
+  "global.anthropic.claude-sonnet-4-6": {
+   "input_per_1k": 0.003,
+   "output_per_1k": 0.015
+  },
+  "amazon.titan-embed-text-v2:0": {
+   "input_per_1k": 0.000024592,
+   "output_per_1k": 0
+  }
+ }
 }
