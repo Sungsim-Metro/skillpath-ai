@@ -59,57 +59,98 @@ def sync_with_profile(nickname: str) -> None:
         _set(EXAMPLE_LEVELS, True)
 
 
+SECONDS_PER_QUESTION = 10  # 예상 응답 시간 계산용 어림값(측정한 값이 아님)
+# 단계 카드(버튼) 모양. 카드마다 key 가 lvb_ 로 시작해 st-key-lvb_… 클래스가 붙는다
+CARD_CSS = """
+<style>
+[class*="st-key-lvb_"] button {
+  min-height: 8.5rem; height: 100%; width: 100%;
+  align-items: flex-start; justify-content: flex-start; text-align: left;
+  padding: .6rem .7rem; border-radius: .6rem;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background-color .12s ease;
+}
+[class*="st-key-lvb_"] button p { white-space: normal; text-align: left; font-size: .84rem; line-height: 1.35; }
+[class*="st-key-lvb_"] button:hover {
+  transform: translateY(-2px); border-color: #1F5FBF; box-shadow: 0 4px 12px rgba(31, 95, 191, .18);
+}
+[class*="st-key-lvb_"] button:active { transform: translateY(0); box-shadow: 0 1px 4px rgba(31, 95, 191, .25); }
+[class*="st-key-lvb_"] button[data-testid="stBaseButton-primary"] { box-shadow: 0 0 0 3px rgba(31, 95, 191, .25); }
+.st-key-lvq_box { padding-left: 1.1rem; border-left: 3px solid #D6E2F6; }
+</style>
+"""
+
+
+def _choose(sid: str, level: int) -> None:
+    st.session_state[f"lv_{sid}"] = level
+
+
+def _move(step: int) -> None:
+    st.session_state.lv_page += step
+
+
 @st.dialog("보유 수준 진단", width="large")
 def diagnose_dialog(nickname: str) -> None:
-    """영역별로 세부 능력마다 0~5단계를 고른다. 단계마다 '이 정도면 할 수 있는 일' 예시를 보여준다."""
+    """영역 하나씩 페이지로 넘기며 세부 능력마다 0~5단계 카드를 눌러 고른다."""
     guide = level_guide()
     names = guide["level_names"]
     subskills = guide["subskills"]
+    areas = list(_areas().items())
     # 예시 값은 사용자가 고른 것이 아니므로 빈 설문에서 시작한다
     current = {} if st.session_state.get("levels_example") else st.session_state.get("levels", {})
-    for sid in subskills:  # 처음 열 때만 지금 값으로 채운다. 이후에는 위젯 값이 세션에 남는다
+    for sid in subskills:  # 처음 열 때만 지금 값으로 채운다. 저장하거나 닉네임이 바뀌면 지운다
         st.session_state.setdefault(f"lv_{sid}", current.get(sid))
+    st.session_state.setdefault("lv_page", 0)
+    page = min(max(st.session_state.lv_page, 0), len(areas) - 1)
+    st.markdown(CARD_CSS, unsafe_allow_html=True)
+
     answered = sum(st.session_state[f"lv_{sid}"] is not None for sid in subskills)
-    st.progress(answered / len(subskills), text=f"{answered} / {len(subskills)}개 응답")
-    st.caption("세부 능력마다 지금 할 수 있는 일에 가장 가까운 단계를 고르세요. 스스로 고르는 값이며 시험이 아닙니다. "
+    left = len(subskills) - answered
+    minutes = max(1, round(left * SECONDS_PER_QUESTION / 60))
+    st.progress(answered / len(subskills), text=f"{answered} / {len(subskills)}개 응답"
+                + (f" · 남은 시간 약 {minutes}분" if left else " · 완료"))
+    st.caption(f"영역 {len(areas)}개, 질문 {len(subskills)}개입니다. 예상 시간은 약 "
+               f"{max(1, round(len(subskills) * SECONDS_PER_QUESTION / 60))}분(질문당 10초 어림)입니다. "
+               "지금 할 수 있는 일에 가장 가까운 카드를 누르세요. 스스로 고르는 값이며 시험이 아닙니다. "
                "예시 문장은 AI 초안을 팀이 확인하는 중입니다.")
-    by_area: dict[str, list[tuple[str, dict]]] = {}
-    for sid, row in subskills.items():
-        by_area.setdefault(row["area_id"], []).append((sid, row))
-    for area_id, area_name in _areas().items():
-        st.subheader(area_name, divider="gray")
-        for i, (sid, row) in enumerate(by_area.get(area_id, [])):
+
+    area_id, area_name = areas[page]
+    rows = [(sid, row) for sid, row in subskills.items() if row["area_id"] == area_id]
+    done = sum(st.session_state[f"lv_{sid}"] is not None for sid, _ in rows)
+    st.subheader(f"{page + 1}/{len(areas)} · {area_name}", divider="blue")
+    st.caption(f"이 영역 {done}/{len(rows)}개 응답")
+    with st.container(key="lvq_box"):
+        for i, (sid, row) in enumerate(rows):
             if i:
                 st.divider()
             _question(sid, row, names)
-    left = len(subskills) - answered
+
+    st.divider()
+    back, status, forward = st.columns([1, 2, 1], vertical_alignment="center")
+    back.button("이전 영역", key="lvnav_prev", disabled=page == 0, on_click=_move, args=(-1,), width="stretch")
+    status.caption(" · ".join(("✓ " if all(st.session_state[f"lv_{s}"] is not None
+                                          for s, r in subskills.items() if r["area_id"] == a) else "") + n
+                              for a, n in areas))
+    if page < len(areas) - 1:
+        forward.button("다음 영역", key="lvnav_next", type="primary", on_click=_move, args=(1,), width="stretch")
+        return
     st.caption(("모든 질문에 답하면 저장할 수 있습니다. " if left else "")
                + "저장하면 부족 역량과 추천이 이 단계로 다시 계산됩니다."
                + (" 닉네임 프로필에도 저장합니다." if nickname else " 닉네임을 입력하면 다음에도 불러올 수 있습니다."))
     label = f"저장 (남은 질문 {left}개)" if left else "저장"
-    if st.button(label, type="primary", width="stretch", disabled=bool(left), key="save_levels"):
+    if forward.button(label, type="primary", width="stretch", disabled=bool(left), key="save_levels"):
         save_levels(nickname, {sid: st.session_state[f"lv_{sid}"] for sid in subskills})
-        for sid in subskills:  # 다음에 열 때 저장한 값으로 다시 채우게 위젯 값을 지운다
-            st.session_state.pop(f"lv_{sid}", None)
         st.rerun()
 
 
 def _question(sid: str, row: dict, names: dict) -> None:
-    """세부 능력 하나: 단계 예시를 가로로 나란히 보여주고, 그 아래에서 단계를 고른다. 고른 칸은 강조한다."""
+    """세부 능력 하나: 0~5단계 예시 카드를 가로로 놓는다. 카드를 누르면 그 단계를 고르고, 고른 카드는 강조한다."""
     chosen = st.session_state.get(f"lv_{sid}")
-    st.markdown(f"**{row['name']}**")
+    st.markdown(f"**{row['name']}**" + ("" if chosen is None else f" · :blue[{chosen}단계 선택]"))
     for level, col in enumerate(st.columns(6, gap="small")):
         text = names["0"] if level == 0 else row["levels"][str(level)]
         title = "0 · 없음" if level == 0 else f"{level}단계"
-        with col.container(border=True, height="stretch"):
-            if level == chosen:
-                st.markdown(f":blue[**{title} ✓**]")
-                st.markdown(f":blue[{text}]")
-            else:
-                st.markdown(f"**{title}**")
-                st.caption(text)
-    st.radio(row["name"], options=list(range(6)), index=None, key=f"lv_{sid}", horizontal=True,
-             format_func=lambda v: "0 · 없음" if v == 0 else f"{v}단계", label_visibility="collapsed")
+        col.button(f"**{title}**  \n{text}", key=f"lvb_{sid}_{level}", on_click=_choose, args=(sid, level),
+                   type="primary" if level == chosen else "secondary", width="stretch")
 
 
 def save_levels(nickname: str, chosen: dict[str, int]) -> None:
