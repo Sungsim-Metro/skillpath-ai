@@ -28,7 +28,8 @@
   python -m ai.agent --warmup        시연 전 준비. 사전 이름 임베딩 캐시를 만든다(실제 모드). 호출 수와 걸린 시간을 출력
   python -m ai.agent "질문"           한 번 물어보고 결과를 JSON 으로 출력
 
-기록: 대화 1건마다 도구 순서·횟수, 모델 호출 수, 재질문 여부와 이유(number / format), 토큰, 응답 시간을 로그에 남긴다.
+기록: 대화 1건마다 도구 순서·횟수, 모델 호출 수, 재질문 여부와 이유(number / pair / format), 검사에 걸린 숫자와
+틀린 수요 짝(숫자만), 토큰, 응답 시간을 로그에 남긴다. 불확실 사유는 no_tool / max_turns / number_check / pair_check.
 사용자 메시지와 답 원문, 도구 입력(보유 기술)은 로그에 남기지 않는다(CLAUDE.md 보안: 대화 기록은 로그에 출력하지 않음).
 """
 from __future__ import annotations
@@ -62,7 +63,8 @@ NO_NUMBER_ANSWER = "근거를 확인할 수 있는 숫자 없이 답을 정리�
 ASK_BACK = "'{input}'은(는) '{maybe}'을(를) 말씀하신 건가요?"
 ASK_BACK_UNKNOWN = "'{input}'은(는) 아직 사전에 없는 기술이라 부족 기술 계산에 넣지 않았습니다. 다른 이름으로 알려 주시겠어요?"
 ASK_BACK_MARK = "말씀하신 건가요"
-PAIR_ERROR = "답의 '건 중 건' 수요가 도구 결과와 짝이 맞지 않습니다: {pairs}. 수요를 말할 때는 도구 결과의 summary 를 그대로 옮기세요"
+SKIPPED_TOOL = "이 호출은 처리하지 않았습니다. 다른 도구는 부르지 말고 answer 로만 답을 다시 내세요."
+PAIR_ERROR ="답의 '건 중 건' 수요가 도구 결과와 짝이 맞지 않습니다: {pairs}. 수요를 말할 때는 도구 결과의 summary 를 그대로 옮기세요"
 
 # 목록 번호는 숫자 검사에서 뺀다. 줄 맨 앞의 "1. ", 꾸민 것("**1.", "### 1.", "- 1)", "> **2.**")까지.
 # 번호 뒤에는 빈칸·꾸밈 기호·줄 끝만 온다("12.5%"·"12건" 같은 줄 맨 앞 숫자는 그대로 검사한다)
@@ -123,7 +125,9 @@ def tool_get_gap(user_skills: list) -> dict:
     if not isinstance(user_skills, list):
         raise ValueError("user_skills 는 목록이어야 합니다")
     known, unknown = normalize_skills([str(s).strip() for s in user_skills if str(s).strip()][:MAX_SKILLS])
-    total = api.get_demand(JOB)["total_postings"]
+    demand = api.get_demand(JOB)
+    total = demand["total_postings"]
+    raw = {s["skill"]: s for s in demand["skills"]}  # 필수 비율은 get_skill_demand 와 같은 _pct 로(반올림을 맞춘다)
     rows = api.get_gap(JOB, known)
     # 답에 필요한 칸만 둔다(공고 수 of 는 위에 한 번만). 도구 결과는 대화에 쌓여 다음 호출마다 입력 토큰이 된다
     return {
@@ -136,7 +140,7 @@ def tool_get_gap(user_skills: list) -> dict:
             {"skill": r["skill"], "postings": r["postings"], "required_pct": pct,
              "summary": demand_summary(total, r["postings"], pct)}
             for r in rows if not r["owned"]
-            for pct in [round(r["required_ratio"] * 100)]
+            for pct in [_pct(raw[r["skill"]]["required"], raw[r["skill"]]["postings"])]
         ][:TOP_GAP],
     }
 
@@ -299,10 +303,16 @@ def _final_answer(loop):
 def _retry_turn(loop, error: str) -> dict:
     """다시 물을 때 보낼 user 메시지. 직전 답이 answer 도구면 그 호출의 toolResult(오류)로 돌려준다(Converse 규칙)."""
     note = prompt.RETRY_MESSAGE.format(error=error)
-    if loop.stop == "final_tool":
-        return {"role": "user", "content": [{"toolResult": {"toolUseId": loop.final["id"],
-                                                            "content": [{"text": note}], "status": "error"}}]}
-    return {"role": "user", "content": [{"text": note}]}
+    if loop.stop != "final_tool":
+        return {"role": "user", "content": [{"text": note}]}
+    # Converse 규칙: 마지막 assistant 메시지의 toolUse 하나하나에 toolResult 를 돌려준다(빠지면 요청이 거부된다)
+    last = loop.messages[-1]["content"] if loop.messages else []
+    ids = [b["toolUse"]["toolUseId"] for b in last if "toolUse" in b] or [loop.final["id"]]
+    return {"role": "user", "content": [
+        {"toolResult": {"toolUseId": i, "status": "error",
+                        "content": [{"text": note if i == loop.final["id"] else SKIPPED_TOOL}]}}
+        for i in ids
+    ]}
 
 
 def _result(answer: str, calls: list, usage: dict, started: float, uncertain_reason: Optional[str]) -> dict:

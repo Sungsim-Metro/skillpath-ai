@@ -340,6 +340,64 @@ def test_answer_tool_flow():
     assert "답 글" in text and "재질문 없음" in text
 
 
+class FakeDoubleAnswerClient:
+    """첫 호출: answer 를 한 차례에 두 번. 둘째 호출: answer 하나."""
+
+    def __init__(self):
+        self.calls = []
+
+    def converse(self, **kw):
+        self.calls.append(copy.deepcopy(kw))
+        usage = {"inputTokens": 10, "outputTokens": 1, "totalTokens": 11}
+        if len(self.calls) == 1:
+            content = [{"toolUse": {"toolUseId": "a1", "name": "answer", "input": {"answer": "하나", "scope": "in"}}},
+                       {"toolUse": {"toolUseId": "a2", "name": "answer", "input": {"answer": "둘", "scope": "in"}}}]
+        else:
+            content = [{"toolUse": {"toolUseId": "a3", "name": "answer", "input": {"answer": "최종", "scope": "in"}}}]
+        return {"output": {"message": {"role": "assistant", "content": content}}, "stopReason": "tool_use", "usage": usage}
+
+
+def test_answer_called_twice_in_one_turn():
+    fake = FakeDoubleAnswerClient()
+    old_client, old_env = bedrock._client, dict(os.environ)
+    bedrock._client = lambda: fake
+    os.environ.update({"BEDROCK_MOCK": "0", "BEDROCK_MODEL_ID": "test-model"})
+    try:
+        res = bedrock.converse_tools("시스템", [{"role": "user", "content": [{"text": "질문"}]}], agent.prompt.TOOLS,
+                                     lambda n, i: {}, mock_file=agent.MOCK_FILE, mock_key="x", final_tool="answer")
+    finally:
+        bedrock._client = old_client
+        os.environ.clear()
+        os.environ.update(old_env)
+    results = [b["toolResult"] for b in fake.calls[1]["messages"][-1]["content"]]
+    assert [r["toolUseId"] for r in results] == ["a1", "a2"]  # toolUse 마다 toolResult 하나씩
+    assert all(r["status"] == "error" and r["content"][0]["text"] == bedrock.FINAL_TWICE for r in results)
+    assert res.stop == "final_tool" and res.final == {"id": "a3", "input": {"answer": "최종", "scope": "in"}}
+    # chat 에서도 두 답은 받지 않고 다음 차례의 답을 쓴다(재질문으로 세지 않음)
+    r = agent.chat("답 두 개를 한꺼번에 주세요")
+    assert r["answer"] == "- AWS: 공고 40건 중 31건, 필수 77%" and names(r) == ["get_gap"]
+    assert "재질문 없음" in _agent_log("답 두 개를 한꺼번에 주세요")
+
+
+def test_retry_turn_answers_every_tool_use():
+    # 마지막 assistant 메시지에 toolUse 가 여럿이면 하나하나에 toolResult 를 돌려준다(Converse 가 거부하지 않게)
+    msgs = [{"role": "assistant", "content": [
+        {"text": "정리합니다."},
+        {"toolUse": {"toolUseId": "f9", "name": "answer", "input": {}}},
+        {"toolUse": {"toolUseId": "x1", "name": "get_gap", "input": {}}},
+    ]}]
+    loop = bedrock.ToolLoopResult("", msgs, (), 2, {}, "final_tool", {"id": "f9", "input": {}})
+    results = [b["toolResult"] for b in agent._retry_turn(loop, "숫자 오류")["content"]]
+    assert [r["toolUseId"] for r in results] == ["f9", "x1"] and all(r["status"] == "error" for r in results)
+    assert "answer 도구로" in results[0]["content"][0]["text"] and results[1]["content"][0]["text"] == agent.SKIPPED_TOOL
+
+
+def test_required_pct_same_rounding():
+    gap = {m["skill"]: m for m in agent.tool_get_gap(["Python"])["missing_top"]}
+    for skill, row in gap.items():
+        assert row["required_pct"] == agent.tool_get_skill_demand(skill)["required_pct"], skill
+
+
 def test_retry_turn_shape():
     loop = bedrock.ToolLoopResult("", [], (), 2, {}, "final_tool", {"id": "f9", "input": {}})
     turn = agent._retry_turn(loop, "숫자 오류")

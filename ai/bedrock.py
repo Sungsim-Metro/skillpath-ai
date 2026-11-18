@@ -153,6 +153,7 @@ class ToolLoopResult(NamedTuple):
 
 
 FINAL_TOO_EARLY = "다른 도구 결과가 아직 없어 이 답은 받지 않았습니다. 도구 결과를 본 뒤 answer 만 다시 부르세요."
+FINAL_TWICE = "answer 가 한 차례에 두 번 이상 불려 어느 답도 받지 않았습니다. answer 를 한 번만 다시 부르세요."
 
 
 def converse_tools(
@@ -175,7 +176,7 @@ def converse_tools(
     run_tool(name, input) 은 JSON 으로 바꿀 수 있는 dict 를 돌려준다. 예외가 나면 status "error" 로 모델에 알린다.
     final_tool: 마지막 답을 받는 도구 이름. 이 도구만 불리면 실행하지 않고 그 입력을 final 로 돌려주며 멈춘다.
       같은 턴에 다른 도구와 같이 불리면 다른 도구를 먼저 실행하고, 마지막 답에는 FINAL_TOO_EARLY 오류를 돌려줘 다시 묻는다
-      (결과를 보기 전에 쓴 답은 그 결과를 근거로 할 수 없다).
+      (결과를 보기 전에 쓴 답은 그 결과를 근거로 할 수 없다). 한 차례에 두 번 이상 불리면 모두 FINAL_TWICE 오류로 돌려준다.
     messages 는 바꾸지 않고 복사해서 쓴다. 가짜 모드는 mock_file[mock_key] 의 n번째 응답을 n번째 호출에 쓴다.
     """
     messages = list(messages)
@@ -196,14 +197,15 @@ def converse_tools(
         if not uses:
             return ToolLoopResult(text, messages, tuple(calls), turn + 1, usage, "end_turn")
         finals = [u for u in uses if u["name"] == final_tool]
-        if finals and len(finals) == len(uses):
-            final = finals[-1]
+        if len(finals) == 1 and len(uses) == 1:  # 마지막 답은 한 차례에 그것 하나만 불렸을 때만 받는다
+            final = finals[0]
             return ToolLoopResult(text, messages, tuple(calls), turn + 1, usage, "final_tool",
                                   {"id": final["toolUseId"], "input": final.get("input") or {}})
+        early = FINAL_TWICE if len(finals) > 1 else FINAL_TOO_EARLY
         results = []
-        for use in uses:
-            if use["name"] == final_tool:  # 다른 도구와 같이 불린 마지막 답: 받지 않고 다시 묻는다
-                results.append({"toolResult": {"toolUseId": use["toolUseId"], "content": [{"text": FINAL_TOO_EARLY}],
+        for use in uses:  # Converse 규칙: 직전 응답의 toolUse 하나하나에 toolResult 를 돌려준다
+            if use["name"] == final_tool:  # 다른 도구와 같이, 또는 두 번 이상 불린 마지막 답: 받지 않고 다시 묻는다
+                results.append({"toolResult": {"toolUseId": use["toolUseId"], "content": [{"text": early}],
                                                "status": "error"}})
                 continue
             try:

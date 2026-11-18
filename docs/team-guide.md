@@ -189,4 +189,4 @@ python -m ai.agent "Python, Docker 해봤는데 클라우드 엔지니어 되려
 
 - 3)에서 "가짜 모드라 임베딩을 부르지 않습니다"가 나오면 `.env`의 `BEDROCK_MOCK`이 `1`입니다.
 - 캐시는 `data/raw/embed_cache.json`에 생깁니다. 커밋하지 않습니다.
-- 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`).
+- 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`, `pair_check`).
