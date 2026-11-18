@@ -29,7 +29,9 @@ class AppSmokeTest(unittest.TestCase):
         self.assertIn("추출 결과", [h.value for h in at.subheader])
 
     def test_renders_without_owned_skills(self):
-        at = self.at.sidebar.button_group[0].set_value([]).run()
+        self.at.session_state["levels"] = {}
+        self.at.session_state["levels_example"] = False
+        at = self.at.run()
         self.assertFalse(at.exception)
 
 
