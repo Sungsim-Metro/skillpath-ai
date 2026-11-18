@@ -28,6 +28,24 @@ class AppSmokeTest(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertIn("추출 결과", [h.value for h in at.subheader])
 
+    def test_level_dialog_requires_every_answer(self):
+        from backend.levels import level_guide
+
+        subskills = list(level_guide()["subskills"])
+        at = self.at.sidebar.button(key="open_levels").click().run()
+        self.assertEqual(at.get("progress")[0].proto.text, f"0 / {len(subskills)}개 응답")
+        self.assertTrue(at.button(key="save_levels").disabled)
+        for sid in subskills:
+            at.session_state[f"lv_{sid}"] = 0
+        at.session_state["lv_C1-4"] = 4
+        at.sidebar.button(key="open_levels").click().run()
+        self.assertFalse(at.button(key="save_levels").disabled)
+        at.sidebar.button(key="open_levels").click()
+        at = at.button(key="save_levels").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual({k: v for k, v in at.session_state["levels"].items() if v}, {"C1-4": 4})
+        self.assertFalse(at.session_state["levels_example"])
+
     def test_renders_without_owned_skills(self):
         self.at.session_state["levels"] = {}
         self.at.session_state["levels_example"] = False
