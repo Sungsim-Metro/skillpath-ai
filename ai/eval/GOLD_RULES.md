@@ -13,7 +13,7 @@
 - 정답지의 `confidence`는 모두 `high`, `ncs_unit`은 모두 `null`입니다. 채점에는 쓰지 않습니다.
 - `sample-0001`은 `data/sample/posting.json`과 본문이 같습니다.
 - `data/sample/demand.json`의 `evidence_samples`는 같은 `posting_id` 공고 본문에 그대로 들어 있습니다.
-- 공고는 모두 가짜입니다(회사명 "가상…"). 실제 원티드 공고 10건은 검증용(#21)으로 `data/raw/`에만 두고 커밋하지 않습니다.
+- 공고는 모두 가짜입니다(회사명 "가상…"). 외부 채용 플랫폼의 실제 공고 10건은 검증용(#21)으로 `data/raw/`에만 두고 커밋하지 않습니다.
 
 ## 채점 단위
 

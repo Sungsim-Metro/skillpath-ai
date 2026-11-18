@@ -13,7 +13,7 @@
 section 은 근거 문장이 들어 있는 칸을 코드(ai.sections.find_section)로 채우고, confidence 는 high, ncs_unit 은 null 로 둔다.
 
 새는 것을 막는 확인
-- 개선용 데이터(data/sample/postings.json, data/raw/ 의 로켓펀치 dev 12건, data/raw/dev12_sections/)와 같은 id 나
+- 개선용 데이터(data/sample/postings.json, data/raw/ 의 외부 채용 플랫폼 dev 12건, data/raw/dev12_sections/)와 같은 id 나
   같은 본문이 있으면 init 이 멈춘다. 고칠 때 본 공고로 채점하면 과대평가가 된다.
 - check 는 공고 본문이 init 때와 같은지(sha256) 먼저 본다. 바뀌었으면 멈춘다.
 """
