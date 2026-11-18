@@ -23,41 +23,6 @@ def demo():
     assert api._area_of("Rust") == ("UNCLASSIFIED", "미분류")    # 사전에 없으면 미분류
     assert all("area" in r for r in api.get_gap(JOB, OWNED))
 
-    # 보유 수준(2026-11-16): 이름 목록은 모두 "써봄"이라 예전 결과와 같다
-    as_levels = {s: "used" for s in OWNED}
-    assert api.get_gap(JOB, OWNED) == api.get_gap(JOB, as_levels)
-    assert api.get_area_gap(JOB, OWNED) == api.get_area_gap(JOB, as_levels)
-    # 배워봄은 절반만 치고, 부족 기술에 남는다
-    learned = api.get_area_gap(JOB, {**as_levels, "Docker": "learned"})
-    compute2 = next(r for r in learned if r["area"] == "컴퓨팅·서버")
-    assert compute2["owned"] == demand["Linux"] + demand["Docker"] * 0.5
-    assert compute2["partial_skills"] == ["Docker"] and compute2["missing_skills"] == ["Kubernetes"]
-    docker_row = next(r for r in api.get_gap(JOB, {**as_levels, "Docker": "learned"}) if r["skill"] == "Docker")
-    assert docker_row["level"] == "learned" and docker_row["owned"] is False
-    assert next(r for r in api.get_gap(JOB, OWNED) if r["skill"] == "Docker")["level"] == "none"
-    # "none" 은 고르지 않은 것과 같고, 모르는 수준 값은 오류다
-    assert api.get_gap(JOB, {**as_levels, "Docker": "none"}) == api.get_gap(JOB, OWNED)
-    try:
-        api.get_gap(JOB, {"Docker": "expert"})
-        raise AssertionError("모르는 수준 값이 통과했다")
-    except ValueError:
-        pass
-    # 추천: 수준을 주지 않으면 전과 같은 순서, 배워봄이면 중급 과정이 앞으로 온다. 과정은 더하거나 빼지 않는다
-    base = api.get_recommendations(JOB, ["AWS"])[0]
-    up = api.get_recommendations(JOB, ["AWS"], {"AWS": "learned"})[0]
-    assert base["user_level"] == "none" and up["user_level"] == "learned"
-    assert [c["title"] for c in base["courses"]] == [c["title"] for c in api._load("recommendations.json")[0]["courses"]]
-    assert up["courses"][0]["level"] == "중급" and base["courses"][0]["level"] == "기초"
-    assert sorted(c["title"] for c in up["courses"]) == sorted(c["title"] for c in base["courses"])
-    # 수준이 없으면 순서를 건드리지 않는다(확실한 중급이 불확실한 기초보다 앞에 있던 순서 그대로). 배워봄이어도 불확실은 맨 뒤다
-    mixed = {"gap_skill": "X", "demand": {}, "courses": [
-        {"title": "a", "level": "기초", "match": "certain"}, {"title": "b", "level": "중급", "match": "certain"},
-        {"title": "c", "level": "기초", "match": "uncertain"}, {"title": "d", "level": "중급", "match": "uncertain"}]}
-    assert [c["title"] for c in api._with_level(mixed, "none")["courses"]] == ["a", "b", "c", "d"]
-    assert [c["title"] for c in api._with_level(mixed, "used")["courses"]] == ["a", "b", "c", "d"]
-    assert [c["title"] for c in api._with_level(mixed, "learned")["courses"]] == ["b", "a", "d", "c"]
-    assert [c["title"] for c in mixed["courses"]] == ["a", "b", "c", "d"]   # 받은 목록은 바꾸지 않는다
-
     # 시장 Gap: 비중은 각각 합이 100, Gap 은 그 차이
     market = api.get_market_gap(JOB)
     from ai.sections import SECTION_WEIGHT, TYPE_WEIGHT
