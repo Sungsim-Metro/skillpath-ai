@@ -54,7 +54,9 @@ def demo():
             {"course_id": "KE11JMZA26", "subskill_id": "C5-4", "match": "uncertain"},
         ]
         recommendation, result = rec.build_recommendation("Terraform", {"postings": 14, "of": 40, "required_ratio": 0.36})
-        assert [c["reason"] for c in recommendation["courses"]] == [rec.MOCK_FALLBACK_REASON] * 2
+        # 두 과정 모두 uncertain 이라 LLM 이유 뒤에 코드의 고정 문장(#24)이 붙는다
+        note = rec.UNCERTAIN_NOTE.format(skill="Terraform")
+        assert [c["reason"] for c in recommendation["courses"]] == [f"{rec.MOCK_FALLBACK_REASON} {note}"] * 2
         assert result.attempts == 1 and result.usage["totalTokens"] == 0
     finally:
         rec.search_courses = original
