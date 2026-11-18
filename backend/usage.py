@@ -7,13 +7,17 @@
 from __future__ import annotations
 
 import json
+import re
+from collections import defaultdict
 from pathlib import Path
 
 from ai.usage import log_path
 
 PRICING = Path(__file__).resolve().parent.parent / "data" / "pricing.json"
-STAGE_LABEL = {"extract": "기술 추출", "recommend": "추천 이유", "review": "추천 검증", "judge": "평가 채점",
-               "coffeechat": "커피챗 초안"}
+STAGE_LABEL = {
+    "extract": "기술 추출", "recommend": "추천 이유", "review": "추천 검증", "judge": "평가 채점",
+    "coffeechat": "커피챗 초안", "chat_intake": "상담 발화 분석", "agent": "상담 에이전트", "embedding": "임베딩",
+}
 
 
 def read_rows(path: Path | None = None) -> list[dict]:
@@ -57,19 +61,33 @@ def summarize(rows: list[dict] | None = None, pricing: dict | None = None) -> di
 
     def total(group: list[dict]) -> dict:
         costs = [cost_of(r, pricing) for r in group]
+        input_tokens = sum(r["inputTokens"] for r in group)
+        output_tokens = sum(r["outputTokens"] for r in group)
         return {
             "calls": len(group),
             "retries": sum(isinstance(r.get("attempt"), int) and r["attempt"] > 1 for r in group),
-            "input_tokens": sum(r["inputTokens"] for r in group),
-            "output_tokens": sum(r["outputTokens"] for r in group),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
             "cost": round(sum(c for c in costs if c is not None), 6),
             "unpriced_calls": sum(c is None for c in costs),
         }
 
     stages = sorted({r["stage"] for r in real})
     days = sorted({r["ts"][:10] for r in real})
+    session_groups = defaultdict(list)
+    for row in real:
+        session_id = row.get("session_id")
+        if isinstance(session_id, str) and re.fullmatch(r"[0-9a-f]{32}", session_id):
+            session_groups[session_id].append(row)
+    by_session = [
+        {"session_id": session_id, "last": max(r["ts"] for r in group), **total(group)}
+        for session_id, group in session_groups.items()
+    ]
+    by_session.sort(key=lambda session: (session["last"], session["session_id"]), reverse=True)
     return {
         "total": total(real),
+        "by_session": by_session,
         "by_stage": [{"stage": s, "label": STAGE_LABEL.get(s, s), **total([r for r in real if r["stage"] == s])} for s in stages],
         "by_day": [{"day": d, **total([r for r in real if r["ts"][:10] == d])} for d in days],
         "mock_calls": len(rows) - len(real),

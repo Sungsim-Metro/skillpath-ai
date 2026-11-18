@@ -42,6 +42,30 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(s["total"]["calls"], 0)
         self.assertIsNone(s["first"])
 
+    def test_sessions_include_only_their_real_calls_and_sort_by_last_call(self):
+        earlier, later = "a" * 32, "b" * 32
+        rows = [
+            {**row(stage="chat_intake"), "session_id": earlier},
+            {**row(stage="embedding", i=50, o=0), "session_id": later},
+            {**row(stage="agent", ts="2026-11-17T11:00:00", attempt=2), "session_id": later},
+            {**row(stage="review", mock_=True), "session_id": earlier},
+            row(stage="extract"),
+            {**row(), "session_id": "private nickname"},
+        ]
+        summary = usage.summarize(rows, PRICING)
+        self.assertEqual(summary["total"]["calls"], 5)
+        self.assertEqual(summary["mock_calls"], 1)
+        sessions = summary["by_session"]
+        self.assertEqual([s["session_id"] for s in sessions], [later, earlier])
+        self.assertEqual(sessions[0]["last"], "2026-11-17T11:00:00")
+        self.assertEqual(sessions[0]["calls"], 2)
+        self.assertEqual(sessions[0]["retries"], 1)
+        self.assertEqual(sessions[0]["input_tokens"], 1050)
+        self.assertEqual(sessions[0]["output_tokens"], 200)
+        self.assertEqual(sessions[0]["total_tokens"], 1250)
+        self.assertEqual(sessions[1]["total_tokens"], 1200)
+        self.assertNotIn("private nickname", repr(summary))
+
     def test_converse_json_records_without_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "u.jsonl"

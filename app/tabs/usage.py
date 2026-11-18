@@ -32,19 +32,27 @@ def render(ctx: Ctx):
         st.warning(f"단가가 없는 모델의 호출 {total['unpriced_calls']}번은 비용에 넣지 않았습니다. "
                    f"`data/pricing.json`에 모델 {', '.join(m or '(모델 ID 없음)' for m in data['unpriced_models'])}의 단가를 적으면 계산합니다.")
 
-    def table(rows: list[dict], first: str, name: str):
+    def table(rows: list[dict], group_columns: dict[str, str]) -> pd.DataFrame:
         return pd.DataFrame([
-            {name: r[first], "호출": r["calls"], "재시도": r["retries"], "입력 토큰": r["input_tokens"],
-             "출력 토큰": r["output_tokens"], f"추정 비용({currency})": f"{r['cost']:.4f}" if priced and not r["unpriced_calls"] else EMPTY}
+            {**{title: r[key] for key, title in group_columns.items()},
+             "호출": r["calls"], "재시도": r["retries"], "입력 토큰": r["input_tokens"],
+             "출력 토큰": r["output_tokens"], "합계 토큰": r["total_tokens"],
+             f"추정 비용({currency})": f"{r['cost']:.4f}" if priced and not r["unpriced_calls"] else EMPTY}
             for r in rows
         ])
 
+    st.subheader("대화 세션별")
+    if data["by_session"]:
+        columns = {"session_id": "세션 ID", "last": "최근 호출 (한국 시간)"}
+        st.dataframe(table(data["by_session"], columns), hide_index=True, width="stretch")
+    else:
+        st.caption("세션 ID가 기록된 실제 호출이 없습니다.")
     st.subheader("단계별")
-    st.dataframe(table(data["by_stage"], "label", "단계"), hide_index=True, width="stretch")
+    st.dataframe(table(data["by_stage"], {"label": "단계"}), hide_index=True, width="stretch")
     st.subheader("날짜별")
-    st.dataframe(table(data["by_day"], "day", "날짜"), hide_index=True, width="stretch")
+    st.dataframe(table(data["by_day"], {"day": "날짜"}), hide_index=True, width="stretch")
     st.caption(
         f"기록 기간 {data['first']} ~ {data['last']}. 이 서버에서 일어난 호출만 셉니다(추출 일괄 처리처럼 다른 곳에서 돌린 호출은 그곳의 기록에 남습니다). "
-        f"임베딩 호출은 포함하지 않습니다. 가짜 모드 호출 {data['mock_calls']}번은 뺐습니다."
+        f"기록된 임베딩 입력 토큰도 포함합니다. 가짜 모드 호출 {data['mock_calls']}번은 뺐습니다."
         + (f" 단가 출처: {data['pricing']['source']} ({data['pricing']['checked']} 확인)." if data["pricing"]["source"] else "")
     )
