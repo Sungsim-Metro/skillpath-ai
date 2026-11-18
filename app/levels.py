@@ -75,7 +75,11 @@ CARD_CSS = """
 }
 [class*="st-key-lvb_"] button:active { transform: translateY(0); box-shadow: 0 1px 4px rgba(31, 95, 191, .25); }
 [class*="st-key-lvb_"] button[data-testid="stBaseButton-primary"] { box-shadow: 0 0 0 3px rgba(31, 95, 191, .25); }
-.st-key-lvq_box { padding-left: 1.1rem; border-left: 3px solid #D6E2F6; }
+/* 질문 목록만 스크롤하고 제목·진행 바·영역 제목·이동 버튼은 고정한다. 페이지마다 key 가 달라 넘기면 맨 위부터 보인다 */
+[class*="st-key-lvq_box"] {
+  max-height: calc(100vh - 400px); min-height: 220px; overflow-y: auto; overflow-x: hidden;
+  padding: 4px .6rem 4px 1.1rem; border-left: 3px solid #D6E2F6;
+}
 </style>
 """
 
@@ -108,34 +112,33 @@ def diagnose_dialog(nickname: str) -> None:
     minutes = max(1, round(left * SECONDS_PER_QUESTION / 60))
     st.progress(answered / len(subskills), text=f"{answered} / {len(subskills)}개 응답"
                 + (f" · 남은 시간 약 {minutes}분" if left else " · 완료"))
-    st.caption(f"영역 {len(areas)}개, 질문 {len(subskills)}개입니다. 예상 시간은 약 "
-               f"{max(1, round(len(subskills) * SECONDS_PER_QUESTION / 60))}분(질문당 10초 어림)입니다. "
-               "지금 할 수 있는 일에 가장 가까운 카드를 누르세요. 스스로 고르는 값이며 시험이 아닙니다. "
-               "예시 문장은 AI 초안을 팀이 확인하는 중입니다.")
+    st.caption(f"영역 {len(areas)}개 · 질문 {len(subskills)}개 · 약 "
+               f"{max(1, round(len(subskills) * SECONDS_PER_QUESTION / 60))}분(질문당 10초 어림). "
+               "지금 할 수 있는 일에 가장 가까운 카드를 누르세요. 시험이 아니며, 예시는 팀이 확인 중인 AI 초안입니다.")
 
     area_id, area_name = areas[page]
     rows = [(sid, row) for sid, row in subskills.items() if row["area_id"] == area_id]
     done = sum(st.session_state[f"lv_{sid}"] is not None for sid, _ in rows)
-    st.subheader(f"{page + 1}/{len(areas)} · {area_name}", divider="blue")
-    st.caption(f"이 영역 {done}/{len(rows)}개 응답")
-    with st.container(key="lvq_box"):
+    title, count = st.columns([3, 1], vertical_alignment="bottom")
+    title.subheader(f"{page + 1}/{len(areas)} · {area_name}")
+    count.markdown(f"<div style='text-align:right'>이 영역 <b>{done}/{len(rows)}</b>개 응답</div>",
+                   unsafe_allow_html=True)
+    with st.container(key=f"lvq_box_{page}"):
         for i, (sid, row) in enumerate(rows):
             if i:
                 st.divider()
             _question(sid, row, names)
 
-    st.divider()
     back, status, forward = st.columns([1, 2, 1], vertical_alignment="center")
     back.button("이전 영역", key="lvnav_prev", disabled=page == 0, on_click=_move, args=(-1,), width="stretch")
-    status.caption(" · ".join(("✓ " if all(st.session_state[f"lv_{s}"] is not None
-                                          for s, r in subskills.items() if r["area_id"] == a) else "") + n
-                              for a, n in areas))
+    finished = sum(all(st.session_state[f"lv_{s}"] is not None for s, r in subskills.items() if r["area_id"] == a)
+                   for a, _ in areas)
+    status.caption(f"<div style='text-align:center'>완료한 영역 {finished}/{len(areas)}</div>", unsafe_allow_html=True)
     if page < len(areas) - 1:
         forward.button("다음 영역", key="lvnav_next", type="primary", on_click=_move, args=(1,), width="stretch")
         return
-    st.caption(("모든 질문에 답하면 저장할 수 있습니다. " if left else "")
-               + "저장하면 부족 역량과 추천이 이 단계로 다시 계산됩니다."
-               + (" 닉네임 프로필에도 저장합니다." if nickname else " 닉네임을 입력하면 다음에도 불러올 수 있습니다."))
+    status.caption(("모든 질문에 답하면 저장할 수 있습니다. " if left else "")
+                   + ("닉네임 프로필에도 저장합니다." if nickname else "닉네임을 넣으면 다음에도 불러옵니다."))
     label = f"저장 (남은 질문 {left}개)" if left else "저장"
     if forward.button(label, type="primary", width="stretch", disabled=bool(left), key="save_levels"):
         save_levels(nickname, {sid: st.session_state[f"lv_{sid}"] for sid in subskills})
