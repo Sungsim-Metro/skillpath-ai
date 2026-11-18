@@ -7,6 +7,7 @@
 이 파일은 화면 선택, 사이드바 입력과 탭 배치를 맡는다. 탭 내용은 `app/tabs/` 의 파일 하나씩에 있고,
 함께 쓰는 상수와 도우미는 `app/common.py` 에 있다. 새 탭은 `app/tabs/` 에 파일을 더하고 아래 TABS 에 한 줄을 넣는다.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +22,11 @@ try:
     load_dotenv(ROOT / ".env")
 except ImportError:
     pass
+
+# Streamlit은 app/ 밖의 모듈을 다시 불러올 때 PYTHONPATH를 확인한다.
+pythonpath = os.environ.get("PYTHONPATH", "")
+if str(ROOT) not in pythonpath.split(os.pathsep):
+    os.environ["PYTHONPATH"] = str(ROOT) + (os.pathsep + pythonpath if pythonpath else "")
 
 from backend import api  # noqa: E402
 from backend.jobs import JOBS  # noqa: E402
@@ -128,7 +134,6 @@ else:
 # 운영 현황 탭은 주소에 ?admin=<ADMIN_KEY 값> 을 붙였을 때만 맨 뒤에 더한다. ADMIN_KEY 가 비어 있으면 열리지 않는다.
 # 로그인이 아니라 가려 두는 것이다(토큰 수와 모델 ID 만 있고 내용은 없다)
 import hmac  # noqa: E402
-import os  # noqa: E402
 
 _admin_key = os.getenv("ADMIN_KEY", "")
 if _admin_key and hmac.compare_digest(str(st.query_params.get("admin", "")).encode(), _admin_key.encode()):
