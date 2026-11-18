@@ -20,6 +20,8 @@
   final(기본: 규칙 결과를 먼저 주고 자리가 남으면 hybrid 로 채움, 채운 것은 match=uncertain). 비교표는 pipeline/eval_search.py.
   final 은 벡터를 쓸 수 없으면(가짜 모드, data/courses/course_vectors.json 없음, EMBED_MODEL_ID 불일치) 규칙 결과 그대로다.
   AWS 처럼 사람이 입문 과정을 지정한 기술은 채우지 않는다. Reranking 은 하지 않는다(2026-11-16 결정).
+- 비교용 방식: bm25(BM25 키워드만), hybrid_bm25(BM25+의미를 RRF 로), final_bm25(final 과 같고 채우는 단계만 hybrid_bm25).
+  기본값은 final 이다. final_bm25 는 hit@3 이 한 기술 늘지만 비어야 하는 기술에 결과가 더 나와서 채택하지 않았다(pipeline/eval_search.py 비교표).
   채우는 단계는 보조다. 그 단계에서 Titan 호출 등이 실패하면 오류로 멈추지 않고 경고를 남긴 뒤 규칙 결과를 돌려준다(예전 동작과 같다).
   mode 를 직접 고른 호출(keyword 외)은 실패를 그대로 낸다.
 """
@@ -28,8 +30,10 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 import os
 import re
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 
@@ -172,7 +176,7 @@ def _rules(skill: str, k: int) -> list[dict]:
 
 # ── 키워드 + 의미(임베딩) 검색 ─────────────────────────────────────────
 VECTORS = ROOT / "data" / "courses" / "course_vectors.json"
-MODES = ("rules", "keyword", "embedding", "hybrid", "final")
+MODES = ("rules", "keyword", "bm25", "embedding", "hybrid", "hybrid_bm25", "final", "final_bm25")
 KEYWORD_WEIGHTS = (("title", 3.0), ("aws_services", 2.0), ("objectives", 1.5), ("description", 1.0))
 KEYWORD_MIN = 3.0  # 제목에 나오거나(3.0) AWS 서비스와 학습 목표에 함께 나올 때(3.5)만 후보다. 학습 목표·설명에 스친 것은 주제가 아니다
 #                    (예: Azure 가 멀티 클라우드 비용 과정의 데이터 출처로, react 가 일반 영어 단어로 걸렸다). 평가 세트로 1.5~3.0 을 비교해 정했다
@@ -227,6 +231,48 @@ def _keyword_ranking(skill: str) -> list[str]:
     return sorted(scores, key=lambda cid: (-scores[cid], *_tie_key(cid)))
 
 
+BM25_K1, BM25_B = 1.5, 0.75  # 표준값. 과정 158개로는 조정할 근거가 없어 그대로 둔다
+BM25_MIN = 4.0  # BM25 점수가 이 값 이하면 후보가 아니다. 정답 34기술 평가로 0~10 을 비교해 hit 가 유지되는 가장 높은 값을 골랐다(과적합 위험).
+#                 그래도 비어야 하는 기술 11개 중 4개(Azure·GCP·React·Linux)에 결과가 나온다. BM25 점수는 절대 기준이 아니라서 임계값으로 못 거른다
+_TOKEN = re.compile(r"[a-z0-9][a-z0-9+#.-]*|[가-힣]+")
+
+
+def _tokens(text: str) -> list[str]:
+    """소문자 낱말. 문장 끝의 마침표·붙임표는 뗀다("EC2." 와 "EC2" 가 같은 낱말). 어간 처리는 하지 않는다."""
+    return [t.rstrip(".-") for t in _TOKEN.findall(text.lower()) if t.rstrip(".-")]
+
+
+@lru_cache(maxsize=1)
+def _bm25_index() -> dict:
+    """추천할 수 있는 과정의 제목 + AWS 서비스 + 학습 목표로 만든 BM25 색인. 설명은 스치는 말이 많아 뺀다(키워드 방식과 같은 판단)."""
+    tf = {c["course_id"]: Counter(_tokens(f"{c['title']}. {c['aws_services']}. {c['objectives']}"))
+          for c in _courses().values() if _usable(c)}
+    length = {cid: sum(t.values()) for cid, t in tf.items()}
+    df = Counter(w for t in tf.values() for w in t)
+    n = len(tf)
+    return {"tf": tf, "length": length, "avg": sum(length.values()) / n,
+            "idf": {w: math.log(1 + (n - d + 0.5) / (d + 0.5)) for w, d in df.items()}}
+
+
+def _bm25_scores(skill: str) -> dict[str, float]:
+    """질의는 기술의 대표명과 별칭을 낱말로 쪼갠 집합(같은 낱말은 한 번만 센다)."""
+    idx = _bm25_index()
+    terms = {w for n in _names(normalize_skill(skill) or skill) if len(n) >= 3 for w in _tokens(n)}
+    scores = {}
+    for cid, tf in idx["tf"].items():
+        s = sum(idx["idf"][w] * tf[w] * (BM25_K1 + 1) / (tf[w] + BM25_K1 * (1 - BM25_B + BM25_B * idx["length"][cid] / idx["avg"]))
+                for w in terms if w in tf)
+        if s > 0:
+            scores[cid] = s
+    return scores
+
+
+def _bm25_ranking(skill: str) -> list[str]:
+    """BM25 점수 순위. BM25_MIN 이하는 뺀다. BM25 는 낱말이 하나라도 걸리면 점수가 생겨서 임계값이 없으면 비어야 할 기술에도 결과가 나온다."""
+    scores = {cid: v for cid, v in _bm25_scores(skill).items() if v > BM25_MIN}
+    return sorted(scores, key=lambda cid: (-scores[cid], *_tie_key(cid)))
+
+
 def _semantic_ranking(skill: str) -> list[str]:
     """질의 벡터와 과정 청크 벡터의 코사인(과정별 가장 높은 청크)으로 매긴 순위. SEM_MIN 미만은 뺀다."""
     from pipeline import embed
@@ -250,10 +296,14 @@ def _fuse(*rankings: list[str]) -> list[str]:
 def _candidates(skill: str, mode: str) -> list[str]:
     if mode == "keyword":
         return _keyword_ranking(skill)
+    if mode == "bm25":
+        return _bm25_ranking(skill)
     if not _semantic_ready():
         raise RuntimeError(f"mode={mode!r} 는 실제 모드와 과정 벡터(course_vectors.json, EMBED_MODEL_ID 일치)가 필요합니다")
     if mode == "embedding":
         return _semantic_ranking(skill)
+    if mode == "hybrid_bm25":
+        return _fuse(_bm25_ranking(skill), _semantic_ranking(skill))
     return _fuse(_keyword_ranking(skill), _semantic_ranking(skill))
 
 
@@ -272,13 +322,13 @@ def search_courses(skill: str, k: int = 3, mode: str = "final") -> list[dict]:
     if mode == "rules":
         return _rules(skill, k)
     subskills = subskills_of(skill)
-    if mode == "final":
+    if mode in ("final", "final_bm25"):
         out = _rules(skill, k)
         if len(out) >= k or (normalize_skill(skill) or skill) in _foundation() or not _semantic_ready():
             return out  # 사람이 지정한 입문 과정(AWS)은 채우지 않는다
         seen = {f["course_id"] for f in out}
         try:
-            filler = _candidates(skill, "hybrid")
+            filler = _candidates(skill, "hybrid_bm25" if mode == "final_bm25" else "hybrid")
         except Exception as e:  # ponytail: 어떤 실패든 규칙 결과로 돌아간다. 오류 종류를 가려야 하면 botocore 예외로 좁힌다
             logging.getLogger(__name__).warning("채움 단계(임베딩 검색) 실패, 규칙 결과만 돌려줍니다: %s: %s", type(e).__name__, e)
             return out
