@@ -143,7 +143,7 @@ Gap 행(`get_gap`)에 더한 필드:
 
 `get_area_gap`의 `owned`는 기술마다 요구 공고 수 × 충족도를 더한 값이라 소수일 수 있다.
 
-기준 단계(`data/required_levels.json`)는 `pipeline/required_levels.py`가 만든다. 공고 근거 문장(②의 `evidence`, `confidence`가 `uncertain`이 아닌 것)을
+기준 단계(`data/required_levels.json`)는 `pipeline/required_levels.py`가 만든다. 공고 근거 문장(②의 `evidence`, 수요 집계와 같이 `confidence`가 `high`인 것)을
 단계 예시와 임베딩으로 비교해 공고별 요구 단계를 정하고, 기술별 중앙값을 코드로 계산한다. 파일에는 집계 숫자만 쓰고 공고 문장은 넣지 않는다.
 
 ## ⑥ 상담 발화 해석 (`Turn`) · ai → backend

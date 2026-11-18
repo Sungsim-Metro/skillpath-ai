@@ -125,6 +125,14 @@ def _render_gap(ctx: Ctx):
     c2.metric("주요 요구 기술", f"{len(gap_rows)}개", help="공고의 20% 이상이 요구한 기술", border=True)
     c3.metric("그중 보유", f"{len(have)}개", help="내 단계가 기준 단계 이상인 기술", border=True)
     c4.metric("부족", f"{len(missing)}개", border=True)
+    guessed = [r for r in gap_rows if r["required_level_confidence"] == "uncertain"]
+    if guessed:
+        st.warning(
+            f"주요 요구 기술 {len(gap_rows)}개 중 {len(guessed)}개는 아직 공고로 기준 단계를 정하지 못해 "
+            f"팀이 정한 추정값(3단계)으로 보유·부족을 나눴습니다. 이 기술들의 판정은 참고용이며, "
+            "표에 '불확실'로 표시합니다.",
+            icon=":material/info:",
+        )
 
     with st.container(border=True):
         st.subheader("능력 범주별 Gap")
@@ -167,7 +175,8 @@ def _render_gap(ctx: Ctx):
                 "충족도 = 필수 비중 × (기준 이상이면 1) + 우대 비중 × 내 단계/5."
             )
         if have:
-            st.caption("이미 보유: " + ", ".join(r["skill"] for r in have))
+            st.caption("이미 보유: " + ", ".join(
+                r["skill"] + (" (불확실)" if r["required_level_confidence"] == "uncertain" else "") for r in have))
 
 
 
