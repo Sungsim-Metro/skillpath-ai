@@ -86,20 +86,36 @@ class IndustryGapTest(unittest.TestCase):
         )
         self.assertTrue(all(r["industry"] == "예시" for r in rows))
 
-    def test_exact_aliases_and_asymmetric_boundaries(self) -> None:
+    def test_dictionary_aliases_in_demand_and_supply(self) -> None:
+        text = "postgres와 docker / 자바스크립트 Dockerfile"
+        self.assertEqual(posting_weights(text), {"PostgreSQL": 0.5, "Docker": 0.5})
+        supply = aggregate_supply([course(text, "PostgreSQL")], source="테스트 목록")
+        self.assertEqual({row["skill"]: row["courses"] for row in supply["skills"]},
+                         {"PostgreSQL": 1, "Docker": 1})
+
+    def test_dictionary_aliases_and_boundaries(self) -> None:
         self.assertEqual(extract_skills("k8s와 K8S 운영 / AWS가 필수 아님"), ["AWS", "Kubernetes"])
-        self.assertEqual(extract_skills("도구Docker Dockerfile PYTHON Amazon-Web-Services"), [])
+        self.assertEqual(extract_skills("도구Docker Dockerfile PYTHON Amazon-Web-Services"), ["AWS", "Python"])
         self.assertEqual(
             extract_skills("IaC(Terraform) 컨테이너(Docker) 지속적 통합·배포"),
             ["CI/CD", "Docker", "Terraform"],
         )
 
-    def test_heading_consumption_reset_and_max_weight(self) -> None:
+    def test_benefits_and_company_introduction_do_not_count_as_job_demand(self) -> None:
+        text = "[자격요건]\nPython\n[혜택 및 복지]\nAWS 교육비 지원\n[회사소개]\nKubernetes 기반"
+        self.assertEqual(posting_weights(text), {"Python": 1.0})
+
+    def test_common_subheadings_and_section_transitions(self) -> None:
+        text = ("[복리후생]\r\nSQL\r\n[기술 역량]\r\nAWS\r\n[담당업무]\r\nPython\r\n"
+                "[우대조건]\r\nAWS, Docker\r\n[채용절차]\r\nKubernetes")
+        self.assertEqual(posting_weights(text), {"AWS": 1.0, "Python": 0.7, "Docker": 0.5})
+
+    def test_repeated_headings_keep_earlier_mentions_and_highest_weight(self) -> None:
         text = (
             "React\n[주요업무]\nAzure\n  [주요업무] SQL\n- Docker k8s -\n"
             "[우대사항]\nDocker\n[자격요건]\nK8S\n[새 구역]\nAWS"
         )
-        self.assertEqual(posting_weights(text), {"React": 0.5, "Docker": 0.7,
+        self.assertEqual(posting_weights(text), {"React": 0.5, "Azure": 0.7, "Docker": 0.7,
                                                "Kubernetes": 1.0, "AWS": 0.5})
 
     def test_industry_order_duplicates_and_global_supply(self) -> None:

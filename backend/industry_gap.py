@@ -2,47 +2,13 @@
 
 import csv
 import io
-import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from typing import NotRequired, TypedDict
 
-# 계산 명세에서 정한 24개 대표명과 66개 별칭을 사용한다.
-_ALIASES = {
-    "AWS": ("AWS", "Amazon Web Services", "아마존 웹 서비스", "aws"),
-    "Azure": ("Azure", "MS Azure", "애저"),
-    "GCP": ("GCP", "Google Cloud", "구글 클라우드"),
-    "Kubernetes": ("Kubernetes", "쿠버네티스", "k8s", "K8S"),
-    "Docker": ("Docker", "도커", "컨테이너(Docker)"),
-    "Terraform": ("Terraform", "테라폼", "IaC(Terraform)"),
-    "CI/CD": ("CI/CD", "CICD", "지속적 통합·배포"),
-    "Linux": ("Linux", "리눅스"),
-    "Python": ("Python", "파이썬", "python"),
-    "SQL": ("SQL", "sql"),
-    "Spark": ("Spark", "Apache Spark", "스파크"),
-    "Airflow": ("Airflow", "에어플로우", "Apache Airflow"),
-    "PyTorch": ("PyTorch", "파이토치"),
-    "TensorFlow": ("TensorFlow", "텐서플로"),
-    "LLM": ("LLM", "대규모 언어모델", "거대언어모델"),
-    "RAG": ("RAG", "검색증강생성"),
-    "MLOps": ("MLOps", "ML Ops", "머신러닝 운영"),
-    "Prompt Engineering": ("프롬프트 엔지니어링", "Prompt Engineering"),
-    "Amazon Bedrock": ("Amazon Bedrock", "Bedrock", "아마존 베드록"),
-    "SageMaker": ("SageMaker", "세이지메이커", "Amazon SageMaker"),
-    "Java": ("Java", "자바"),
-    "Spring": ("Spring", "Spring Boot", "스프링"),
-    "React": ("React", "리액트"),
-    "정보보안": ("정보보안", "보안 관제", "클라우드 보안"),
-}
-_PATTERNS = {
-    skill: tuple(
-        re.compile(r"(?<![A-Za-z가-힣])" + re.escape(alias) + r"(?![A-Za-z])")
-        for alias in sorted(aliases, key=len, reverse=True)
-    )
-    for skill, aliases in _ALIASES.items()
-}
-_HEADING = re.compile(r"\s*\[(.+?)\]")
-_WEIGHTS = {"자격요건": 1.0, "주요업무": 0.7, "우대사항": 0.5}
+from ai import sections
+from pipeline.aliases import find_skills as extract_skills
+
 CSV_FIELDS = ("industry", "skill", "demand_pct", "supply_pct", "gap_pp")
 JOB_CSV_FIELDS = ("job_category", *CSV_FIELDS[1:])
 PROGRAM_TEXT_FIELDS = ("title", "description", "objectives")
@@ -90,31 +56,21 @@ class JobGapAnalysis(TypedDict):
     top3: dict[str, list[RankedGap]]
 
 
-def extract_skills(text: str) -> list[str]:
-    """본문에서 찾은 별칭을 대표명으로 모아 이름순으로 반환한다."""
-    return sorted(
-        skill for skill, patterns in _PATTERNS.items()
-        if any(pattern.search(text) for pattern in patterns)
-    )
-
-
 def posting_weights(text: str) -> dict[str, float]:
     """공고 한 건에서 기술마다 가장 높은 구역 가중치를 구한다."""
-    sections: dict[str, list[str]] = {}
-    section = "기타"
-    for line in text.splitlines():
-        heading = _HEADING.match(line)
-        if heading:
-            section = heading.group(1)
-            sections[section] = []
-        elif line.strip():
-            sections.setdefault(section, []).append(line.strip("- ").strip())
-
+    headings = {start: section for start, _, section in sections.headings(text)}
+    # 원문에는 기술별 필수·우대 판정이 없어 미분류 칸에는 우대 가중치를 적용한다.
+    current_weight: float | None = sections.weight("preferred", None)
+    offset = 0
     weights: dict[str, float] = {}
-    for section, lines in sections.items():
-        weight = _WEIGHTS.get(section, 0.5)
-        for skill in extract_skills("\n".join(lines)):
-            weights[skill] = max(weights.get(skill, 0.0), weight)
+    for line in text.splitlines(keepends=True):
+        if offset in headings:
+            section = headings[offset]
+            current_weight = None if section == sections.EXCLUDED else sections.weight("preferred", section)
+        elif current_weight is not None:
+            for skill in extract_skills(line):
+                weights[skill] = max(weights.get(skill, 0.0), current_weight)
+        offset += len(line)
     return weights
 
 
