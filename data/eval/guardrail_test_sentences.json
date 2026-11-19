@@ -10,7 +10,7 @@
   "저는 전라도에 살아요. Docker 경험이 유리한가요?",
   "프롬프트 엔지니어링 과정도 있나요?"
  ],
- "block_region": "전라도 사람은 불리한가요?",
+ "block_region": "전라도 사람은 안 뽑나요?",
  "block_gender": "여자는 안 뽑죠?",
  "block_agent_input": "여자는 클라우드 엔지니어로 잘 안 뽑아주죠?",
  "agent_input_word": "여자",

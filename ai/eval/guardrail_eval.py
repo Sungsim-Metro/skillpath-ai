@@ -9,7 +9,8 @@
 - 미탐률 = 막아야 할 문항 중 통과된 수 / 막아야 할 문항 수
 - 방식별(코드만, Guardrails 모든 정책, Guardrails 필터만, 코드 또는 Guardrails, 코드 또는 Guardrails 필터)로 따로 센다.
   Guardrails 는 문항마다 한 번만 부른다. --bedrock 이 없으면 코드만
-결과는 outputs/eval/guardrail_*.json 에 저장한다(.gitignore 대상). 문항은 팀이 지어낸 문장이라 화면에 출력해도 된다.
+결과는 outputs/eval/guardrail_*.json 에 저장한다(.gitignore 대상). 개선용 문항은 팀이 지어낸 문장이라 화면에 출력한다.
+--holdout 은 문항 id 와 범주만 출력한다(규칙 작성 쪽이 보지 않은 문항 원문을 보지 않게).
 문항 파일은 차별 판단 요청 문장이 들어 있어 공개 범위(.github/public-sync/allowlist.txt) 밖인 data/eval/ 에 둔다.
 """
 from __future__ import annotations
@@ -63,6 +64,9 @@ def evaluate(cases: list[dict], use_bedrock: bool) -> dict:
     out = {"code": rates(cases, code)}
     if use_bedrock:
         policies = {c["id"]: guardrail.bedrock_assess(c["text"], "INPUT") for c in cases}
+        failed = [i for i, p in policies.items() if p is None]
+        if failed:  # 호출 실패를 "통과"로 세면 표가 틀린다
+            raise RuntimeError(f"Bedrock Guardrails 호출 실패 {len(failed)}/{len(cases)}건(자격 증명·권한 확인). 결과를 저장하지 않습니다")
         full = {i: guardrail.decide(p, topic_block=True).blocked for i, p in policies.items()}
         filters = {i: guardrail.decide(p, topic_block=False).blocked for i, p in policies.items()}
         out["guardrails"] = rates(cases, full)
@@ -80,6 +84,9 @@ def main() -> int:
     ap.add_argument("--holdout", action="store_true", help="보지 않은 문항으로(규칙을 고정한 뒤 한 번만)")
     args = ap.parse_args()
     path = HOLDOUT if args.holdout else CASES
+    if not path.exists():  # 공개본에는 data/eval/ 을 내보내지 않는다(차별 판단 요청 문장)
+        print(f"평가 문항 파일이 없어 건너뜁니다: {path.relative_to(ROOT).as_posix()} (공개 범위 밖, 팀 저장소에만 있음)")
+        return 0
     cases = json.loads(path.read_text(encoding="utf-8"))["cases"]
     if not cases:
         print(f"문항이 없습니다: {path.relative_to(ROOT)}")
@@ -96,9 +103,9 @@ def main() -> int:
         print(f"\n[{method}] 오탐 {r['false_positive']}/{r['should_pass']} ({r['false_positive_rate']:.1%})"
               f"  미탐 {r['false_negative']}/{r['should_block']} ({r['false_negative_rate']:.1%})")
         for i in r["false_positive_ids"]:
-            print(f"  오탐 {i}: {by_id[i]['text']}")
+            print(f"  오탐 {i}" + ("" if args.holdout else f": {by_id[i]['text']}"))
         for i in r["false_negative_ids"]:
-            print(f"  미탐 {i} ({by_id[i]['category']}): {by_id[i]['text']}")
+            print(f"  미탐 {i} ({by_id[i]['category']})" + ("" if args.holdout else f": {by_id[i]['text']}"))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"guardrail_{'holdout' if args.holdout else 'dev'}_{'bedrock' if args.bedrock else 'code'}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     out.write_text(json.dumps({"cases": path.name, "result": result}, ensure_ascii=False, indent=1), encoding="utf-8")
