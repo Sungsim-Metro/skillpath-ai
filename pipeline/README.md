@@ -2,7 +2,7 @@
 
 ## 분석에 쓰는 채용공고
 
-분석 입력은 `data/raw/rocketpunch-2026-11-17/postings-reviewed/` 아래 두 폴더다. 수요 배치는 여기에 오픈 데이터셋의 원티드 공고 `data/raw/hf/postings-reviewed/cloud/hf-wanted-<번호>.posting.json`을 더해 집계한다(2026-11-19). 이 폴더가 없으면 배치는 수요가 조용히 줄지 않게 오류로 멈춘다. 파일은 S3 `skillpath/wanted-dataset/processed/postings/`의 객체를 바이트 그대로 받아 둔다. `cloud/`는 클라우드 엔지니어, `ai/`는 AI 엔지니어 공고다. 분류는 모델이 공고의 근거 문장을 확인한 결과이며, 해당 시점의 수량은 [데이터 출처](../docs/data-sources.md)에 기록한다.
+분석 입력은 `data/raw/rocketpunch-2026-11-17/postings-reviewed/` 아래 두 폴더다. 수요 배치는 여기에 오픈 데이터셋의 원티드 공고 `data/raw/hf/postings-reviewed/<cloud|ai>/hf-wanted-<번호>.posting.json`을 더해 집계한다(2026-11-19). 이 파일은 `python -m pipeline.wanted_dataset <parquet 폴더>`가 데이터셋에서 후보를 거르고 모델의 직무 판정을 거쳐 만든다. 이 폴더가 없으면 배치는 수요가 조용히 줄지 않게 오류로 멈춘다. 파일은 S3 `skillpath/wanted-dataset/processed/postings/`의 객체를 바이트 그대로 받아 둔다. `cloud/`는 클라우드 엔지니어, `ai/`는 AI 엔지니어 공고다. 분류는 모델이 공고의 근거 문장을 확인한 결과이며, 해당 시점의 수량은 [데이터 출처](../docs/data-sources.md)에 기록한다.
 
 검토본은 Git에서 제외되므로 새 작업 환경에는 같은 경로에 데이터를 준비한다. 직무별 수요 배치는 해당 폴더의 공고를 전부 사용한다. 두 직무에 속한 공고는 각 직무에서 한 번씩 센다. 전체 추출 점검(`python -m ai.eval.run_raw`)에서는 같은 ID를 한 번만 분석한다. 양쪽에 있는 ID는 `ai/`의 파일을 대표로 읽는다. `python -m pipeline.rocketpunch export-eval`도 같은 모집단에서 튜닝 공고와 중복 재공고를 제외하고 표본을 뽑는다.
 
