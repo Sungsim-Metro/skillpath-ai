@@ -441,7 +441,7 @@
 - **숫자**: 없음(도구). 손으로 계산한 예와 맞춘 테스트(`ai/test_agreement.py`)
 - **한계**: 상담 답 채점 기준표·지시문(`judge_answer_v1`)과 사람이 볼 항목 고르기 규칙은 아직 없다. kappa 는 문항이 적으면(예: 12개) 신뢰구간이 넓다
 
-### 27. 구조 A: 상담 에이전트의 과정 도구를 검증 추천(recommend_courses)으로 (11/20)
+### 27. 구조 A: 상담 에이전트의 과정 도구를 검증 추천(recommend_courses)으로 (11/19)
 - **영역**: 에이전트, 평가
 - **문제와 근거**: #93·#94 구조 비교. 상담 에이전트의 `search_courses` 는 과정 목록만 주고 추천 이유를 검증하지 않아, 검증한 추천을 보여 주는 화면 상담(구조 0)과 조건이 달랐다
 - **조치**
@@ -450,7 +450,7 @@
   - PR #120 리뷰: 구조 0(화면 경로)에는 사전에 없는 기술 표기를 되묻는 기능이 없다(`backend/chat.py` `_skill` 은 모르는 표기를 그대로 두고, `ai/chat.py` status 의 clarify_role·incomplete 는 직무·미완성 입력 확인). 그래서 구조 0 의 표기 애매 문항 되묻기는 "해당 없음"으로 분모에서 뺀다(A·B 는 센다). 결과 파일에 "모델 호출 수에 Guardrails(ApplyGuardrail) 호출은 포함하지 않음"을 적는다
   - `ai/eval/agent_compare.py`: 구조 A(`agent.chat`) 연결. 의도는 부른 도구로 판정(recommend_courses → courses, get_gap → gap, get_skill_demand 만 → demand, 도구 없이 범위 밖 → out_of_scope, 도구 없이 범위 안 → no_tool). 두 구조 모두 모델 호출 응답의 토큰을 직접 더한다(가짜 대본 차례는 따로 셈)
 - **숫자**: 없음(가짜 모드 흐름 확인만). 가짜 모드의 구조 A 는 질문 낱말로 고르는 고정 대본이라 의도 2/10·되묻기 0/2 가 나왔지만 실제 모델의 성능이 아니다. 구조 0 은 의도 6/8(해당 없음 2)·되묻기 0/0(해당 없음 2)
-- **조건**: `python -m ai.eval.agent_compare --structures 0 A`(가짜 모드), 11/20
+- **조건**: `python -m ai.eval.agent_compare --structures 0 A`(가짜 모드), 11/19
   - 캐시: 추천 캐시·수요 캐시가 구조·문항 사이에 남지 않게, 비교 스크립트가 (구조, 문항)마다 자기 자신을 새 프로세스로 띄운다(`backend` 에 캐시를 비우는 공개 함수가 없어 내부 변수는 건드리지 않음). 결과 파일 `notes` 에 "구조·문항마다 새 프로세스로 실행해 캐시가 비어 있음, DynamoDB 수요 조회가 문항마다 한 번씩 더 일어남"을 적는다. 하위 프로세스가 실패하면 멈춘다(통과로 세지 않음). 같은 프로세스에서 돌린 결과와 같은지(시간 제외) 테스트한다
   - 호출 한도: `--max-model-calls`, `--max-guardrail-calls`(실제 모드에서는 둘 다 필수). 실행 전체 합계로 세고, 남은 한도를 하위 프로세스에 넘겨 호출 직전에 넘으면 멈춘다(상담 코드의 `except Exception` 이 삼키지 않게 `BaseException`). 멈추면 그때까지의 결과만 따로 저장한다. ApplyGuardrail 호출 수는 모델 호출 수와 따로 센다
   - KB Retrieve(과정 검색)·임베딩 호출은 상한 없이 개수만 기록한다(`kb_retrieve_calls`, `embedding_calls`, 결과 파일 `notes` 에 표시)
@@ -481,7 +481,7 @@
 - **조건**: 실제 모드, 모델 `global.anthropic.claude-sonnet-4-6`, Guardrail 버전 2, KB `skillpath-learning-programs-kb`, 11/19. 결과 파일 `outputs/eval/agent_compare_dev_bedrock_20261119-224556.json`
 - **한계**: 개발용 12문항을 1회 잰 값이다. 작성자가 본 문항이라 과대평가될 수 있고, 모델 판정은 실행마다 흔들린다. 결론은 보지 않은 문항으로 낸다. 구조 0 과 A 는 의도 정확도의 분모가 다르다(구조 0 은 해당 없음 2)
 
-### 29. 구조 A 고침: 과정 추천은 요청 때만, 이름 댄 기술 우선 (11/20)
+### 29. 구조 A 고침: 과정 추천은 요청 때만, 이름 댄 기술 우선 (11/19)
 - **영역**: 에이전트, 평가
 - **문제와 근거**: 항목 28 실측에서 A 가 부족 역량 질문 4개(N1·N2·T1·T2)에도 묻지 않은 과정 추천을 불러 의도가 틀리고 호출이 늘었다. C2("EC2랑 VPC 강의")는 EC2·VPC 가 수요 집계에 없어 과정을 하나도 추천하지 못했다
 - **원인**: 지침의 추천 조건이 "과정을 추천할 때는"뿐이었다. `recommend_courses` 가 수요 집계에 없는 기술을 모두 빼고 있었다
@@ -505,7 +505,7 @@
   | 시간 중앙값 / 최대 | 8.1초 / 69.2초 | 7.8초 / 71.5초 |
 
   같은 조건의 구조 0(항목 28): 의도 7/8(해당 없음 2), 모델 35번, 토큰 71,639. 두 구조의 의도 정확도는 분모가 다르다
-- **조건**: 실제 모드, 모델 `global.anthropic.claude-sonnet-4-6`, Guardrail 버전 2, KB `skillpath-learning-programs-kb`, (구조, 문항)마다 새 프로세스, 한도 모델 80·ApplyGuardrail 12, 11/20. 결과 파일 `outputs/eval/agent_compare_dev_bedrock_20261119-225533.json`
+- **조건**: 실제 모드, 모델 `global.anthropic.claude-sonnet-4-6`, Guardrail 버전 2, KB `skillpath-learning-programs-kb`, (구조, 문항)마다 새 프로세스, 한도 모델 80·ApplyGuardrail 12, 11/19. 결과 파일 `outputs/eval/agent_compare_dev_bedrock_20261119-225533.json`
 - **한계**
   - **고친 뒤 숫자는 과대평가다.** 같은 개발용 12문항의 실패를 보고 지침과 도구를 고쳤고, 1회만 쟀다. 결론은 보지 않은 문항으로 낸다
   - N2(정상 상담)의 답에도 되묻기 표현이 잡혔다(점수에는 표기 애매 문항만 셈). 정규식 판정이 과하거나 모델이 불필요하게 되물었을 수 있다(확인 안 함)

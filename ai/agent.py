@@ -9,7 +9,7 @@
 - get_skill_demand(skill): 공고 n건 중 m건, 그중 필수 비율(%).
 - recommend_courses(skills): 부족 기술(최대 MAX_RECOMMEND 개)마다 검증한 과정 추천. 화면 상담과 같은
   backend.api.get_recommendations(..., review=True)(작성 → 독립 검토 → 한 번 수정 → 코드 근거 검사)를 부른다.
-  과정마다 제목·난이도·match·reason(검사를 통과한 이유, uncertain 이면 코드가 붙인 안내 문장 포함). 11/20 search_courses 를 대신함
+  과정마다 제목·난이도·match·reason(검사를 통과한 이유, uncertain 이면 코드가 붙인 안내 문장 포함). 11/19 search_courses 를 대신함
 
 코드가 하는 검사
 - 답의 숫자는 이번 대화의 도구 결과와 사용자 메시지(이전 대화 포함)에 있는 것만 허용한다(ai.recommend 의 숫자 검사 방식).
@@ -185,7 +185,7 @@ def tool_recommend_courses(skills: list) -> dict:
 
     표기는 별칭 사전으로만 맞춘다. 수요 집계에 있는 기술은 공고 수·필수 비율·summary 를 get_gap 과 같은 계산으로 준다.
     수요 집계에 없는 기술은 사용자가 이번 메시지에서 직접 이름을 댔을 때만 추천하고(수요는 "정보 없음"), 아니면 not_found.
-    (화면 상담 구조 0 은 이름 댄 기술 대신 Gap 의 상위 부족 기술을 추천한다: backend/chat.py _analyze. 11/20 결정 ⓐ)
+    (화면 상담 구조 0 은 이름 댄 기술 대신 Gap 의 상위 부족 기술을 추천한다: backend/chat.py _analyze. 11/19 결정 ⓐ)
     reason 은 검사를 통과한 문장이다. 수요 정보가 없는 기술은 공고 수를 말하는 문장만 빼고 안내 문장을 앞에 붙인다.
     """
     if not isinstance(skills, list):

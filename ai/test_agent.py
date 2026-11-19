@@ -96,7 +96,7 @@ def test_recommend_courses_tool():
 
 
 def test_recommend_named_skill_without_demand():
-    # 사용자가 이름을 댄 기술은 수요 집계에 없어도 추천한다(수요 "정보 없음"). 이름을 대지 않았으면 not_found(11/20 결정 ⓐ)
+    # 사용자가 이름을 댄 기술은 수요 집계에 없어도 추천한다(수요 "정보 없음"). 이름을 대지 않았으면 not_found(11/19 결정 ⓐ)
     token = agent._MESSAGE.set("EC2랑 VPC를 배울 수 있는 AWS 강의 추천해 주세요")
     try:
         out = agent.tool_recommend_courses(["EC2", "VPC", "Terraform", "없는기술"])

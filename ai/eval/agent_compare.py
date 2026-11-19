@@ -58,7 +58,7 @@ INTENTS = ("gap", "demand", "courses", "out_of_scope", "blocked")
 # 구조 0(화면 경로)의 해석 action 에는 "기술 하나 수요"(demand)가 없다(gap·courses·note·summary)
 SUPPORTED_INTENTS = {"0": {"gap", "courses", "out_of_scope", "blocked"}}
 # 사전에 없는 기술 표기를 되묻는 기능이 있는 구조. 구조 0(화면 경로)은 없다: backend/chat.py 의 _skill 이 모르는 표기를
-# 그대로 두고, ai/chat.py 의 status(clarify_role·incomplete)는 직무·미완성 입력 확인이지 기술 표기 되묻기가 아니다(11/20 확인).
+# 그대로 두고, ai/chat.py 의 status(clarify_role·incomplete)는 직무·미완성 입력 확인이지 기술 표기 되묻기가 아니다(11/19 확인).
 # 없는 구조는 표기 애매 문항의 되묻기를 "해당 없음"으로 따로 세고 분모에서 뺀다
 ASK_BACK_STRUCTURES = {"A", "B"}
 RESULT_NOTES = [

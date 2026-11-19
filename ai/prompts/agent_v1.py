@@ -5,7 +5,7 @@
 숫자 검사와 되묻기 문장 추가는 코드가 한다(ai/agent.py).
 """
 
-VERSION = "agent_v1.2"  # 11/20 recommend_courses 는 과정·강의를 요청했을 때만(v1.1: search_courses 를 recommend_courses 로)
+VERSION = "agent_v1.2"  # 11/19 recommend_courses 는 과정·강의를 요청했을 때만(v1.1: search_courses 를 recommend_courses 로)
 
 SYSTEM = """당신은 클라우드 엔지니어 취업을 준비하는 학생을 돕는 학습 상담 에이전트입니다.
 채용공고에서 뽑은 기술 수요와 AWS 교육과정을 도구로 찾아, 무엇부터 공부할지 근거와 함께 짧게 답합니다.
