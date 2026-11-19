@@ -14,8 +14,8 @@ import streamlit as st
 
 from backend import api, chat_profiles
 from backend.jobs import JOBS
-from backend.levels import (CUSTOM_PREFIX, LEVELS, MAX_CUSTOM_NAME_LENGTH, job_guide, job_subskills, level_guide,
-                            merge_levels, named_levels, required_level, validate_levels)
+from backend.levels import (CUSTOM_PREFIX, LEVELS, MAX_CUSTOM_NAME_LENGTH, chat_owned_skill_names, job_guide,
+                            job_subskills, level_guide, merge_levels, named_levels)
 
 # 진단 전에 보여줄 예시: 예전 기본 보유 기술 Python·Linux·Git 에 해당하는 세부 능력 3단계
 # 클라우드(C*)는 스크립트·자동화, Linux, Git. AI(A*)는 데이터 분석(Python), 배포 자동화(Git)
@@ -314,9 +314,5 @@ def chat_skills(job: str, levels: dict[str, int]) -> list[str]:
     if st.session_state.get("levels_example") or not levels:
         return []
     from app.common import load
-    names, _ = load(api.owned_skill_names, job, levels)
-    owned = {name.casefold(): name for name in names or []}
-    for name, level in named_levels(validate_levels(levels)).items():
-        if level >= required_level(name, job)[0]:
-            owned.setdefault(name.casefold(), name)
-    return list(owned.values())
+    market_owned, _ = load(api.owned_skill_names, job, levels)
+    return chat_owned_skill_names(job, levels, market_owned or [])

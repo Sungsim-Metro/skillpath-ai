@@ -64,6 +64,25 @@ class CustomLevelTest(unittest.TestCase):
         self.assertNotIn("'Docker'", at.main.text[-1].value)
         self.assertNotIn("'도커'", at.main.text[-1].value)
 
+    def test_chat_merges_a_market_alias_with_its_direct_rating(self):
+        at = AppTest.from_function(sidebar).run()
+        at.session_state["levels"] = {"custom:Docker": 4}
+        at.session_state["levels_example"] = False
+        demand = {"total_postings": 1, "skills": [{"skill": "도커", "postings": 1, "required": 1, "preferred": 0}]}
+        with patch("backend.api.get_demand", return_value=demand):
+            at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.main.text[-1].value, "['Docker']")
+
+    def test_chat_keeps_only_qualifying_direct_ratings_when_demand_is_unavailable(self):
+        at = AppTest.from_function(sidebar).run()
+        at.session_state["levels"] = {"custom:Compiler Design": 3, "custom:OpenTofu": 2, "C1-4": 5}
+        at.session_state["levels_example"] = False
+        with patch("backend.api.get_demand", side_effect=LookupError("no market snapshot")):
+            at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.main.text[-1].value, "['Compiler Design']")
+
     def test_account_change_restores_only_its_levels_and_clears_drafts(self):
         session = SimpleNamespace(nickname="test-owner")
         with patch.object(chat_profiles, "load_profile", return_value={"levels": {"custom:C++": 5}}):

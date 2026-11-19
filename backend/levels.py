@@ -143,6 +143,17 @@ def validate_levels(levels: dict) -> dict[str, int]:
     return merge_levels({}, levels)
 
 
+def chat_owned_skill_names(job: str, levels: dict[str, int], market_owned: list[str]) -> list[str]:
+    """시장에서 보유로 판정된 기술 뒤에 직무 기준을 충족한 직접 입력 기술을 덧붙인다."""
+    direct = named_levels(validate_levels(levels))
+    qualified = (name for name, level in direct.items() if level >= required_level(name, job)[0])
+    owned: dict[str, str] = {}
+    for name in chain(market_owned, qualified):
+        canonical = normalize_skill(name) or name
+        owned.setdefault(canonical.casefold(), canonical)
+    return list(owned.values())
+
+
 def _direct_ratings(levels: dict[str, int]) -> dict[str, int]:
     """검증된 수준 표에서 기술 이름의 대소문자를 구분하지 않고 직접 입력을 찾는다."""
     return {name.casefold(): value for name, value in named_levels(levels).items()}
