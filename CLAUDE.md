@@ -79,7 +79,8 @@ AWS 교육과정을 추천 이유와 함께 보여주는 서비스다. AI Bootca
 - **AI 엔지니어를 다시 넣는다**(11/16 "클라우드 하나"를 바꿈). 검토를 마친 공고가 AI 71건, 클라우드 18건이고 수집·추출·집계는 이미 두 직무를 처리한다.
   직무별 데이터는 파일 이름 뒤에 직무 코드를 붙인다(`backend/jobs.py`의 `job_file`: `skill_areas_ai_engineer.json`, `skill_levels_ai_engineer.json` 등).
   AI 영역은 `docs/skill-taxonomy.md` 4절의 4개(A1~A4), 수준 진단 세부 능력은 A1-1~A4-3이다. 세부 능력 id는 직무끼리 겹치지 않아 저장한 수준 하나에 두 직무의 진단을 함께 둔다.
-- AI용 AWS 교육과정 수집·임베딩과 AI 기준 단계(`required_levels_ai_engineer.json`)는 아직이다. 그 전까지 실제 모드의 AI 추천은 대부분 "과정 없음"이나 "불확실"로 남는다(원칙 4).
+- AI용 AWS 교육과정은 수집·임베딩했다(2026-11-19, 검색어 `pipeline/courses/queries_ai_engineer.csv`, 새 과정 58개를 기존 과정 표에 덧붙임).
+  AWS 서비스가 아닌 기술(PyTorch, Spark 등)은 "불확실"로, Python은 "과정 없음"으로 남는다(원칙 4). AI 기준 단계(`required_levels_ai_engineer.json`)는 아직이다.
 
 ## 보안
 
