@@ -19,3 +19,19 @@ uv run --python 3.11 --with-requirements requirements.txt python -m backend.prof
 ```
 
 로그인 시도는 서버 프로세스 안에서 닉네임별로 1분에 10회까지 허용하며 로그인에 성공하면 횟수를 초기화합니다.
+
+## 회원 대화 기록 테이블 (`DYNAMODB_CHAT_TABLE`)
+
+`backend/chat_history.py`가 로그인한 회원의 상담 대화를 세션별로 저장한다. 비회원은 저장하지 않는다. 저장 전에 이메일·전화번호·주민등록번호 모양은 가린다.
+
+| 항목 | 값 |
+| --- | --- |
+| 파티션 키 | `nickname` (String) |
+| 정렬 키 | `sk` (String) |
+| 과금 | 온디맨드 |
+| TTL 속성 | `expires_at` (Number, 기본 30일 뒤. `CHAT_HISTORY_TTL_DAYS`로 바꿈) |
+| 앱 권한 | 이 테이블에 `PutItem`·`UpdateItem`·`Query` |
+
+- 세션 줄 `sk = S#<세션ID>`: `title`(첫 질문 앞 30자), `updated_at`. 세션 목록은 `begins_with("S#")`로 조회한다.
+- 턴 줄 `sk = T#<세션ID>#<UTC 시각>`: `prompt`, `answer`, `courses`(JSON 문자열). 한 세션의 대화는 `begins_with("T#<세션ID>#")`로 조회한다.
+- 모의 모드(`BEDROCK_MOCK=1`)는 로컬 SQLite(`SKILLPATH_MOCK_CHAT_DB`)를 쓴다.
