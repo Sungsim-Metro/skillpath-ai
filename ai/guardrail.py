@@ -1,7 +1,7 @@
-"""가드레일 (#24). 상담 입력과 답을 검사한다. 어느 채팅 화면이든 이 두 함수만 부르면 된다.
+"""가드레일 (#24). 상담 입력과 답을 검사한다. 화면 상담(ai.chat.guard_input)과 상담 에이전트(ai.agent)가 같이 쓴다.
 
-  check_input(text)  -> GuardResult   사용자 입력. 막히면 BLOCK_MESSAGE 를 보여준다
-  check_output(text) -> GuardResult   모델 답. 막히면 OUTPUT_BLOCK_MESSAGE 를 보여준다
+  check_input(text)  -> GuardResult   사용자 입력. 결과는 통과 / 안전상 차단 / 검사 실패(is_check_failure) 셋
+  check_output(text) -> GuardResult   모델 답(상담 에이전트만). 막히면 OUTPUT_BLOCK_MESSAGE
 
 팀 결정 (11/10, 11/18 #24)
 - 성별·학력·인종(국적)·지역을 근거로 능력이나 채용 가능성을 판단하거나 차별하는 요청은 막는다. 나이는 막지 않는다.
@@ -13,11 +13,14 @@
 1. 코드 검사: 아래 낱말표. **질문에만** 돈다. 비용 0, 가짜 모드에서도 돈다.
    답에는 돌리지 않는다(11/19): 답은 우리 모델이 도구 결과로 만들고, 기술 답에 흔한 "지역·유리·제한 없이"로
    낱말 방식 오탐이 세 번 났다. 답 검사는 GUARDRAIL_OUTPUT=1 일 때 Guardrails 만 한다.
-2. Bedrock Guardrails(ApplyGuardrail): 실제 모드이고 Guardrail ID 가 있을 때만. 입력은 늘, 답은 GUARDRAIL_OUTPUT=1 일 때만.
-   ID·버전은 GUARDRAIL_ID·GUARDRAIL_VERSION, 비어 있으면 BEDROCK_GUARDRAIL_ID·BEDROCK_GUARDRAIL_VERSION(ai/chat.py 설정).
-   버전이 둘 다 없으면 DRAFT.
-   호출이 실패하면(권한, SSO 만료, 호출 제한) 막는다(fail-closed, CLAUDE.md "검사에 실패하면 그 요청은 종료").
-   화면은 UNAVAILABLE_MESSAGE 를 보여준다. 가짜 모드나 ID 가 없을 때는 코드 검사만 한다
+2. Bedrock Guardrails(ApplyGuardrail): 실제 모드에서 입력은 늘, 답은 GUARDRAIL_OUTPUT=1 일 때만. 가짜 모드는 부르지 않는다.
+   ID·버전은 같은 묶음에서만 고른다(guardrail_config): GUARDRAIL_ID 가 있으면 GUARDRAIL_ID + GUARDRAIL_VERSION,
+   없으면 BEDROCK_GUARDRAIL_ID + BEDROCK_GUARDRAIL_VERSION. 버전 기본값은 없다.
+   검사를 끝내지 못하면 막는다(fail-closed, CLAUDE.md "검사에 실패하면 그 요청은 종료"): ID·버전 누락(AWS 를 부르지 않음),
+   호출 예외(권한, SSO 만료, 호출 제한), action 누락·알 수 없음, INTERVENED 인데 판정을 읽을 수 없음.
+   이때 결과 범주는 FAILED 다. 화면은 ChatIntakeError, 상담 에이전트는 UNAVAILABLE_MESSAGE 로 안내한다.
+   이메일·전화번호 가리기(ANONYMIZED)만 된 개입도 막는다: 화면 계약(bool)이 가려진 문장을 넘기지 못해
+   통과시키면 원문이 다음 모델로 가기 때문이다.
    GUARDRAIL_TOPIC_BLOCK(기본 1): 1 이면 차단 주제와 필터(프롬프트 공격·혐오·모욕) 모두로 막는다. 0 이면 차단 주제는 기록만 한다.
    시연 설정(11/19)은 버전 2 + 1: 버전 2 주제 정의에서 학력 언급 질문 오탐이 없어졌다.
    버전 1 은 차단 주제가 "비전공자인데…" 질문을 막아(오탐) 0 으로 둔다.
@@ -34,7 +37,8 @@ import os
 import re
 from typing import NamedTuple, Optional
 
-from ai.bedrock import DEFAULT_REGION, is_mock
+from ai import bedrock
+from ai.bedrock import is_mock
 
 BLOCK_MESSAGE = (
     "이 서비스는 성별, 학력, 출신 지역, 인종이나 국적 같은 조건으로 직무나 채용 가능성을 판단하지 않습니다. "
@@ -42,7 +46,8 @@ BLOCK_MESSAGE = (
 )
 OUTPUT_BLOCK_MESSAGE = "답을 정리하지 못했습니다. 질문을 바꿔 다시 물어봐 주세요."
 UNAVAILABLE_MESSAGE = "지금은 안전 검사를 할 수 없어 답변을 드릴 수 없어요. 잠시 후 다시 시도해 주세요."
-FAILED = "실패"  # GuardResult.category: Guardrails 호출 실패로 막음
+PII_MESSAGE = "이메일이나 전화번호 같은 개인정보는 빼고 다시 물어봐 주세요."
+FAILED = "실패"  # GuardResult.category: 검사를 끝내지 못해 막음(설정 누락·호출 실패·해석 불가). 안전상 차단과 구분
 
 CATEGORIES = ("성별", "학력", "인종", "지역", "공격")
 
@@ -57,9 +62,11 @@ ATTRIBUTES = {
 # 11/19 리뷰: "유리·불리·안 맞·더 맞·포기·떨어지·소용 없·의미 없·피하는"은 상담·기술 문장에도 흔해 뺐다
 # ("남자인데 포기하지 않고 준비 중", "지방에 살아서 오프라인 수업은 안 맞아요", "다중 AZ 구성이 지역 장애에 유리").
 # 판단을 분명히 요구하는 표현만 남긴다. 그만큼 놓치는 요청은 Bedrock Guardrails 필터가 맡는다
+# 11/19 리뷰: "성향" 단독은 "지방에 살아서 제 성향상 원격 수업이 맞아요" 같은 자기 소개를 막아,
+# 사람·출신 집단의 성향을 말하는 형태("○○ 사람이 개발자 성향에 더 맞나요")만 남겼다
 # 11/19 기술 답 정상 문장 세트: "따라 … 다르게"는 "리전에 따라 요금이 다르게"를 막아 뺐다(B4 는 "합격 확률"로 막힌다)
 JUDGMENT = (
-    r"안\s*뽑|뽑지\s*않|만\s*뽑|뽑아\s*주지|걸러|거르|성향|실력이\s*떨어|"
+    r"안\s*뽑|뽑지\s*않|만\s*뽑|뽑아\s*주지|걸러|거르|(사람|출신)\S{0,3}\s.{0,12}성향|실력이\s*떨어|"
     r"피해야|피하라|기준으로\s*추천|합격\s*확률|숨기"
 )
 # 프롬프트 공격. 낱말 하나가 아니라 분명한 지시 문장 형태만 막는다(11/19: "S3는 용량 제한 없이", "Dan 이라고 합니다" 오탐).
@@ -110,30 +117,28 @@ def code_check(text: str) -> GuardResult:
     return PASS
 
 
-def _env_first(*names: str) -> str:
-    for name in names:
-        value = os.getenv(name, "").strip()
-        if value:
-            return value
-    return ""
-
-
-def guardrail_id() -> str:
-    """GUARDRAIL_ID, 비어 있으면 BEDROCK_GUARDRAIL_ID(ai/chat.py 와 같은 설정)."""
-    return _env_first("GUARDRAIL_ID", "BEDROCK_GUARDRAIL_ID")
-
-
-def guardrail_version() -> str:
-    """GUARDRAIL_VERSION, 비어 있으면 BEDROCK_GUARDRAIL_VERSION, 둘 다 없으면 DRAFT."""
-    return _env_first("GUARDRAIL_VERSION", "BEDROCK_GUARDRAIL_VERSION") or "DRAFT"
-
-
 class GuardrailCallError(Exception):
-    """ApplyGuardrail 호출 실패. 원래 예외 이름만 담는다(원문·메시지는 담지 않는다)."""
+    """Guardrails 검사를 끝내지 못함(설정 누락, 호출 예외, 해석할 수 없는 응답). 규칙 이름만 담는다(원문·설정값 없음)."""
+
+
+def guardrail_config() -> tuple[str, str]:
+    """(Guardrail ID, 버전). 같은 설정 묶음에서만 고른다. 다른 묶음의 버전으로 채우지 않는다.
+
+    GUARDRAIL_ID 가 있으면 GUARDRAIL_ID + GUARDRAIL_VERSION, 없으면 BEDROCK_GUARDRAIL_ID + BEDROCK_GUARDRAIL_VERSION
+    (학습 상담 화면이 쓰던 예전 이름). 버전 기본값은 없다(DRAFT 로 대신하지 않음).
+    """
+    gid = os.getenv("GUARDRAIL_ID", "").strip()
+    if gid:
+        return gid, os.getenv("GUARDRAIL_VERSION", "").strip()
+    return os.getenv("BEDROCK_GUARDRAIL_ID", "").strip(), os.getenv("BEDROCK_GUARDRAIL_VERSION", "").strip()
 
 
 def _guardrails_enabled(source: str) -> bool:
-    if is_mock() or not guardrail_id():
+    """Guardrails 를 부를 차례인가. 가짜 모드는 늘 아니다. 실제 모드 입력은 늘, 답은 GUARDRAIL_OUTPUT=1 일 때만.
+
+    설정이 있는지는 보지 않는다: 실제 모드에서 설정이 없으면 bedrock_assess 가 검사 실패로 돌려준다.
+    """
+    if is_mock():
         return False
     return source == "INPUT" or os.getenv("GUARDRAIL_OUTPUT", "0") == "1"
 
@@ -148,71 +153,102 @@ def topic_block_enabled() -> bool:
 
 
 def bedrock_assess(text: str, source: str) -> Optional[list[tuple[str, str]]]:
-    """ApplyGuardrail 을 한 번 부르고 BLOCKED 로 판정한 정책 목록 [(범주, 이름)] 을 돌려준다.
+    """ApplyGuardrail 을 한 번 부르고 판정 목록 [(범주, 이름)] 을 돌려준다. 원문은 꺼내지 않는다.
 
-    꺼져 있으면 None, 호출이 실패하면 GuardrailCallError. 이메일·전화번호를 가리기만(ANONYMIZE) 한 개입은 목록에 넣지 않는다.
-    범주는 "주제"(차단 주제), "공격"(프롬프트 공격 필터), "콘텐츠"(혐오·모욕 등). 원문은 꺼내지 않는다.
+    - None: 부를 차례가 아님(가짜 모드, 답 검사가 꺼짐)
+    - []: action NONE(개입 없음)
+    - 목록: action GUARDRAIL_INTERVENED 의 판정. 범주는 "주제"(차단 주제), "공격"(프롬프트 공격 필터),
+      "콘텐츠"(혐오·모욕 등), "낱말"(금지 낱말), "개인정보"(BLOCKED 된 개인정보), "가리기"(ANONYMIZED 만 된 개인정보)
+    - GuardrailCallError: 설정 누락(ID·버전), 호출 예외, action 누락·알 수 없음, INTERVENED 인데 판정을 읽을 수 없음
     """
     if not _guardrails_enabled(source):
         return None
+    gid, version = guardrail_config()
+    if not gid:
+        raise GuardrailCallError("설정 누락")
+    if not version:
+        raise GuardrailCallError("버전 누락")
     try:
-        resp = _client().apply_guardrail(
-            guardrailIdentifier=guardrail_id(),
-            guardrailVersion=guardrail_version(),
-            source=source,
+        resp = bedrock._client().apply_guardrail(
+            guardrailIdentifier=gid, guardrailVersion=version, source=source,
             content=[{"text": {"text": text}}],
         )
     except Exception as e:  # noqa: BLE001 - 어떤 실패든 막는 쪽으로(부른 쪽이 처리)
         raise GuardrailCallError(type(e).__name__) from None
-    if resp.get("action") != "GUARDRAIL_INTERVENED":
+    action = resp.get("action") if isinstance(resp, dict) else None
+    if action == "NONE":
         return []
-    return blocked_policies(resp.get("assessments", []))
+    if action != "GUARDRAIL_INTERVENED":
+        raise GuardrailCallError("응답 형식")
+    policies = intervened_policies(resp.get("assessments"))
+    if not policies:
+        raise GuardrailCallError("판정 없음")  # 개입했다는데 무엇 때문인지 읽을 수 없다
+    return policies
 
 
-def blocked_policies(assessments: list) -> list[tuple[str, str]]:
-    """ApplyGuardrail 판정에서 BLOCKED 인 정책 [(범주, 이름)]."""
+def _rows(obj, *path) -> list:
+    for key in path:
+        obj = obj.get(key) if isinstance(obj, dict) else None
+    return obj if isinstance(obj, list) else []
+
+
+def intervened_policies(assessments) -> list[tuple[str, str]]:
+    """INTERVENED 응답의 assessments 에서 개입한 정책 [(범주, 이름)]. 실제 응답 구조의 action 값만 본다.
+
+    BLOCKED 는 정책별 범주로, 개인정보·정규식의 ANONYMIZED 는 "가리기" 로 넣는다. action 이 NONE 인 항목은 넣지 않는다.
+    """
     out = []
-    for a in assessments:
-        for t in (a.get("topicPolicy") or {}).get("topics", []):
+    for a in assessments if isinstance(assessments, list) else []:
+        for t in _rows(a, "topicPolicy", "topics"):
             if t.get("action") == "BLOCKED":
                 out.append(("주제", t.get("name", "")))
-        for f in (a.get("contentPolicy") or {}).get("filters", []):
+        for f in _rows(a, "contentPolicy", "filters"):
             if f.get("action") == "BLOCKED":
                 out.append(("공격" if f.get("type") == "PROMPT_ATTACK" else "콘텐츠", f.get("type", "")))
+        for w in _rows(a, "wordPolicy", "customWords") + _rows(a, "wordPolicy", "managedWordLists"):
+            if w.get("action") == "BLOCKED":
+                out.append(("낱말", w.get("type", "CUSTOM")))
+        for p in _rows(a, "sensitiveInformationPolicy", "piiEntities") + _rows(a, "sensitiveInformationPolicy", "regexes"):
+            name = p.get("type") or p.get("name", "")
+            if p.get("action") == "BLOCKED":
+                out.append(("개인정보", name))
+            elif p.get("action") == "ANONYMIZED":
+                out.append(("가리기", name))
     return out
 
 
+def blocked_policies(assessments) -> list[tuple[str, str]]:
+    """예전 이름(평가 스크립트 호환). intervened_policies 와 같다."""
+    return intervened_policies(assessments)
+
+
 def decide(policies: Optional[list[tuple[str, str]]], topic_block: bool) -> GuardResult:
-    """Guardrails 판정으로 막을지 정한다. topic_block 이 꺼져 있으면 차단 주제는 기록만 하고 필터만 막는다."""
+    """Guardrails 판정으로 막을지 정한다.
+
+    - 차단 주제는 topic_block 이 꺼져 있으면 기록만 한다. 나머지 BLOCKED 정책은 막는다.
+    - "가리기"(이메일·전화번호 ANONYMIZED)만 있어도 막는다(범주 "가리기"). 지금 화면 계약(bool)은 가려진 문장을
+      넘기지 못해, 통과시키면 가리기 전 원문이 다음 모델로 간다. 그래서 통과시키지 않는다.
+    """
     if not policies:
         return PASS
-    usable = [p for p in policies if topic_block or p[0] != "주제"]
-    if not usable:
-        logger.info("Guardrails 차단 주제 판정(기록만, 막지 않음): %s", [p[1] for p in policies])
-        return PASS
-    return GuardResult(True, "guardrails", *usable[0])
+    usable = [p for p in policies if p[0] not in ("주제", "가리기") or (p[0] == "주제" and topic_block)]
+    if usable:
+        return GuardResult(True, "guardrails", *usable[0])
+    masked = [p for p in policies if p[0] == "가리기"]
+    if masked:
+        return GuardResult(True, "guardrails", *masked[0])
+    logger.info("Guardrails 차단 주제 판정(기록만, 막지 않음): %s", [p[1] for p in policies])
+    return PASS
 
 
 def bedrock_check(text: str, source: str) -> GuardResult:
-    """Bedrock Guardrails(ApplyGuardrail). 꺼져 있으면 통과, 호출이 실패하면 막는다(fail-closed)."""
+    """Bedrock Guardrails(ApplyGuardrail). 부를 차례가 아니면 통과, 검사를 끝내지 못하면 막는다(fail-closed, 범주 FAILED)."""
     try:
         policies = bedrock_assess(text, source)
     except GuardrailCallError as e:
-        logger.warning("가드레일 호출 실패, 막음(%s)", e)
+        logger.warning("가드레일 검사 실패, 막음(%s)", e)
         return GuardResult(True, "guardrails", FAILED, str(e))
     return decide(policies, topic_block_enabled())
-
-
-_client_cache = None
-
-
-def _client():
-    global _client_cache
-    if _client_cache is None:
-        import boto3  # 가짜 모드에서는 불러오지 않는다
-
-        _client_cache = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_REGION", DEFAULT_REGION))
-    return _client_cache
 
 
 def _check(text: str, source: str) -> GuardResult:
@@ -224,17 +260,26 @@ def _check(text: str, source: str) -> GuardResult:
     return result
 
 
+def is_check_failure(result: GuardResult) -> bool:
+    """검사를 끝내지 못해 막은 것인가(설정 누락·호출 실패·해석 불가). 안전상 차단과 구분한다."""
+    return result.blocked and result.category == FAILED
+
+
 def message_for(result: GuardResult, blocked_message: str) -> str:
-    """막혔을 때 화면에 보여줄 문장. 호출 실패면 UNAVAILABLE_MESSAGE, 아니면 blocked_message."""
-    return UNAVAILABLE_MESSAGE if result.category == FAILED else blocked_message
+    """상담 에이전트가 막혔을 때 보여줄 문장. 검사 실패는 UNAVAILABLE, 개인정보 가리기는 PII, 나머지는 blocked_message."""
+    if is_check_failure(result):
+        return UNAVAILABLE_MESSAGE
+    if result.category in ("가리기", "개인정보"):
+        return PII_MESSAGE
+    return blocked_message
 
 
 def check_input(text: str) -> GuardResult:
-    """사용자 입력 검사. 막히면 화면은 message_for(result, BLOCK_MESSAGE) 를 보여주고 모델을 부르지 않는다."""
+    """사용자 입력 검사(화면 ai.chat.guard_input 과 상담 에이전트 공통). 막히면 모델을 부르지 않는다."""
     return _check(text or "", "INPUT")
 
 
 def check_output(text: str) -> GuardResult:
-    """모델 답 검사. 코드 검사는 하지 않고, GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 만. 꺼져 있으면 늘 통과.
-    막히면 message_for(result, OUTPUT_BLOCK_MESSAGE)."""
+    """모델 답 검사. 상담 에이전트만 부른다(화면 상담은 답 검사를 하지 않음).
+    코드 검사는 하지 않고, 실제 모드이고 GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 만. 꺼져 있으면 늘 통과."""
     return _check(text or "", "OUTPUT")

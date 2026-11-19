@@ -186,8 +186,9 @@ python -m ai.agent --warmup
 # 4) 질문 1개 시험. 답·도구 순서·토큰·응답 시간이 JSON으로 나옵니다
 python -m ai.agent "Python, Docker 해봤는데 클라우드 엔지니어 되려면 뭐부터 공부해요?"
 
-# 5) 가드레일 설정 확인 (#24). .env 에 GUARDRAIL_ID, GUARDRAIL_VERSION=2, GUARDRAIL_TOPIC_BLOCK=1
-#    코드 검사는 통과하고 버전 2 차단 주제가 막는 질문입니다(시연 설정이 맞을 때만 막힘).
+# 5) 가드레일 설정 확인 (#24). 화면 상담과 상담 에이전트가 같은 설정(ai/guardrail.py)을 씁니다.
+#    .env 에 GUARDRAIL_ID 와 GUARDRAIL_VERSION(배포된 Guardrail 에 실제로 있는 버전 번호), GUARDRAIL_TOPIC_BLOCK=1
+#    코드 검사는 통과하고 주제 정의 수정본(팀 Guardrail 버전 2) 차단 주제가 막는 질문입니다(설정이 맞을 때만 막힘).
 #    답이 "이 서비스는 성별, 학력, 출신 지역…" 고정 문장이고 tool_calls 가 비어 있어야 합니다.
 #    상담 답이 나오면 GUARDRAIL_VERSION·GUARDRAIL_TOPIC_BLOCK 설정이나 AWS 로그인을 확인합니다
 python -m ai.agent "지방대 출신은 대기업 클라우드 직무 지원해도 소용없죠?"
@@ -196,6 +197,6 @@ python -m ai.agent "지방대 출신은 대기업 클라우드 직무 지원해�
 - 3)에서 "가짜 모드라 임베딩을 부르지 않습니다"가 나오면 `.env`의 `BEDROCK_MOCK`이 `1`입니다.
 - 캐시는 `data/raw/embed_cache.json`에 생깁니다. 커밋하지 않습니다.
 - 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`, `pair_check`, `guardrail`).
-- 가드레일 시연 설정은 **버전 2 + 차단 주제 켜기**(`GUARDRAIL_VERSION=2`, `GUARDRAIL_TOPIC_BLOCK=1`)입니다. 버전 1을 쓰면 `GUARDRAIL_TOPIC_BLOCK=0`으로 둡니다(버전 1은 "비전공자인데…" 질문을 막는 오탐이 있었습니다).
-- **SSO 로그인이 만료되면 Guardrails 호출이 실패해 모든 질문이 막힙니다**("지금은 안전 검사를 할 수 없어…"). 시연 전 1)과 5)를 꼭 확인합니다.
+- 가드레일 시연 설정은 **팀 Guardrail 버전 2 + 차단 주제 켜기**(`GUARDRAIL_VERSION`에 2, `GUARDRAIL_TOPIC_BLOCK=1`)입니다. `.env.example`에는 버전 기본값이 없으니 직접 적습니다. `GUARDRAIL_ID`를 비우면 예전 이름 `BEDROCK_GUARDRAIL_ID`·`BEDROCK_GUARDRAIL_VERSION` 묶음을 읽습니다(묶음끼리 섞지 않음). 버전 1을 쓰면 `GUARDRAIL_TOPIC_BLOCK=0`으로 둡니다(버전 1은 "비전공자인데…" 질문을 막는 오탐이 있었습니다).
+- **SSO 로그인이 만료되거나 ID·버전이 비어 있으면 모든 질문이 검사 실패로 끝납니다.** 화면은 "요청의 가드레일 점검을 완료하지 못했습니다…", 상담 에이전트는 "지금은 안전 검사를 할 수 없어…"가 나옵니다. 시연 전 1)과 5)를 꼭 확인합니다.
 - `GUARDRAIL_TOPIC_BLOCK`을 빠뜨리면 1(차단 주제 켜기)로 동작합니다. 버전 1을 쓸 때만 0으로 둡니다.
