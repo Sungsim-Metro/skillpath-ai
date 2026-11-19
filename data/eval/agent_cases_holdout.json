@@ -1,0 +1,4 @@
+{
+ "_note": "상담 구조 비교(#93·#94) 보지 않은 문항 자리. 채점 직전에 성진이 직접 12문항을 넣는다. 비교 스크립트 작성 쪽(Claude Code)은 이 파일을 열지 않고, 채점은 python -m ai.eval.agent_compare --set holdout 으로 한 번만 하며 숫자만 출력한다. 칸은 agent_cases.json 과 같다: id, category, job(cloud_engineer), text, expect_intent(gap·demand·courses·out_of_scope·blocked), expect_ask_back, regression(가드레일 문항이면 true).",
+ "cases": []
+}
