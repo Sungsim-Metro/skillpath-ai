@@ -521,6 +521,15 @@ class ChatScreenTest(unittest.TestCase):
         self.assertEqual(at.session_state["levels"], {"C1-4": 3})
         self.assertTrue(any("진단으로 확인한 보유 기술" in c.value for c in at.caption))
 
+    def test_level_questions_survive_the_turn_that_sets_the_job_by_conversation(self):
+        at = self.open_screen()
+        self.assertEqual(at.session_state["job"], "cloud_engineer")
+        at.chat_input[0].set_value("AI 엔지니어 준비 중이고 제가 RAG를 사용했어요.").run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state["job"], "ai_engineer")  # 대화로 직무가 바뀌고
+        pending = at.session_state["chat_assessment"]            # 그 턴에 말한 기술의 문항도 남는다
+        self.assertEqual((pending[0], pending[1]), ("ai_engineer", ["RAG"]))
+
     def test_survey_button_appears_only_with_an_https_address(self):
         self.assertFalse(self.open_screen().sidebar.get("link_button"))
         with patch.dict(os.environ, {"SURVEY_URL": "javascript:alert(1)"}):

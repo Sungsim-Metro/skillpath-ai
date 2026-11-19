@@ -133,7 +133,7 @@ def diagnose_dialog(session: chat_profiles.ProfileSession | None, job: str) -> N
     st.markdown(" → ".join(steps))
     st.caption(f"{answered} / {len(subskills)}개 응답" + (f" · 남은 시간 약 {minutes}분" if left else " · 완료")
                + ". 지금 할 수 있는 일에 가장 가까운 카드를 누르세요. 전부 답하지 않아도 저장할 수 있고, "
-               "답하지 않은 항목은 0단계로 봅니다. 시험이 아니며, 예시는 팀이 확인 중인 AI 초안입니다.")
+               "답하지 않은 항목은 바꾸지 않습니다(저장한 값이 없으면 0단계). 시험이 아니며, 예시는 팀이 확인 중인 AI 초안입니다.")
 
     area_id, area_name = areas[page]
     rows = [(sid, row) for sid, row in subskills.items() if row["area_id"] == area_id]
