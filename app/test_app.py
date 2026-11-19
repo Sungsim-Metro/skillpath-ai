@@ -21,7 +21,7 @@ class AppSmokeTest(unittest.TestCase):
 
     def test_all_tabs_render_in_mock_mode(self):
         self.assertFalse(self.at.exception)
-        self.assertEqual([t.label for t in self.at.tabs], ["시장 수요", "부족 역량", "학습 추천", "공고 직접 분석", "보고서"])
+        self.assertEqual([t.label for t in self.at.tabs], ["시장 수요", "부족 역량", "학습 추천", "공고 직접 분석"])
 
     def test_extract_button_shows_result(self):
         at = self.at.button(key="extract_btn").click().run()

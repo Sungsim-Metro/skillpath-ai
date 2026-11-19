@@ -1,35 +1,21 @@
-"""진단 보고서(HTML 한 장) 만들기 (2026-11-16 결정).
+"""진단 보고서(마크다운 한 파일) 만들기. 2026-11-16 HTML 로 시작해 11/17 회의에서 `.md` 로 바꿈(#98).
 
-화면에 나온 값만 담는다. 보고서를 위해 계산을 새로 하거나 LLM 을 다시 부르지 않는다.
-받은 값을 HTML 로 옮기기만 하므로 화면 코드로 본다. 모든 글자는 HTML 로 해석되지 않게 바꿔 넣는다(html.escape).
-PDF 가 아니라 HTML 로 만든 이유: PDF 를 직접 만들려면 한글 글꼴 파일을 함께 넣어야 한다.
-HTML 은 폰과 PC 에서 바로 열리고, 브라우저의 인쇄 → "PDF 로 저장"으로 PDF 가 된다(인쇄용 모양을 넣어 두었다).
+화면에 나온 값만 담는다. 보고서를 위해 LLM 을 다시 부르지 않는다. 수강 순서는 backend/plan.py 가 계산하고,
+여기서는 받은 값을 마크다운 글로 옮기기만 하므로 화면 코드로 본다.
+데이터에서 온 글자는 마크다운·HTML 로 해석되지 않게 바꿔 넣고(_t), 링크는 http(s) 주소만 건다(_link).
+내려받는 파일과 화면 미리 보기(st.markdown)가 같은 글이다.
+
+절 구성: 한눈에 보기 → 다음에 할 일 → 1. 역량 진단 → 2. AWS 교육과정 추천 → 3. 수강 순서
+→ 4. 과정으로 채우기 어려운 기술 → 읽을 때 주의할 점
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
-from html import escape
 
-LEVEL_LABEL = {"used": "써봄", "learned": "배워봄", "none": "없음"}
-STYLE = """
-body{font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;color:#1c2330;
-     max-width:820px;margin:0 auto;padding:24px 16px;line-height:1.6;font-size:15px}
-h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 8px;border-bottom:1px solid #d5dae1;padding-bottom:4px}
-h3{font-size:16px;margin:16px 0 4px} .muted{color:#5b6472;font-size:13px}
-table{border-collapse:collapse;width:100%;margin:8px 0} th,td{border-bottom:1px solid #e3e7ec;padding:6px 8px;text-align:left;vertical-align:top}
-th{font-weight:600;background:#f5f7fa} .num{text-align:right;white-space:nowrap}
-.bar{background:#e3ebf8;border-radius:4px;height:10px;min-width:80px} .bar>span{display:block;background:#1f5fbf;height:10px;border-radius:4px}
-.cards{display:flex;flex-wrap:wrap;gap:8px} .card{flex:1 1 150px;border:1px solid #d5dae1;border-radius:8px;padding:8px 12px}
-.card b{display:block;font-size:22px} .tag{font-size:12px;border-radius:4px;padding:1px 6px;background:#fdebd3;color:#8a4b08}
-.course{border:1px solid #d5dae1;border-radius:8px;padding:10px 12px;margin:8px 0;break-inside:avoid}
-blockquote{margin:6px 0;padding:2px 10px;border-left:3px solid #d5dae1;color:#5b6472;font-size:13px}
-a{color:#1f5fbf} .note{background:#f5f7fa;border-radius:8px;padding:10px 12px;font-size:13px}
-.wrap{overflow-x:auto} .course,.note,p{overflow-wrap:anywhere}
-@media (max-width:520px){body{font-size:14px} th,td{padding:5px 4px;font-size:13px} .bar{min-width:36px} .num{white-space:normal}}
-@media print{body{padding:0;font-size:12px} a{color:inherit} h2,h3,h3+.muted{break-after:avoid} tr{break-inside:avoid}
- .bar,.bar>span,th,.note,.tag{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-"""
+BAR_WIDTH = 10
 
 
 def _today() -> date:
@@ -37,111 +23,186 @@ def _today() -> date:
     return datetime.now(ZoneInfo("Asia/Seoul")).date()
 
 
-def _e(value) -> str:
-    return escape(str(value), quote=True)
+def _t(value) -> str:
+    """데이터에서 온 글자를 한 줄 글로. 줄바꿈을 없애고 마크다운·HTML 기호와 $(수식)를 글자로 바꾼다."""
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return re.sub(r"([\\`*_\[\]<>|#$~])", r"\\\1", text)
 
 
 def _pct(x: float) -> str:
     return f"{x:.0%}"
 
 
-def _safe_url(url: str) -> str:
-    """http(s) 주소만 링크로 건다. 그 밖의 값은 빈 문자열(링크 없음)."""
-    return url if isinstance(url, str) and url.startswith(("https://", "http://")) else ""
+def _bar(x: float) -> str:
+    filled = round(min(max(x, 0), 1) * BAR_WIDTH)
+    return "█" * filled + "░" * (BAR_WIDTH - filled)
+
+
+def _safe_url(url) -> str:
+    """http(s) 주소만 링크로 건다. 마크다운 링크를 깨는 글자(공백, 괄호, <>)는 퍼센트 인코딩한다."""
+    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+        return ""
+    return quote(url, safe=":/?&=#%~+,;@!$'*.-_")
+
+
+def _link(title, url) -> str:
+    safe = _safe_url(url)
+    return f"[{_t(title)}]({safe})" if safe else _t(title)
+
+
+def _table(head: list[str], rows: list[list]) -> str:
+    lines = ["| " + " | ".join(head) + " |", "|" + "|".join(" --- " for _ in head) + "|"]
+    lines += ["| " + " | ".join(str(c) for c in row) + " |" for row in rows]
+    return "\n".join(lines)
+
+
+def _level(value, names: dict) -> str:
+    name = names.get(str(value))
+    return f"{value}단계 ({name})" if name else f"{value}단계"
 
 
 def build_report(*, job_title: str, demand: dict, gap_rows: list[dict], area_rows: list[dict], recommendations: list[dict],
-                 owned: list[str], levels: dict[str, str] | None = None, mock: bool = False, today: date | None = None,
-                 recommend_failed: bool = False) -> str:
-    """진단 보고서 HTML 문자열. 인자는 모두 화면이 이미 받아 둔 값이다.
+                 plan: list[dict], uncovered: list[dict], market_rows: list[dict] | None = None,
+                 level_names: dict | None = None, mock: bool = False, today: date | None = None,
+                 recommend_failed: bool = False, min_ratio: float = 0.2) -> str:
+    """진단 보고서 마크다운 문자열. 인자는 모두 화면과 backend 가 이미 계산한 값이다.
 
+    plan, uncovered: backend.plan.study_order / uncovered_skills 결과.
+    market_rows: backend.api.get_market_gap 의 rows. 못 받았으면 None(절을 건너뛴다).
     recommend_failed: 추천을 불러오지 못했을 때 참. "추천할 과정이 없다"와 구분해 적는다.
     """
     today = today or _today()
+    names = level_names or {}
     missing = [r for r in gap_rows if not r["owned"]]
     have = [r for r in gap_rows if r["owned"]]
-    levels = levels or {s: "used" for s in owned}
+    recommended = {r["gap_skill"] for r in recommendations}
+    skipped = [r["skill"] for r in missing if r["skill"] not in recommended]
     origin = ", ".join(demand.get("sources") or []) or "표기 없음"
+    total = demand["total_postings"]
+    out: list[str] = []
+    add = out.append
 
-    owned_rows = "".join(
-        f"<tr><td>{_e(skill)}</td><td>{_e(LEVEL_LABEL.get(level, level))}</td></tr>" for skill, level in levels.items()
-    ) or '<tr><td colspan="2">고른 기술이 없습니다.</td></tr>'
+    add(f"# {_t(job_title)} 역량 진단 보고서\n")
+    add(f"만든 날 {today.isoformat()} · skillpath-ai · 채용공고 {total}건 기준\n")
+    if mock:
+        add("> **가짜 데이터 모드에서 만든 보고서입니다.** 숫자와 과정은 예시입니다.\n")
 
-    area_html = "".join(
-        f"<tr><td>{_e(r['area'])}</td><td><div class='bar'><span style='width:{min(max(r['coverage'], 0), 1) * 100:.0f}%'></span></div></td>"
-        f"<td class='num'>{_pct(r['coverage'])}</td><td class='num'>{_e(r['owned'])} / {_e(r['demand'])}</td>"
-        f"<td>{_e(', '.join(r['missing_skills']) or '없음')}</td></tr>"
-        for r in area_rows if r["demand"] > 0
-    )
-    missing_html = "".join(
-        f"<tr><td>{_e(r['skill'])}{' <span class=tag>배워봄 · 보강</span>' if r.get('level') == 'learned' else ''}</td>"
-        f"<td>{_e(r['area'])}</td><td class='num'>{_e(r['postings'])} / {_e(r['of'])}</td><td class='num'>{_pct(r['ratio'])}</td>"
-        f"<td class='num'>{_pct(r['required_ratio'])}</td></tr>"
-        for r in missing
-    ) or '<tr><td colspan="5">주요 요구 기술을 모두 보유했습니다.</td></tr>'
+    # 한눈에 보기
+    add("## 한눈에 보기\n")
+    add(f"- 공고의 {_pct(min_ratio)} 이상이 요구한 **주요 기술 {len(gap_rows)}개** 중 **{len(have)}개를 보유**했고, "
+        f"**{len(missing)}개가 부족**합니다.")
+    if missing:
+        top = missing[0]
+        add(f"- 가장 많이 요구되는 부족 기술은 **{_t(top['skill'])}**입니다(공고 {top['of']}건 중 {top['postings']}건).")
+    if plan:
+        add(f"- 추천 과정 중 확실한 과정 {len(plan)}개로 수강 순서를 정했습니다. 첫 과정은 **{_t(plan[0]['title'])}**입니다.")
+    if uncovered:
+        add(f"- AWS 교육과정으로 확실히 채우기 어려운 기술: {', '.join(_t(u['skill']) for u in uncovered)} (4절)")
+    add("")
 
-    rec_html = ""
-    for i, rec in enumerate(recommendations, start=1):
-        d = rec["demand"]
-        rec_html += (f"<h3>{i}. {_e(rec['gap_skill'])}</h3><div class='muted'>공고 {_e(d['of'])}건 중 {_e(d['postings'])}건이 요구 · "
-                     f"그중 필수 {_pct(d['required_ratio'])}</div>")
-        if not rec["courses"]:
-            rec_html += "<p class='muted'>이 기술을 다루는 교육과정을 찾지 못했습니다.</p>"
-        for c in rec["courses"]:
-            url = _safe_url(c.get("url", ""))
-            title = f"<a href='{_e(url)}'>{_e(c['title'])}</a>" if url else _e(c["title"])
-            tag = " <span class='tag'>불확실</span>" if c.get("match") == "uncertain" else ""
-            evidence = c.get("evidence") or {}
-            # 화면과 같은 기준: 이 기술 이름이 나오는 학습 목표 문장만 인용한다. 같은 영역일 뿐인 문장과 제목은 인용하지 않는다
-            quotable = evidence.get("text") and evidence.get("about") == "skill" and evidence.get("field") != "title"
-            quote = f"<blockquote>{_e(evidence['text'])}</blockquote>" if quotable else ""
-            link = f"<div class='muted'>{_e(url)}</div>" if url else ""
-            rec_html += (f"<div class='course'><b>{title}</b>{tag}<div class='muted'>난이도 {_e(c['level'])} · 선수지식 {_e(c['prerequisites'])}</div>"
-                         f"<div>{_e(c['reason'])}</div>{quote}{link}</div>")
-    skipped = [r["skill"] for r in missing if r["skill"] not in {x["gap_skill"] for x in recommendations}]
+    # 다음에 할 일
+    add("## 다음에 할 일\n")
+    if plan:
+        add(f"- [ ] {_link(plan[0]['title'], plan[0]['url'])} 등록하기")
+    if len(plan) > 1:
+        add(f"- [ ] 3절의 수강 순서대로 나머지 {len(plan) - 1}개 과정 듣기")
+    if missing:
+        add("- [ ] 과정을 마치면 skillpath-ai에서 보유 수준을 다시 진단하고 보고서를 새로 받기")
+    if uncovered:
+        add("- [ ] 4절의 기술은 공식 문서나 개인 프로젝트로 따로 계획하기")
+    if not missing:
+        add("- [ ] 주요 요구 기술을 모두 보유했습니다. 공고의 우대 기술과 프로젝트 경험을 보강하세요.")
+    add("")
+
+    # 1. 역량 진단
+    add("## 1. 역량 진단\n")
+    add(f"채용공고 {total}건에서 뽑은 기술 {len(demand['skills'])}개를 기준으로 했습니다. "
+        f"수집일 {_t(demand.get('collected') or '표기 없음')}, 출처 {_t(origin)}."
+        + (f" {_t(demand['note'])}" if demand.get("note") else "") + "\n")
+    add("### 영역별 충족률\n")
+    shown = [r for r in area_rows if r["demand"] > 0]
+    if shown:
+        add(_table(["영역", "충족률", "", "보유 / 수요", "부족한 기술"],
+                   [[_t(r["area"]), f"`{_bar(r['coverage'])}`", _pct(r["coverage"]), f"{r['owned']} / {r['demand']}",
+                     _t(", ".join(r["missing_skills"]) or "없음")] for r in shown]))
+        add("\n수요는 그 영역의 기술을 요구한 공고 건수의 합, 보유는 그중 내가 채운 몫입니다. "
+            "필수로 요구한 공고는 기준 단계를 넘으면, 우대로 요구한 공고는 내 단계/5만큼 채운 것으로 셉니다.\n")
+    else:
+        add("영역별 수요가 없습니다.\n")
+
+    add("### 주요 요구 기술과 내 단계 (수요 높은 순)\n")
+    if gap_rows:
+        add(_table(["기술", "영역", "요구 공고", "그중 필수", "내 단계", "기준 단계", "판정"],
+                   [[_t(r["skill"]), _t(r["area"]), f"{r['postings']} / {r['of']} ({_pct(r['ratio'])})",
+                     _pct(r["required_ratio"]), _level(r["user_level"], names),
+                     f"{r['required_level']}단계" + (" (추정)" if r.get("required_level_confidence") == "uncertain" else ""),
+                     "보유" if r["owned"] else "**부족**"] for r in gap_rows]))
+        guessed = [r for r in gap_rows if r.get("required_level_confidence") == "uncertain"]
+        add("\n내 단계는 스스로 고른 값이며 실력을 검증한 것이 아닙니다. 내 단계가 기준 단계 이상이면 보유로 봅니다."
+            + (f" \"(추정)\"인 {len(guessed)}개 기술은 공고로 기준 단계를 정하지 못해 팀이 정한 추정값을 썼으므로 판정은 참고용입니다."
+               if guessed else "") + "\n")
+    else:
+        add(f"공고의 {_pct(min_ratio)} 이상이 요구한 기술이 없습니다.\n")
+
+    # 2. AWS 교육과정 추천
+    add("## 2. AWS 교육과정 추천\n")
     if recommend_failed or (missing and not recommendations):
-        rec_html = "<p>추천을 불러오지 못해 이 절은 비어 있습니다. 화면의 학습 추천 탭을 다시 확인해 주세요.</p>"
+        add("추천을 불러오지 못해 이 절은 비어 있습니다. 화면의 학습 추천 탭을 다시 확인해 주세요.\n")
     elif not recommendations:
-        rec_html = "<p>부족한 기술이 없어 추천할 과정이 없습니다.</p>"
-    elif skipped:
-        rec_html += (f"<p class='muted'>수요가 높은 {len(recommendations)}개 기술만 추천했습니다. "
-                     f"이번에 추천하지 않은 기술: {_e(', '.join(skipped))}</p>")
-    partial_note = " 배워봄으로 고른 기술은 절반만 보유한 것으로 셉니다." if any(v == "learned" for v in levels.values()) else ""
+        add("부족한 기술이 없어 추천할 과정이 없습니다.\n")
+    else:
+        for i, rec in enumerate(recommendations, start=1):
+            d = rec["demand"]
+            mine = f" · 내 단계 {rec['user_level']}" if "user_level" in rec else ""
+            add(f"### 2.{i} {_t(rec['gap_skill'])}\n")
+            add(f"공고 {d['of']}건 중 {d['postings']}건이 요구 · 그중 필수 {_pct(d['required_ratio'])}{mine}\n")
+            if not rec["courses"]:
+                add("이 기술을 다루는 교육과정을 찾지 못했습니다.")
+            for c in rec["courses"]:
+                tag = " · **불확실**" if c.get("match") == "uncertain" else ""
+                add(f"- **{_link(c['title'], c.get('url'))}**{tag}  ")
+                add(f"  난이도 {_t(c.get('level', ''))} · 선수지식 {_t(c.get('prerequisites', ''))}  ")
+                add(f"  추천 이유: {_t(c['reason'])}")
+            add("")
+        if skipped:
+            add(f"수요가 높은 {len(recommendations)}개 기술만 추천했습니다. 이번에 추천하지 않은 기술: {_t(', '.join(skipped))}\n")
 
-    mock_note = "<p class='note'><b>가짜 데이터 모드에서 만든 보고서입니다.</b> 숫자와 과정은 예시입니다.</p>" if mock else ""
-    return f"""<!DOCTYPE html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_e(job_title)} 역량 진단 보고서</title><style>{STYLE}</style></head><body>
-<h1>{_e(job_title)} 역량 진단 보고서</h1>
-<div class="muted">만든 날 {today.isoformat()} · skillpath-ai</div>
-{mock_note}
-<h2>1. 분석한 데이터</h2>
-<p>채용공고 {_e(demand['total_postings'])}건에서 뽑은 기술 {_e(len(demand['skills']))}개를 기준으로 했습니다.
-수집일 {_e(demand.get('collected') or '표기 없음')}, 출처 {_e(origin)}.{' ' + _e(demand['note']) if demand.get('note') else ''}</p>
-<div class="cards">
-<div class="card">주요 요구 기술<b>{len(gap_rows)}개</b><span class="muted">공고의 20% 이상이 요구</span></div>
-<div class="card">그중 보유<b>{len(have)}개</b></div>
-<div class="card">부족<b>{len(missing)}개</b></div>
-</div>
-<h2>2. 내가 고른 보유 기술</h2>
-<div class='wrap'><table><tr><th>기술</th><th>수준</th></tr>{owned_rows}</table></div>
-<div class="muted">수준은 스스로 고른 값이며 실력을 검증한 것이 아닙니다.</div>
-<h2>3. 영역별 충족률</h2>
-<div class='wrap'><table><tr><th>영역</th><th>충족률</th><th class="num"></th><th class="num">보유 / 수요</th><th>부족한 기술</th></tr>{area_html}</table></div>
-<div class="muted">수요는 그 영역의 기술을 요구한 공고 건수의 합, 보유는 그중 내가 가진 기술의 몫입니다.{partial_note}</div>
-<h2>4. 부족한 기술 (수요 높은 순)</h2>
-<div class='wrap'><table><tr><th>기술</th><th>영역</th><th class="num">요구 공고</th><th class="num">요구 비율</th><th class="num">그중 필수</th></tr>{missing_html}</table></div>
-<h2>5. 추천 교육과정</h2>
-{rec_html}
-<h2>읽을 때 주의할 점</h2>
-<div class="note">
-이 보고서는 무엇을 공부할지 안내하는 자료이며 실력을 검증하거나 합격을 보장하지 않습니다.
-수요는 수집한 공고에 한정된 숫자이고, 경력 공고가 섞여 있습니다.
-"불확실"로 표시한 과정은 그 기술을 직접 다룬다는 근거를 찾지 못한 관련 과정입니다. 링크에서 내용을 확인하세요.
-PDF 로 보관하려면 브라우저의 인쇄에서 "PDF 로 저장"을 고르세요.
-</div>
-</body></html>"""
+    # 3. 수강 순서
+    add("## 3. 수강 순서\n")
+    if plan:
+        add(_table(["순서", "과정", "채우는 기술", "난이도", "먼저 들을 것"],
+                   [[p["step"], _link(p["title"], p["url"]), _t(p["skill"]), _t(p["level"]),
+                     _t(", ".join(p["after"])) + " 과정" if p["after"] else "-"] for p in plan]))
+        add("\n수요가 높은 기술의 과정부터, 같은 기술 안에서는 내 단계에 맞는 난이도부터 놓았습니다. "
+            "선수지식에 다른 부족 기술이 적힌 과정은 그 기술의 과정 뒤로 미뤘습니다. "
+            "\"불확실\" 과정은 순서에 넣지 않았습니다. 소요 시간은 과정 링크에서 확인하세요.\n")
+    else:
+        add("확실한 추천 과정이 없어 수강 순서를 만들지 않았습니다.\n")
+
+    # 4. 과정으로 채우기 어려운 기술
+    add("## 4. 과정으로 채우기 어려운 기술\n")
+    if uncovered:
+        label = {"none": "과정을 찾지 못함", "uncertain": "관련 과정만 있음(불확실)"}
+        add(_table(["기술", "상태"], [[_t(u["skill"]), label[u["status"]]] for u in uncovered]))
+        add("\n그럴듯한 과정으로 채우지 않고 비워 두었습니다. 공식 문서, 실습, 프로젝트로 따로 준비하세요.\n")
+    else:
+        add("추천한 기술은 모두 확실한 AWS 교육과정이 있습니다.\n")
+    missing_names = {r["skill"] for r in missing}
+    market = [r for r in (market_rows or []) if r["skill"] in missing_names]
+    if market:
+        add("### 시장 Gap (내 부족 기술)\n")
+        add(_table(["기술", "공고 수요 비중", "교육 공급 비중", "Gap"],
+                   [[_t(r["skill"]), f"{r['demand_pct']:.1f}%", f"{r['supply_pct']:.1f}%", f"{r['gap_pp']:+.1f}%p"]
+                    for r in market]))
+        add("\nGap = 수요 비중 − 공급 비중. +이면 시장은 원하는데 교육이 덜 다루는 기술이라 과정만으로 채우기 어렵습니다.\n")
+
+    add("## 읽을 때 주의할 점\n")
+    add("- 무엇을 공부할지 안내하는 자료이며 실력을 검증하거나 합격을 보장하지 않습니다.")
+    add("- 수요는 수집한 공고에 한정된 숫자이고, 경력 공고가 섞여 있습니다.")
+    add("- \"불확실\"로 표시한 과정은 그 기술을 직접 다룬다는 근거를 찾지 못한 관련 과정입니다. 링크에서 내용을 확인하세요.")
+    add("- 이 보고서는 서비스에 저장되지 않습니다.")
+    return "\n".join(out) + "\n"
 
 
 def file_name(today: date | None = None) -> str:
-    return f"skillpath-report-{(today or _today()).strftime('%Y%m%d')}.html"
+    return f"skillpath-report-{(today or _today()).strftime('%Y%m%d')}.md"

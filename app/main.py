@@ -33,10 +33,10 @@ from backend.jobs import JOBS  # noqa: E402
 
 from app import chat as chat_screen  # noqa: E402
 from app import levels as levels_screen  # noqa: E402
+from app import report_dialog  # noqa: E402
 from app.common import Ctx, Pending, load  # noqa: E402
 from app.tabs import demand as tab_demand  # noqa: E402
 from app.tabs import extract as tab_extract  # noqa: E402
-from app.tabs import report as tab_report  # noqa: E402
 from app.tabs import gap as tab_gap  # noqa: E402
 from app.tabs import recommend as tab_recommend  # noqa: E402
 from app.tabs import usage as tab_usage  # noqa: E402
@@ -47,7 +47,6 @@ TABS = [
     ("부족 역량", tab_gap.render),
     ("학습 추천", tab_recommend.render),
     ("공고 직접 분석", tab_extract.render),
-    ("보고서", tab_report.render),  # 폰 폭에서 탭 줄이 잘리지 않게 짧게
 ]
 
 st.set_page_config(page_title="skillpath-ai", layout="wide")
@@ -66,6 +65,7 @@ with st.sidebar:
     job = st.selectbox("목표 직무", options=list(JOBS), format_func=JOBS.get, key="job")
     nickname = chat_screen.nickname_input()
     levels = levels_screen.sidebar_summary(nickname)
+    report_dialog.sidebar_button(job, levels)
     demand, demand_err = (None, None) if view == "chat" else load(api.get_demand, job)
     skill_options = [s["skill"] for s in demand["skills"]] if demand else []
     st.divider()
