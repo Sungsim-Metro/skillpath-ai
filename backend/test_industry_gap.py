@@ -4,7 +4,9 @@ import io
 import unittest
 
 from backend.industry_gap import (
+    aggregate_supply,
     analyze_gap,
+    analyze_gap_from_supply,
     calculate_gap,
     extract_skills,
     gap_csv,
@@ -17,6 +19,25 @@ def course(name: str, content: str = "", goal: str = "") -> dict[str, str]:
 
 
 class IndustryGapTest(unittest.TestCase):
+    def test_supply_is_available_without_job_postings(self) -> None:
+        courses = [course("Docker", "도커", "Practice Docker and SQL"), course("SQL"), course("무관")]
+        supply = aggregate_supply(courses, source="테스트 목록")
+        self.assertEqual(supply, {
+            "source": "테스트 목록", "total_courses": 3,
+            "skills": [{"skill": "Docker", "courses": 1}, {"skill": "SQL", "courses": 2}],
+        })
+        self.assertEqual(aggregate_supply([], source="빈 목록"),
+                         {"source": "빈 목록", "total_courses": 0, "skills": []})
+
+    def test_gap_uses_the_independent_supply_counts(self) -> None:
+        postings = [{"industry": "유통", "text": "AWS"}]
+        courses = [course("Docker", "Docker", "AWS"), course("AWS"), course("AWS, SQL")]
+        supply = aggregate_supply(courses, source="테스트 목록")
+        result = analyze_gap_from_supply(postings, supply)
+        self.assertEqual([(r["skill"], r["supply_pct"]) for r in result["rows"]],
+                         [("AWS", 60.0), ("Docker", 20.0), ("SQL", 20.0)])
+        self.assertEqual(result, analyze_gap(postings, courses))
+
     def test_supply_counts_each_program_once_per_skill_across_providers(self) -> None:
         courses = [
             {**course("Docker", "AWS and Docker", "Practice with Docker"), "provider": "A", "prerequisites": "SQL"},

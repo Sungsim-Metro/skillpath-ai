@@ -8,7 +8,8 @@
 | get_demand           | ④ 수요 집계          | 일현 (#12)              |
 | get_gap              | Gap 목록            | 일현 (#12)              |
 | get_area_gap         | 영역별 Gap 목록      | 일현 (#12, #17)         |
-| get_market_gap       | 시장 Gap 표          | 담당 미정 (⑤ 공급 데이터) |
+| get_supply           | ⑤ 교육 공급 집계     | 학습 프로그램 목록 집계   |
+| get_market_gap       | ⑧ 산업별 시장 Gap 표 | 공고 수요와 ⑤ 공급 비교   |
 | get_recommendations  | ③ 추천 목록          | 종훈·성진 (#14, #15) 연결됨 |
 | extract_posting      | ② 추출 결과          | 성진·일현 (#9, #11)      |
 
@@ -197,6 +198,13 @@ def get_area_gap_after(job_category: str, owned_skills, recommendations: list[di
     for row in rows:
         row["raised"] = [{"skill": s, "from": whole(now[s]), "to": whole(after[s])} for s in row["skills"] if after[s] > now[s]]
     return rows
+
+
+def get_supply() -> dict:
+    """교육 공급(⑤)의 출처, 전체 프로그램 수, 기술별로 해당 기술을 다루는 프로그램 수를 반환한다."""
+    from pipeline.market_gap import dashboard_supply
+
+    return dashboard_supply(DATA_DIR.parent, allow_example=is_mock())
 
 
 def get_market_gap() -> dict:

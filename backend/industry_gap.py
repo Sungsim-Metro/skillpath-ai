@@ -5,7 +5,7 @@ import io
 import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 # 계산 명세에서 정한 24개 대표명과 66개 별칭을 사용한다.
 _ALIASES = {
@@ -45,6 +45,18 @@ _HEADING = re.compile(r"\s*\[(.+?)\]")
 _WEIGHTS = {"자격요건": 1.0, "주요업무": 0.7, "우대사항": 0.5}
 CSV_FIELDS = ("industry", "skill", "demand_pct", "supply_pct", "gap_pp")
 PROGRAM_TEXT_FIELDS = ("title", "description", "objectives")
+
+
+class SkillSupply(TypedDict):
+    skill: str
+    courses: int
+
+
+class EducationSupply(TypedDict):
+    source: str
+    total_courses: int
+    skills: list[SkillSupply]
+    note: NotRequired[str]
 
 
 class GapRow(TypedDict):
@@ -112,10 +124,23 @@ def gap_table(demand: dict[str, float], supply: dict[str, float]) -> list[Ranked
     return sorted(ranking, key=lambda row: row["gap_pp"], reverse=True)[:3]
 
 
-def analyze_gap(
-    postings: Sequence[Mapping[str, str]], courses: Sequence[Mapping[str, str | None]]
+def aggregate_supply(courses: Sequence[Mapping[str, str | None]], source: str) -> EducationSupply:
+    """학습 프로그램 전체에서 각 기술을 다루는 과정 수를 세어 교육 공급 집계(⑤)를 만든다."""
+    counts: Counter[str] = Counter()
+    for program in courses:
+        text = " ".join(program[field] or "" for field in PROGRAM_TEXT_FIELDS)
+        counts.update(extract_skills(text))
+    return {
+        "source": source,
+        "total_courses": len(courses),
+        "skills": [{"skill": skill, "courses": count} for skill, count in counts.items()],
+    }
+
+
+def analyze_gap_from_supply(
+    postings: Sequence[Mapping[str, str]], supply: EducationSupply
 ) -> GapAnalysis:
-    """각 입력을 한 번씩 읽어 대시보드 행과 보고서의 산업별 상위 세 기술을 구한다."""
+    """산업별 채용 수요와 교육 공급 집계의 비중을 비교해 시장 Gap과 상위 세 기술을 구한다."""
     posting_counts: Counter[str] = Counter()
     demand_totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for posting in postings:
@@ -124,20 +149,17 @@ def analyze_gap(
         for skill, weight in posting_weights(posting["text"]).items():
             demand_totals[industry][skill] += weight
 
-    program_counts: Counter[str] = Counter()
-    for program in courses:
-        text = " ".join(program[field] or "" for field in PROGRAM_TEXT_FIELDS)
-        program_counts.update(extract_skills(text))
-    supply = _shares(program_counts, len(courses))
+    counts = {row["skill"]: row["courses"] for row in supply["skills"]}
+    supply_shares = _shares(counts, supply["total_courses"])
 
     rows: list[GapRow] = []
     top3: dict[str, list[RankedGap]] = {}
     for industry, totals in demand_totals.items():
         demand = _shares(totals, posting_counts[industry])
-        top3[industry] = gap_table(demand, supply)
-        for skill in sorted(demand.keys() | supply.keys()):
+        top3[industry] = gap_table(demand, supply_shares)
+        for skill in sorted(demand.keys() | supply_shares.keys()):
             demand_pct = demand.get(skill, 0.0) * 100
-            supply_pct = supply.get(skill, 0.0) * 100
+            supply_pct = supply_shares.get(skill, 0.0) * 100
             rows.append({
                 "industry": industry,
                 "skill": skill,
@@ -146,6 +168,13 @@ def analyze_gap(
                 "gap_pp": round(demand_pct - supply_pct, 1),
             })
     return {"rows": rows, "top3": top3}
+
+
+def analyze_gap(
+    postings: Sequence[Mapping[str, str]], courses: Sequence[Mapping[str, str | None]]
+) -> GapAnalysis:
+    """공고와 프로그램 원본에서 공급 집계와 산업별 시장 Gap을 계산한다."""
+    return analyze_gap_from_supply(postings, aggregate_supply(courses, source="학습 프로그램 목록"))
 
 
 def calculate_gap(

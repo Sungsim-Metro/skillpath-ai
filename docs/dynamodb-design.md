@@ -29,7 +29,7 @@ flowchart LR
 재시도·재추출·공고 제외 때 카운터를 차감하거나 중복 증가를 되돌리는 로직을 줄일 수 있다.
 
 사용자별 보유 기술과 Gap은 이 두 테이블에 저장하지 않는다. 같은 수요 집계를 읽고 사용자 입력에 맞춰 코드로 계산한다.
-산업별 시장 Gap은 산업명이 있는 공고 본문과 학습 프로그램 목록에서 별도로 계산한다. 현재 프로그램 목록은 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정이다.
+교육 공급은 학습 프로그램 목록에서 전체 과정 수와 기술별 과정 수를 집계해 `outputs/learning_program_supply.json`에 기록한다. 현재 프로그램 목록은 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정이다. 산업별 시장 Gap은 산업별 공고 수요 비중에서 이 집계로 구한 공급 비중을 뺀 결과다.
 교육과정 검색도 이 두 테이블을 읽지 않는다. S3의 과정 문서를 Knowledge Base로 검색(RAG)하고,
 수요 수치는 집계 테이블에서 조회해 그대로 전달한다(7절).
 

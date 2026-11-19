@@ -1,4 +1,4 @@
-"""Load the industry Skills Gap inputs and export the dashboard CSV and Top 3 report."""
+"""Export learning program supply counts and industry Skills Gap results."""
 
 import argparse
 import csv
@@ -11,9 +11,10 @@ from tempfile import TemporaryDirectory
 from backend.industry_gap import (
     CSV_FIELDS,
     PROGRAM_TEXT_FIELDS,
+    EducationSupply,
     GapRow,
-    analyze_gap,
-    calculate_gap,
+    aggregate_supply,
+    analyze_gap_from_supply,
     gap_csv,
 )
 from pipeline.reviewed_postings import SNAPSHOT, reviewed_paths
@@ -23,6 +24,7 @@ CLEAN = Path("outputs/postings_clean.json")
 RAW = Path("data/raw/job_postings_raw.json")
 REVIEWED = RAW.parent / SNAPSHOT / "postings-reviewed"
 PROGRAM_CATALOGS = {"AWS Skill Builder": Path("data/courses/courses.csv")}
+SUPPLY = Path("outputs/learning_program_supply.json")
 TABLE = Path("outputs/learning_program_gap_table.csv")
 REPORT_NAME = "learning_program_gap_report.md"
 
@@ -47,8 +49,8 @@ def _clean_text(html: str) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
-def _load_programs(root: Path) -> list[dict[str, str]]:
-    """Collect one record per learning program from each registered catalog."""
+def catalog_supply(root: Path) -> EducationSupply:
+    """Count the programs in the registered catalogs without requiring job postings."""
     programs = []
     for provider, relative_path in PROGRAM_CATALOGS.items():
         path = root / relative_path
@@ -63,7 +65,35 @@ def _load_programs(root: Path) -> list[dict[str, str]]:
                 if None in row or any(row[field] is None for field in PROGRAM_TEXT_FIELDS):
                     raise ValueError(f"{relative_path} {reader.line_num}행의 열 수를 확인하세요.")
                 programs.append({field: row[field] for field in PROGRAM_TEXT_FIELDS})
-    return programs
+    return aggregate_supply(programs, source=", ".join(PROGRAM_CATALOGS))
+
+
+def _read_supply(path: Path) -> EducationSupply:
+    supply = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(supply, dict) or not isinstance(supply.get("source"), str):
+        raise ValueError(f"{path.name}에 공급 출처가 필요합니다.")
+    total = supply.get("total_courses")
+    if type(total) is not int or total < 0 or not isinstance(supply.get("skills"), list):
+        raise ValueError(f"{path.name}의 전체 과정 수와 기술 목록을 확인하세요.")
+    seen = set()
+    for row in supply["skills"]:
+        if not isinstance(row, dict) or not isinstance(row.get("skill"), str):
+            raise ValueError(f"{path.name}의 기술 이름을 확인하세요.")
+        skill, count = row["skill"], row.get("courses")
+        if not skill.strip() or skill in seen or type(count) is not int or not 0 <= count <= total:
+            raise ValueError(f"{path.name}의 기술별 과정 수 또는 중복 기술을 확인하세요.")
+        seen.add(skill)
+    return supply
+
+
+def dashboard_supply(root: Path, *, allow_example: bool) -> EducationSupply:
+    """Read the published counts, or count the available catalogs on the first run."""
+    if (root / SUPPLY).is_file():
+        return _read_supply(root / SUPPLY)
+    sample = root / "data/sample/supply.json"
+    if allow_example and sample.is_file() and not any((root / path).exists() for path in PROGRAM_CATALOGS.values()):
+        return _read_supply(sample)
+    return catalog_supply(root)
 
 
 def _load_reviewed_postings(root: Path) -> tuple[list[dict[str, str]], str]:
@@ -84,7 +114,7 @@ def _load_reviewed_postings(root: Path) -> tuple[list[dict[str, str]], str]:
     return postings, f"{REVIEWED} AI·클라우드 검토본, 공고 ID 중복 제거, 산업 미기재 {missing}건 포함"
 
 
-def _load_inputs(root: Path, *, example: bool) -> tuple[list[dict], list[dict], str]:
+def _load_postings(root: Path, *, example: bool) -> tuple[list[dict], str]:
     clean = ROOT / "data/sample/market_postings.json" if example else root / CLEAN
     if clean.is_file():
         postings = _records(clean, (), ("industry", "text"))
@@ -97,9 +127,11 @@ def _load_inputs(root: Path, *, example: bool) -> tuple[list[dict], list[dict], 
         postings, source = _load_reviewed_postings(root)
     else:
         raise FileNotFoundError(f"산업별 채용공고 파일 {CLEAN}, {RAW} 또는 검토 공고 폴더 {REVIEWED}을 준비하세요.")
-    programs = _load_programs(root)
-    providers = ", ".join(PROGRAM_CATALOGS)
-    return postings, programs, f"{source} ({len(postings)}건) · {providers} (학습 프로그램 {len(programs)}개)"
+    return postings, f"{source} ({len(postings)}건)"
+
+
+def _gap_source(posting_source: str, supply: EducationSupply) -> str:
+    return f"{posting_source} · {supply['source']} (학습 프로그램 {supply['total_courses']}개)"
 
 
 def _read_table(path: Path) -> list[GapRow]:
@@ -125,8 +157,9 @@ def dashboard_gap(root: Path, *, allow_example: bool) -> dict:
     if (root / TABLE).is_file():
         return {"rows": _read_table(root / TABLE), "source": f"{TABLE} · 등록된 공급 출처 {', '.join(PROGRAM_CATALOGS)}"}
     example = allow_example and not any((root / name).exists() for name in (CLEAN, RAW, REVIEWED))
-    postings, programs, source = _load_inputs(root, example=example)
-    return {"rows": calculate_gap(postings, programs), "source": source}
+    postings, source = _load_postings(root, example=example)
+    supply = dashboard_supply(root, allow_example=allow_example)
+    return {"rows": analyze_gap_from_supply(postings, supply)["rows"], "source": _gap_source(source, supply)}
 
 
 def _publish(path: Path, content: bytes) -> None:
@@ -140,17 +173,25 @@ def _publish(path: Path, content: bytes) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT, help="directory containing data/ and outputs/")
-    parser.add_argument("--output-dir", type=Path, help="destination for both reports")
-    parser.add_argument("--example", action="store_true", help="use example postings with the registered program catalogs")
+    parser.add_argument("--output-dir", type=Path, help="destination for the generated files")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--example", action="store_true", help="use example postings with the registered program catalogs")
+    mode.add_argument("--supply-only", action="store_true", help="export program counts without job postings")
     args = parser.parse_args(argv)
+    dest = args.output_dir or args.root / ("outputs/example" if args.example else "outputs")
     try:
-        postings, programs, source = _load_inputs(args.root, example=args.example)
+        supply = catalog_supply(args.root)
+        if not args.supply_only:
+            postings, source = _load_postings(args.root, example=args.example)
     except (ValueError, OSError) as exc:
         parser.exit(1, f"{exc}\n")
-    result = analyze_gap(postings, programs)
-    dest = args.output_dir or args.root / ("outputs/example" if args.example else "outputs")
     dest.mkdir(parents=True, exist_ok=True)
-    lines = ["# 산업별 Skills Gap Top 3", "", source, ""]
+    _publish(dest / SUPPLY.name, (json.dumps(supply, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    print(f"{dest / SUPPLY.name} (학습 프로그램 {supply['total_courses']}개)")
+    if args.supply_only:
+        return
+    result = analyze_gap_from_supply(postings, supply)
+    lines = ["# 산업별 Skills Gap Top 3", "", _gap_source(source, supply), ""]
     for industry, ranking in result["top3"].items():
         lines.extend([f"## {industry}", ""])
         lines.extend(f"{rank}. {row['skill']} {row['gap_pp']:+.1f}%p"

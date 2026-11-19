@@ -78,6 +78,18 @@ def _market_without_personal_demand():
 
 
 class MarketGapScreenTest(unittest.TestCase):
+    def test_supply_counts_are_visible_without_postings(self):
+        supply = {"source": "교육과정 목록", "total_courses": 3,
+                  "skills": [{"skill": "Docker", "courses": 1}, {"skill": "SQL", "courses": 2}]}
+        with mock.patch("backend.api.get_supply", return_value=supply), \
+             mock.patch("backend.api.get_market_gap", side_effect=FileNotFoundError):
+            at = AppTest.from_function(_market_without_personal_demand).run()
+        self.assertFalse(at.exception)
+        self.assertIn("교육 공급", [heading.value for heading in at.subheader])
+        self.assertTrue(any("교육과정 목록" in caption.value and "3개" in caption.value for caption in at.caption))
+        table = next(frame.value for frame in at.dataframe if "과정 수" in frame.value.columns)
+        self.assertEqual(table.to_dict("records"), [{"기술": "SQL", "과정 수": 2}, {"기술": "Docker", "과정 수": 1}])
+
     def test_market_gap_shows_owned_skills_without_changing_market_values(self):
         rows = [{"industry": "유통", "skill": "AWS", "demand_pct": 60.0, "supply_pct": 40.0, "gap_pp": 20.0},
                 {"industry": "유통", "skill": "SQL", "demand_pct": 40.0, "supply_pct": 60.0, "gap_pp": -20.0}]
@@ -122,7 +134,8 @@ class MarketGapScreenTest(unittest.TestCase):
             self.assertFalse(at.exception)
             bar = json.loads(at.get("vega_lite_chart")[0].proto.spec)
             self.assertEqual(bar["encoding"]["y"]["sort"], ["SQL", "AWS"])
-            self.assertEqual(len(at.dataframe[0].value), len(rows))
+            market_table = next(frame.value for frame in at.dataframe if "산업" in frame.value.columns)
+            self.assertEqual(len(market_table), len(rows))
             self.assertTrue(at.get("download_button"))
             get_market.assert_called_with()
 

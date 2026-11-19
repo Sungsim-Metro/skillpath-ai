@@ -1,8 +1,20 @@
 공고·NCS·교육과정 수집, 전처리, 별칭 사전, 임베딩 검색. (담당: 종훈)
 
+## 교육 공급 집계
+
+다음 명령은 채용공고 없이 학습 프로그램 목록만 읽고 `outputs/learning_program_supply.json`에 출처, 전체 과정 수와 기술별 과정 수를 기록합니다.
+
+```sh
+uv run --python 3.11 python -m pipeline.market_gap --supply-only
+```
+
+현재 출처는 `data/courses/courses.csv`의 AWS Skill Builder 과정 전체입니다. 각 과정의 제목·설명·학습 목표에서 검출된 기술을 과정당 한 번씩 셉니다. 다른 공급처를 추가하려면 프로그램마다 한 행을 두고 `title`, `description`, `objectives` 열을 갖춘 CSV를 `pipeline/market_gap.py`의 `PROGRAM_CATALOGS`에 등록합니다. [AWS Skill Builder 과정 수집 범위](courses/README.md#수집-조건)
+
+앱의 `get_supply()`는 로컬에 저장된 공급 JSON을 우선 읽고, 파일이 없으면 등록된 과정 목록에서 바로 집계합니다. 모의 모드에서 저장된 집계와 등록된 과정 목록이 모두 없을 때만 `data/sample/supply.json`을 읽습니다. 기본 명령과 `--supply-only`는 원본 과정 목록으로 집계를 다시 만듭니다. 프로젝트 S3 데이터 버킷의 게시 경로는 `skillpath/learning-programs/learning_program_supply.json`입니다.
+
 ## 산업별 시장 Gap
 
-저장소 루트에서 다음 명령을 실행하면 산업별 공고 수요와 학습 프로그램 공급을 비교합니다. 전체 결과는 `outputs/learning_program_gap_table.csv`에, 산업별 Gap 상위 3개 기술은 `outputs/learning_program_gap_report.md`에 저장됩니다.
+저장소 루트에서 다음 명령을 실행하면 교육 공급 집계 JSON을 갱신하고 산업별 공고 수요와 비교합니다. 전체 결과는 `outputs/learning_program_gap_table.csv`에, 산업별 Gap 상위 3개 기술은 `outputs/learning_program_gap_report.md`에 저장됩니다.
 
 ```sh
 uv run --python 3.11 python -m pipeline.market_gap
@@ -10,11 +22,9 @@ uv run --python 3.11 python -m pipeline.market_gap
 
 공고는 `outputs/postings_clean.json`을 우선 사용하고, 이 파일이 없으면 `data/raw/job_postings_raw.json`의 `response.items`를 읽습니다. 둘 다 없으면 `data/raw/rocketpunch-2026-11-17/postings-reviewed/` 아래 `ai/`와 `cloud/`의 검토 공고를 합칩니다. 두 폴더에 있는 공고는 ID당 한 번만 세고, 산업명이 없는 공고는 ‘산업 미기재’로 묶습니다.
 
-공급은 학습 프로그램의 제목·설명·학습 목표에 등장하는 기술을 프로그램당 한 번씩 셉니다. 분모는 전체 (프로그램, 기술) 쌍의 수입니다. 현재 출처는 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정이며 이 목록의 모든 행을 사용합니다. 같은 디렉터리 구조를 가진 다른 자료를 읽으려면 `--root 경로`를 지정합니다. [AWS Skill Builder 과정 수집 범위](courses/README.md#수집-조건)
+공급 비중(%)은 해당 기술의 과정 수를 모든 기술의 과정 수 합계로 나누고 100을 곱해 구합니다. 같은 디렉터리 구조를 가진 다른 자료를 읽으려면 `--root 경로`를 지정합니다.
 
-다른 공급처를 추가할 때는 프로그램마다 한 행을 두고 `title`, `description`, `objectives` 열을 갖춘 CSV를 준비합니다. `pipeline/market_gap.py`의 `PROGRAM_CATALOGS`에 출처명과 파일 경로를 등록하면 모든 목록을 합쳐 기술별 공급 비중을 계산합니다.
-
-대시보드의 **부족 역량 → 채용 시장 Gap**은 저장된 CSV를 우선 표시하고, CSV가 없으면 원본으로 계산합니다. 공고나 프로그램 목록을 바꾼 뒤에는 위 명령을 다시 실행하면 됩니다. 모의 모드에서 결과와 공고 입력이 모두 없으면 예시 공고 2건을 같은 학습 프로그램 목록과 비교합니다. 아래 명령은 이 예시의 표와 보고서를 `outputs/example/`에 저장합니다.
+대시보드의 **부족 역량 → 채용 시장 Gap**은 저장된 Gap CSV를 우선 표시합니다. CSV가 없으면 공고 원문과 교육 공급 조회 결과로 계산합니다. 공고나 프로그램 목록을 바꾼 뒤에는 기본 명령을 다시 실행해 공급 집계와 시장 Gap을 함께 갱신합니다. 모의 모드에서 Gap 결과와 공고 입력이 모두 없으면 예시 공고 2건을 사용합니다. 아래 명령은 예시 결과를 `outputs/example/`에 저장합니다.
 
 ```sh
 uv run --python 3.11 python -m pipeline.market_gap --example

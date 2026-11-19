@@ -29,6 +29,38 @@ class MarketGapFilesTest(unittest.TestCase):
             writer.writerow(["course_id", "title", "description", "objectives", "prerequisites"])
             writer.writerows(rows)
 
+    def test_supply_can_be_exported_and_read_without_postings(self):
+        from backend import api
+
+        self.put_programs([("a", "Docker", "도커", "SQL", ""), ("b", "SQL", "", "", ""),
+                           ("c", "기초 과정", "", "", "Docker")])
+        with patch.object(api, "DATA_DIR", self.root / "data"), patch.object(api, "is_mock", return_value=False):
+            expected = api.get_supply()
+            self.assertEqual(expected["total_courses"], 3)
+            self.assertEqual({r["skill"]: r["courses"] for r in expected["skills"]}, {"Docker": 1, "SQL": 2})
+            market_gap.main(["--root", str(self.root), "--supply-only"])
+            snapshot = self.root / market_gap.SUPPLY
+            self.assertEqual(json.loads(snapshot.read_text(encoding="utf-8")), expected)
+            self.assertEqual(list(snapshot.parent.iterdir()), [snapshot])
+            (self.root / "data/courses/courses.csv").rename(self.root / "archived.csv")
+            self.assertEqual(api.get_supply(), expected)
+            self.put_json("outputs/postings_clean.json", [{"industry": "IT", "text": "SQL"}])
+            market = api.get_market_gap()
+            self.assertEqual({r["skill"]: r["supply_pct"] for r in market["rows"]},
+                             {"Docker": 33.3, "SQL": 66.7})
+
+    def test_sample_supply_is_only_used_in_mock_mode_without_catalogs(self):
+        sample = {"source": "sample", "total_courses": 5, "skills": [{"skill": "Docker", "courses": 2}]}
+        self.put_json("data/sample/supply.json", sample)
+        self.assertEqual(market_gap.dashboard_supply(self.root, allow_example=True), sample)
+        with self.assertRaises(FileNotFoundError):
+            market_gap.dashboard_supply(self.root, allow_example=False)
+        self.put_programs([])
+        self.assertEqual(market_gap.dashboard_supply(self.root, allow_example=True)["total_courses"], 0)
+        self.put_json(market_gap.SUPPLY, {**sample, "skills": [{"skill": "SQL", "courses": 6}]})
+        with self.assertRaisesRegex(ValueError, "과정 수"):
+            market_gap.dashboard_supply(self.root, allow_example=True)
+
     def test_clean_input_wins_and_is_not_cleaned_twice(self):
         self.put_json("outputs/postings_clean.json", [
             {"industry": "유통", "text": "<Docker> data", "skills_rule": ["SQL"], "title": "Java"},

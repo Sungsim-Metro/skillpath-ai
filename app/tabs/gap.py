@@ -65,6 +65,22 @@ def render_area_gap(ctx: Ctx):
     )
 
 
+def render_supply() -> None:
+    """교육과정 목록의 기술별 과정 수를 보여준다."""
+    supply, err = load(api.get_supply)
+    if err:
+        notice("교육 공급", err)
+        return
+    st.caption(f"{md_escape(supply['source'])} · 전체 학습 프로그램 {supply['total_courses']:,}개")
+    if supply.get("note"):
+        st.caption(md_escape(supply["note"]))
+    if not supply["skills"]:
+        st.info("표시할 기술별 과정 수가 없습니다.")
+        return
+    table = pd.DataFrame(supply["skills"]).rename(columns={"skill": "기술", "courses": "과정 수"})
+    st.dataframe(table.sort_values(["과정 수", "기술"], ascending=[False, True]), hide_index=True, width="stretch")
+
+
 def render_market_gap(ctx: Ctx) -> None:
     """채용 시장 Gap: 선택 산업의 수요·공급 비중과 산업별 Gap(%p)을 보여준다. 계산은 backend가 한다."""
     try:
@@ -221,6 +237,10 @@ def render(ctx: Ctx):
             notice("부족 역량", gap_err)
     else:
         _render_gap(ctx)
+
+    with st.container(border=True):
+        st.subheader("교육 공급")
+        render_supply()
 
     with st.container(border=True):
         st.subheader("채용 시장 Gap")

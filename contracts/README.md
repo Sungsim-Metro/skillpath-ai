@@ -10,11 +10,12 @@
 | ③ 추천 | `data/sample/recommendation.json` | 형식 예시 (1건) |
 | ③ 추천 목록 | `data/sample/recommendations.json` | 가짜 모드에서 화면이 읽는 파일 |
 | ④ 수요 집계 | `data/sample/demand.json` | 가짜 모드에서 화면이 읽는 파일 |
-| ⑤ 산업별 시장 Gap | `data/sample/market_postings.json`, `data/courses/courses.csv` | 예시 공고와 학습 프로그램 목록 |
+| ⑤ 교육 공급 | `data/sample/supply.json` | 기술별 학습 프로그램 수를 기록하는 형식 예시 |
 | ⑥ 상담 발화 해석 | `data/sample/chat_turn.json` | 상담에서 갱신할 사실과 이번에 요청한 작업 |
 | ⑦ 보유 수준 | `data/skill_levels.json`, `data/required_levels.json` | 세부 능력별 단계 예시, 기술별 기준 단계 |
+| ⑧ 산업별 시장 Gap | `data/sample/market_postings.json`, `data/courses/courses.csv` | 예시 공고의 산업별 수요와 ⑤에서 구한 공급 비중 비교 |
 
-개인 진단의 직무 수요 예시는 공고 40건 기준입니다. 산업별 시장 Gap의 예시는 공고 2건과 저장된 학습 프로그램 전체로 계산합니다.
+④의 모의 파일은 공고 40건을 가정한 가상 집계입니다. ⑤의 형식 예시는 과정 48개를 가정한 가상 집계입니다. ⑧의 계산 예시는 가상 공고 2건을 실제 학습 프로그램 목록 전체와 비교합니다.
 
 ## ① 공고 (`posting`) — pipeline → ai
 
@@ -103,20 +104,21 @@ AWS 운영 경험 우대
 
 화면은 `url`이 있으면 근거 문장 옆에 "공고 원문 열기" 링크를 붙입니다(2026-11-15 추가).
 
-## ⑤ 산업별 시장 Gap
+## ⑤ 교육 공급 (`supply`) — pipeline → backend
 
-정제 공고 배열의 `industry`와 `text`를 읽고, 공고마다 기술별로 가장 높은 구역 가중치를 적용합니다. 공급의 집계 단위는 학습 프로그램 한 개입니다. 프로그램의 제목(`title`), 설명(`description`), 학습 목표(`objectives`)에 같은 기술이 여러 번 등장해도 한 번만 셉니다. 현재 프로그램 출처는 `data/courses/courses.csv`에 저장된 AWS Skill Builder 과정입니다. 목록 전체를 집계해 모든 산업에 같은 공급 비중을 적용합니다.
+채용공고 없이 학습 프로그램 목록만으로 전체 과정 수와 기술별 과정 수를 집계합니다. 프로그램의 제목(`title`), 설명(`description`), 학습 목표(`objectives`)에 같은 기술이 여러 번 등장해도 해당 과정은 그 기술에 한 번만 셉니다. 한 과정이 여러 기술을 다루면 각 기술에 한 번씩 셉니다.
 
-`backend.api.get_market_gap()`은 전체 산업의 `rows` 배열과 자료 출처를 표시하는 `source` 문자열을 반환합니다. CSV 열과 각 행의 필드는 다음과 같습니다.
+`backend.api.get_supply()`의 반환 형식과 `outputs/learning_program_supply.json`의 저장 형식은 같습니다.
 
-| 필드 | 의미 |
-| --- | --- |
-| `industry`, `skill` | 산업명과 대표 기술명 |
-| `demand_pct` | 해당 산업 안에서 기술이 차지하는 가중 수요 비중 (%) |
-| `supply_pct` | 해당 기술이 검출된 학습 프로그램 수 ÷ 전체 (프로그램, 기술) 쌍 수 × 100 |
-| `gap_pp` | 반올림 전 두 비중을 뺀 값 (%p). 세 수치는 각각 소수 첫째 자리로 반올림합니다. |
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `source` | string | 집계한 프로그램 목록의 출처 |
+| `total_courses` | integer | 조사한 전체 학습 프로그램 수 |
+| `skills[].skill` | string | 표준 기술 이름 |
+| `skills[].courses` | integer | 해당 기술이 검출된 프로그램 수 |
+| `note` | string | 선택 사항. 조사 범위나 자료의 한계 |
 
-예시 공고에서 Docker의 수요 비중은 43.6%입니다. 공급 비중과 Gap은 계산에 사용한 학습 프로그램 목록에 따라 달라집니다. [입력 경로와 갱신 방법](../pipeline/README.md#산업별-시장-gap)
+현재 AWS Skill Builder 목록의 158개 과정 중 Docker가 검출된 과정은 2개입니다. ⑤는 전체 과정 수 158과 Docker 과정 수 2를 기록합니다. [프로그램 목록](../data/courses/courses.csv)
 
 ## ⑦ 보유 수준 — app → backend · 2026-11-19 추가(#90)
 
@@ -169,3 +171,18 @@ Gap 행(`get_gap`)에 더한 필드:
 | `experience_skills` | 보존된 프로젝트 경험에서 본인이 직접 사용했다고 밝힌 기술. 이번 응답의 비교·요약에 사용하며, 이 필드만으로 프로필의 보유 기술을 수정하지 않습니다. |
 | `save`, `save_job` | 명시적 프로필 쓰기 요청 여부와 직무가 저장 대상인지 나타내는 불리언. |
 | `save_skills`, `save_experiences` | 프로필 쓰기에서 명시적으로 지정한 항목 목록. 정정과 함께 지정하면 해당 항목을 삭제합니다. |
+
+## ⑧ 산업별 시장 Gap
+
+산업별 공고 수요 비중에서 ⑤로 계산한 기술별 공급 비중을 빼서 Gap을 구합니다. 수요는 정제 공고의 `industry`와 `text`를 읽고 공고마다 기술별 최대 구역 가중치를 적용해 계산합니다. 모든 산업에 같은 공급 비중을 적용합니다.
+
+`backend.api.get_market_gap()`은 전체 산업의 `rows` 배열과 자료 출처를 표시하는 `source` 문자열을 반환합니다. CSV 열과 각 행의 필드는 다음과 같습니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `industry`, `skill` | 산업명과 대표 기술명 |
+| `demand_pct` | 해당 산업 안에서 기술이 차지하는 가중 수요 비중 (%) |
+| `supply_pct` | ⑤의 해당 기술 과정 수 ÷ 모든 기술의 과정 수 합계 × 100 |
+| `gap_pp` | 반올림 전 수요 비중과 공급 비중의 차이 (%p). 세 수치는 각각 소수 첫째 자리로 반올림합니다. |
+
+현재 목록에서 기술별 과정 수의 합은 159이므로 Docker의 공급 비중은 2 ÷ 159 ≈ 1.3%입니다. 가상 공고 2건에서는 Docker 수요 비중이 43.6%이고 Gap은 +42.3%p입니다. [입력 경로와 갱신 방법](../pipeline/README.md#산업별-시장-gap)
