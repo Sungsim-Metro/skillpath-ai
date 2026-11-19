@@ -18,6 +18,7 @@ def texts(elements) -> list[str]:
 
 def open_view(view: str | None) -> AppTest:
     at = AppTest.from_file(MAIN, default_timeout=90)
+    at.session_state["entered"] = True  # 로그인·회원가입 화면을 비회원으로 지난 상태로 메뉴의 화면을 본다
     if view:
         at.query_params["view"] = view
     return at.run()
