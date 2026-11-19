@@ -20,13 +20,19 @@
 - 불확실 비율: 보여 준 과정 중 match 가 uncertain 인 비율
 - 모델 호출 수(Guardrails 호출은 포함하지 않음), 토큰, 시간(중앙값·최대). 두 구조 모두 모델 호출 응답의 토큰을 직접 더한다(가짜 모드는 0, 가짜 대본 차례는 mock_turns)
 결과는 outputs/eval/agent_compare_*.json 에 저장한다(.gitignore 대상).
+
+캐시: 추천(backend.api 의 추천 캐시)·수요(60초 캐시) 같은 메모리 캐시가 구조·문항 사이에 남으면 뒤에 도는 쪽의 호출 수와
+시간이 줄어 비교가 틀어진다. backend 에 캐시를 비우는 공개 함수가 없어(내부 변수는 건드리지 않는다), (구조, 문항)마다
+이 스크립트를 새 프로세스(--one)로 띄워 늘 빈 캐시에서 시작한다. 그만큼 DynamoDB 수요 조회가 문항마다 한 번씩 더 일어난다.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -55,7 +61,12 @@ SUPPORTED_INTENTS = {"0": {"gap", "courses", "out_of_scope", "blocked"}}
 # 그대로 두고, ai/chat.py 의 status(clarify_role·incomplete)는 직무·미완성 입력 확인이지 기술 표기 되묻기가 아니다(11/20 확인).
 # 없는 구조는 표기 애매 문항의 되묻기를 "해당 없음"으로 따로 세고 분모에서 뺀다
 ASK_BACK_STRUCTURES = {"A", "B"}
-RESULT_NOTE = "모델 호출 수에 Guardrails(ApplyGuardrail) 호출은 포함하지 않음"
+RESULT_NOTES = [
+    "모델 호출 수에 Guardrails(ApplyGuardrail) 호출은 포함하지 않음",
+    "구조·문항마다 새 프로세스로 실행해 캐시가 비어 있음, DynamoDB 수요 조회가 문항마다 한 번씩 더 일어남",
+]
+ROW_MARK = "AGENT_COMPARE_ROW "  # 하위 프로세스가 결과 한 줄 앞에 붙이는 표시(다른 출력과 섞이지 않게)
+CHILD_TIMEOUT = 600                # 문항 하나의 하위 프로세스 시간 한도(초)
 # 답에 되묻기가 있는지(표기 애매 문항). 상담 에이전트의 보충 문장 "OO는 XX를 말씀하신 건가요?" 와 같은 꼴
 ASK_BACK = re.compile(r"말씀하신\s*건가요|무엇을\s*말씀|어떤\s*기술을\s*말씀|맞나요\?")
 
@@ -242,13 +253,42 @@ def summarize(cases: list[dict], rows: dict[str, dict], structure: str = "") -> 
     }
 
 
-def evaluate(cases: list[dict], structures: list[str]) -> dict:
+def run_isolated(structure: str, case_set: str, case_id: str) -> dict:
+    """(구조, 문항) 하나를 새 프로세스로 돌려 결과 행을 받는다. 메모리 캐시가 늘 비어 있다.
+
+    하위 프로세스는 같은 환경 변수(BEDROCK_MOCK 등)를 물려받는다. 실패하면 멈춘다(통과로 세지 않음).
+    오류 원문은 문항 내용이 섞일 수 있어 출력하지 않고 종료 코드만 알린다.
+    """
+    cmd = [sys.executable, "-m", "ai.eval.agent_compare", "--one", structure, case_id, "--set", case_set]
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                          env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=CHILD_TIMEOUT)
+    rows = [line[len(ROW_MARK):] for line in proc.stdout.splitlines() if line.startswith(ROW_MARK)]
+    if proc.returncode != 0 or len(rows) != 1:
+        raise RuntimeError(f"구조 {structure} 문항 {case_id} 하위 프로세스 실패(종료 코드 {proc.returncode}). 멈춥니다")
+    return json.loads(rows[0])
+
+
+def evaluate(cases: list[dict], structures: list[str], isolate: bool = False, case_set: str = "dev") -> dict:
+    """구조마다 문항을 돌려 지표를 낸다. isolate=True 면 (구조, 문항)마다 새 프로세스(실행 명령의 기본)."""
     out = {}
     for name in structures:
         mine = [c for c in cases if not c.get("reference") or name == "0"]  # 참고 문항(AI 엔지니어)은 구조 0 만
-        rows = {c["id"]: STRUCTURES[name](c) for c in mine}
+        if isolate:
+            rows = {c["id"]: run_isolated(name, case_set, c["id"]) for c in mine}
+        else:
+            rows = {c["id"]: STRUCTURES[name](c) for c in mine}
         out[name] = {"summary": summarize(mine, rows, name), "rows": rows}
     return out
+
+
+def run_one(structure: str, case_set: str, case_id: str) -> int:
+    """하위 프로세스: 문항 하나를 돌려 결과 행을 ROW_MARK 한 줄로 출력한다(문항 원문은 출력하지 않음)."""
+    path = HOLDOUT if case_set == "holdout" else CASES
+    case = next((c for c in json.loads(path.read_text(encoding="utf-8"))["cases"] if c["id"] == case_id), None)
+    if case is None or structure not in STRUCTURES:
+        return 2
+    print(ROW_MARK + json.dumps(STRUCTURES[structure](case), ensure_ascii=False))
+    return 0
 
 
 def main() -> int:
@@ -257,7 +297,10 @@ def main() -> int:
     ap.add_argument("--structures", nargs="+", default=["0"], help="비교할 구조(0, A)")
     ap.add_argument("--set", choices=("dev", "holdout"), default="dev")
     ap.add_argument("--bedrock", action="store_true", help="실제 모드(BEDROCK_MOCK=0 이어야 함)")
+    ap.add_argument("--one", nargs=2, metavar=("STRUCTURE", "CASE_ID"), help=argparse.SUPPRESS)  # 하위 프로세스용
     args = ap.parse_args()
+    if args.one:
+        return run_one(args.one[0], args.set, args.one[1])
     unknown = [s for s in args.structures if s not in STRUCTURES]
     if unknown:
         print(f"아직 없는 구조라 건너뜁니다: {', '.join(unknown)}")
@@ -275,7 +318,7 @@ def main() -> int:
         return 0
     if not structures:
         return 1
-    result = evaluate(cases, structures)
+    result = evaluate(cases, structures, isolate=True, case_set=args.set)
     for name, r in result.items():
         s = r["summary"]
         print(f"\n[구조 {name}] 의도 {s['intent_correct']}/{s['intent_total']}(해당 없음 {s['intent_not_applicable']})  되묻기 {s['ask_back_correct']}/{s['ask_back_total']}(해당 없음 {s['ask_back_not_applicable']})"
@@ -292,7 +335,7 @@ def main() -> int:
     out = OUT_DIR / f"agent_compare_{args.set}_{mode}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     saved = result if args.set == "dev" else {  # 보지 않은 문항은 숫자만 저장(문항 id 없음)
         k: {"summary": {m: n for m, n in v["summary"].items() if m not in ("intent_wrong_ids", "intent_not_applicable_ids")}} for k, v in result.items()}
-    out.write_text(json.dumps({"cases": path.name, "note": RESULT_NOTE, "result": saved}, ensure_ascii=False, indent=1),
+    out.write_text(json.dumps({"cases": path.name, "notes": RESULT_NOTES, "result": saved}, ensure_ascii=False, indent=1),
                    encoding="utf-8")
     print(f"\n저장: {out.relative_to(ROOT).as_posix()}")
     return 0

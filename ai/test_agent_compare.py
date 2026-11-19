@@ -155,6 +155,26 @@ def test_mock_run_on_dev_cases():
     assert (a["summary"]["ask_back_total"], a["summary"]["ask_back_not_applicable"]) == (2, 0)
 
 
+def test_isolated_run_matches_in_process():
+    # (구조, 문항)마다 새 프로세스로 돌린 결과 행이 같은 프로세스에서 돌린 것과 같다(시간 제외). 캐시가 늘 비어 있다
+    if not ac.CASES.exists():
+        print("  건너뜀: test_isolated_run_matches_in_process (data/eval/ 없음)")
+        return
+    cases = json.loads(ac.CASES.read_text(encoding="utf-8"))["cases"]
+    case = next(c for c in cases if c["id"] == "C1")
+    for name in ("0", "A"):
+        here = ac.STRUCTURES[name](case)
+        there = ac.run_isolated(name, "dev", "C1")
+        assert {k: v for k, v in here.items() if k != "seconds"} == {k: v for k, v in there.items() if k != "seconds"}, name
+    try:
+        ac.run_isolated("0", "dev", "없는문항")
+    except RuntimeError as e:
+        assert "없는문항" in str(e) and "멈춥니다" in str(e)
+    else:
+        raise AssertionError("없는 문항인데 멈추지 않음")
+    assert len(ac.RESULT_NOTES) == 2 and "새 프로세스" in ac.RESULT_NOTES[1]
+
+
 def test_holdout_placeholder_is_empty_schema():
     # 보지 않은 문항 자리: 비어 있으면 스크립트가 건너뛴다(내용은 채점 직전에 넣음)
     if not ac.HOLDOUT.exists():
