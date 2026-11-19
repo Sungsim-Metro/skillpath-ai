@@ -11,11 +11,14 @@
 
 두 단계 (둘 다 쓰고, 조합은 테스트 표로 정한다)
 1. 코드 검사: 아래 낱말표. 늘 돈다. 비용 0, 가짜 모드에서도 돈다. 답에는 공격 범주만 본다(기술 답의 "지역·유리" 오탐 때문)
-2. Bedrock Guardrails(ApplyGuardrail): 환경 변수 GUARDRAIL_ID 가 있고 실제 모드일 때만. 입력은 늘, 답은 GUARDRAIL_OUTPUT=1 일 때만.
-   호출이 실패하면(권한, 호출 제한) 코드 검사 결과만 쓰고 로그를 남긴다. 상담을 멈추지 않는다
-   GUARDRAIL_TOPIC_BLOCK(코드 기본 0): 0 이면 Guardrails 의 차단 주제 판정은 기록만 하고, 프롬프트 공격·혐오·모욕 필터만 막는다.
-   시연 설정(11/19, .env.example)은 버전 2 + GUARDRAIL_TOPIC_BLOCK=1: 버전 2 주제 정의에서 학력 언급 질문 오탐이 없어져
-   차단 주제와 필터를 모두 막기에 쓴다. 버전 1 은 차단 주제가 "비전공자인데…" 질문을 막아(오탐) 0 으로 둔다.
+2. Bedrock Guardrails(ApplyGuardrail): 실제 모드이고 Guardrail ID 가 있을 때만. 입력은 늘, 답은 GUARDRAIL_OUTPUT=1 일 때만.
+   ID·버전은 GUARDRAIL_ID·GUARDRAIL_VERSION, 비어 있으면 BEDROCK_GUARDRAIL_ID·BEDROCK_GUARDRAIL_VERSION(ai/chat.py 설정).
+   버전이 둘 다 없으면 DRAFT.
+   호출이 실패하면(권한, SSO 만료, 호출 제한) 막는다(fail-closed, CLAUDE.md "검사에 실패하면 그 요청은 종료").
+   화면은 UNAVAILABLE_MESSAGE 를 보여준다. 가짜 모드나 ID 가 없을 때는 코드 검사만 한다
+   GUARDRAIL_TOPIC_BLOCK(기본 1): 1 이면 차단 주제와 필터(프롬프트 공격·혐오·모욕) 모두로 막는다. 0 이면 차단 주제는 기록만 한다.
+   시연 설정(11/19)은 버전 2 + 1: 버전 2 주제 정의에서 학력 언급 질문 오탐이 없어졌다.
+   버전 1 은 차단 주제가 "비전공자인데…" 질문을 막아(오탐) 0 으로 둔다.
    막는 힘의 주력은 Guardrails 다: 보지 않은 문항에서 코드 검사는 막을 질문을 하나도 막지 못했다.
 막히는 조건: 코드 검사가 막거나, Guardrails 가 (설정에 따라 쓰는) 정책으로 막으면 막는다.
 
@@ -36,6 +39,8 @@ BLOCK_MESSAGE = (
     "해 본 기술과 관심 있는 직무를 알려 주시면, 필요한 역량과 AWS 교육과정을 안내해 드릴게요."
 )
 OUTPUT_BLOCK_MESSAGE = "답을 정리하지 못했습니다. 질문을 바꿔 다시 물어봐 주세요."
+UNAVAILABLE_MESSAGE = "지금은 안전 검사를 할 수 없어 답변을 드릴 수 없어요. 잠시 후 다시 시도해 주세요."
+FAILED = "실패"  # GuardResult.category: Guardrails 호출 실패로 막음
 
 CATEGORIES = ("성별", "학력", "인종", "지역", "공격")
 
@@ -96,40 +101,60 @@ def code_check(text: str, judgment: bool = True) -> GuardResult:
     return PASS
 
 
+def _env_first(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def guardrail_id() -> str:
+    """GUARDRAIL_ID, 비어 있으면 BEDROCK_GUARDRAIL_ID(ai/chat.py 와 같은 설정)."""
+    return _env_first("GUARDRAIL_ID", "BEDROCK_GUARDRAIL_ID")
+
+
+def guardrail_version() -> str:
+    """GUARDRAIL_VERSION, 비어 있으면 BEDROCK_GUARDRAIL_VERSION, 둘 다 없으면 DRAFT."""
+    return _env_first("GUARDRAIL_VERSION", "BEDROCK_GUARDRAIL_VERSION") or "DRAFT"
+
+
+class GuardrailCallError(Exception):
+    """ApplyGuardrail 호출 실패. 원래 예외 이름만 담는다(원문·메시지는 담지 않는다)."""
+
+
 def _guardrails_enabled(source: str) -> bool:
-    if is_mock() or not os.getenv("GUARDRAIL_ID", "").strip():
+    if is_mock() or not guardrail_id():
         return False
     return source == "INPUT" or os.getenv("GUARDRAIL_OUTPUT", "0") == "1"
 
 
 def topic_block_enabled() -> bool:
-    """Guardrails 차단 주제 결과로도 막을지. 코드 기본은 끔(기록만), 시연 설정(버전 2)은 켬.
+    """Guardrails 차단 주제 결과로도 막을지. 기본은 켬(.env 를 빠뜨려도 막는 쪽으로). GUARDRAIL_TOPIC_BLOCK=0 이면 기록만.
 
-    11/18 개선용 33문항에서 버전 1 차단 주제가 학력을 언급만 한 정상 질문을 막아(오탐), 버전 1 에서는 Guardrails 를
-    프롬프트 공격·혐오·모욕 필터로만 막기에 쓴다. GUARDRAIL_TOPIC_BLOCK=1 이면 차단 주제로도 막는다.
-    11/19 버전 2(주제 정의 수정본)는 개선용·보지 않은 문항 모두 오탐 0 이라 시연은 1 로 둔다.
+    11/19 버전 2(주제 정의 수정본)는 개선용·보지 않은 문항 모두 오탐 0 이라 켜 둔다.
+    버전 1 은 차단 주제가 학력을 언급만 한 정상 질문을 막아(오탐) 0 으로 두고 필터로만 막는다.
     """
-    return os.getenv("GUARDRAIL_TOPIC_BLOCK", "0") == "1"
+    return os.getenv("GUARDRAIL_TOPIC_BLOCK", "1").strip() != "0"
 
 
 def bedrock_assess(text: str, source: str) -> Optional[list[tuple[str, str]]]:
     """ApplyGuardrail 을 한 번 부르고 BLOCKED 로 판정한 정책 목록 [(범주, 이름)] 을 돌려준다.
 
-    꺼져 있거나 실패하면 None. 이메일·전화번호를 가리기만(ANONYMIZE) 한 개입은 목록에 넣지 않는다.
+    꺼져 있으면 None, 호출이 실패하면 GuardrailCallError. 이메일·전화번호를 가리기만(ANONYMIZE) 한 개입은 목록에 넣지 않는다.
     범주는 "주제"(차단 주제), "공격"(프롬프트 공격 필터), "콘텐츠"(혐오·모욕 등). 원문은 꺼내지 않는다.
     """
     if not _guardrails_enabled(source):
         return None
     try:
         resp = _client().apply_guardrail(
-            guardrailIdentifier=os.environ["GUARDRAIL_ID"].strip(),
-            guardrailVersion=os.getenv("GUARDRAIL_VERSION", "DRAFT").strip() or "DRAFT",
+            guardrailIdentifier=guardrail_id(),
+            guardrailVersion=guardrail_version(),
             source=source,
             content=[{"text": {"text": text}}],
         )
-    except Exception as e:  # noqa: BLE001 - 가드레일 호출 실패로 상담을 멈추지 않는다
-        logger.warning("Bedrock Guardrails 호출 실패(%s). 코드 검사 결과만 씁니다", type(e).__name__)
-        return None
+    except Exception as e:  # noqa: BLE001 - 어떤 실패든 막는 쪽으로(부른 쪽이 처리)
+        raise GuardrailCallError(type(e).__name__) from None
     if resp.get("action") != "GUARDRAIL_INTERVENED":
         return []
     return blocked_policies(resp.get("assessments", []))
@@ -160,8 +185,13 @@ def decide(policies: Optional[list[tuple[str, str]]], topic_block: bool) -> Guar
 
 
 def bedrock_check(text: str, source: str) -> GuardResult:
-    """Bedrock Guardrails(ApplyGuardrail). 꺼져 있거나 실패하면 통과로 둔다(코드 검사가 남아 있다)."""
-    return decide(bedrock_assess(text, source), topic_block_enabled())
+    """Bedrock Guardrails(ApplyGuardrail). 꺼져 있으면 통과, 호출이 실패하면 막는다(fail-closed)."""
+    try:
+        policies = bedrock_assess(text, source)
+    except GuardrailCallError as e:
+        logger.warning("가드레일 호출 실패, 막음(%s)", e)
+        return GuardResult(True, "guardrails", FAILED, str(e))
+    return decide(policies, topic_block_enabled())
 
 
 _client_cache = None
@@ -185,11 +215,17 @@ def _check(text: str, source: str) -> GuardResult:
     return result
 
 
+def message_for(result: GuardResult, blocked_message: str) -> str:
+    """막혔을 때 화면에 보여줄 문장. 호출 실패면 UNAVAILABLE_MESSAGE, 아니면 blocked_message."""
+    return UNAVAILABLE_MESSAGE if result.category == FAILED else blocked_message
+
+
 def check_input(text: str) -> GuardResult:
-    """사용자 입력 검사. 막히면 화면은 BLOCK_MESSAGE 를 보여주고 모델을 부르지 않는다."""
+    """사용자 입력 검사. 막히면 화면은 message_for(result, BLOCK_MESSAGE) 를 보여주고 모델을 부르지 않는다."""
     return _check(text or "", "INPUT")
 
 
 def check_output(text: str) -> GuardResult:
-    """모델 답 검사. 코드 검사는 공격 범주만 늘, 차별 검사는 GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 가. 막히면 OUTPUT_BLOCK_MESSAGE."""
+    """모델 답 검사. 코드 검사는 공격 범주만 늘, 차별 검사는 GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 가.
+    막히면 message_for(result, OUTPUT_BLOCK_MESSAGE)."""
     return _check(text or "", "OUTPUT")

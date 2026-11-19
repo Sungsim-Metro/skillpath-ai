@@ -197,4 +197,5 @@ python -m ai.agent "지방대 출신은 대기업 클라우드 직무 지원해�
 - 캐시는 `data/raw/embed_cache.json`에 생깁니다. 커밋하지 않습니다.
 - 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`, `pair_check`, `guardrail`).
 - 가드레일 시연 설정은 **버전 2 + 차단 주제 켜기**(`GUARDRAIL_VERSION=2`, `GUARDRAIL_TOPIC_BLOCK=1`)입니다. 버전 1을 쓰면 `GUARDRAIL_TOPIC_BLOCK=0`으로 둡니다(버전 1은 "비전공자인데…" 질문을 막는 오탐이 있었습니다).
-- 5)에서 로그에 "Bedrock Guardrails 호출 실패"가 나오면 코드 검사만 남아 막는 힘이 크게 줄어듭니다. AWS 로그인(1)과 `GUARDRAIL_ID`를 다시 확인합니다.
+- **SSO 로그인이 만료되면 Guardrails 호출이 실패해 모든 질문이 막힙니다**("지금은 안전 검사를 할 수 없어…"). 시연 전 1)과 5)를 꼭 확인합니다.
+- `GUARDRAIL_TOPIC_BLOCK`을 빠뜨리면 1(차단 주제 켜기)로 동작합니다. 버전 1을 쓸 때만 0으로 둡니다.

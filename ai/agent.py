@@ -183,13 +183,16 @@ TOOL_FUNCS = {
 
 # ── 검사 ────────────────────────────────────────────────────────────
 def guard_input(message: str) -> Optional[str]:
-    """가드레일(#24). 막아야 하면 사용자에게 보여줄 고정 안내 문장, 통과면 None(ai.guardrail.check_input)."""
-    return guardrail.BLOCK_MESSAGE if guardrail.check_input(message).blocked else None
+    """가드레일(#24). 막아야 하면 사용자에게 보여줄 고정 안내 문장, 통과면 None(ai.guardrail.check_input).
+    Guardrails 호출이 실패해도 막고 "안전 검사를 할 수 없어요" 안내를 보여준다."""
+    result = guardrail.check_input(message)
+    return guardrail.message_for(result, guardrail.BLOCK_MESSAGE) if result.blocked else None
 
 
 def guard_output(answer: str) -> Optional[str]:
-    """답 검사(#24). 코드 검사는 늘, Bedrock Guardrails 는 GUARDRAIL_OUTPUT=1 일 때만. 막히면 고정 문장."""
-    return guardrail.OUTPUT_BLOCK_MESSAGE if guardrail.check_output(answer).blocked else None
+    """답 검사(#24). 코드 검사는 늘, Bedrock Guardrails 는 GUARDRAIL_OUTPUT=1 일 때만. 막히면(호출 실패 포함) 고정 문장."""
+    result = guardrail.check_output(answer)
+    return guardrail.message_for(result, guardrail.OUTPUT_BLOCK_MESSAGE) if result.blocked else None
 
 
 def _walk_numbers(value) -> set[float]:

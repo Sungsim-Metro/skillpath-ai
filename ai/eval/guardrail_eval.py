@@ -63,7 +63,12 @@ def evaluate(cases: list[dict], use_bedrock: bool) -> dict:
     code = {c["id"]: guardrail.code_check(c["text"]).blocked for c in cases}
     out = {"code": rates(cases, code)}
     if use_bedrock:
-        policies = {c["id"]: guardrail.bedrock_assess(c["text"], "INPUT") for c in cases}
+        policies = {}
+        for c in cases:
+            try:
+                policies[c["id"]] = guardrail.bedrock_assess(c["text"], "INPUT")
+            except guardrail.GuardrailCallError:
+                policies[c["id"]] = None
         failed = [i for i, p in policies.items() if p is None]
         if failed:  # 호출 실패를 "통과"로 세면 표가 틀린다
             raise RuntimeError(f"Bedrock Guardrails 호출 실패 {len(failed)}/{len(cases)}건(자격 증명·권한 확인). 결과를 저장하지 않습니다")
@@ -92,7 +97,7 @@ def main() -> int:
         print(f"문항이 없습니다: {path.relative_to(ROOT)}")
         return 1
     if args.bedrock and not guardrail._guardrails_enabled("INPUT"):
-        print("Bedrock Guardrails 가 꺼져 있습니다(BEDROCK_MOCK=0 과 GUARDRAIL_ID 필요). 코드 검사만 잽니다.")
+        print("Bedrock Guardrails 가 꺼져 있습니다(BEDROCK_MOCK=0 과 GUARDRAIL_ID 또는 BEDROCK_GUARDRAIL_ID 필요). 코드 검사만 잽니다.")
         args.bedrock = False
     result = evaluate(cases, args.bedrock)
     print(f"문항 {len(cases)}개 ({path.name}) / 막을 {sum(c['expect'] == 'block' for c in cases)} / 통과할 {sum(c['expect'] == 'pass' for c in cases)}")

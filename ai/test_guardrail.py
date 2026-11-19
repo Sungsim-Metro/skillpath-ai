@@ -16,7 +16,8 @@ from ai import agent, guardrail  # noqa: E402
 from ai import recommend as rec  # noqa: E402
 from ai.eval import guardrail_eval  # noqa: E402
 
-for _name in ("GUARDRAIL_ID", "GUARDRAIL_VERSION", "GUARDRAIL_OUTPUT", "GUARDRAIL_TOPIC_BLOCK"):
+for _name in ("GUARDRAIL_ID", "GUARDRAIL_VERSION", "GUARDRAIL_OUTPUT", "GUARDRAIL_TOPIC_BLOCK",
+              "BEDROCK_GUARDRAIL_ID", "BEDROCK_GUARDRAIL_VERSION"):
     os.environ.pop(_name, None)  # guardrail_eval 이 .env 를 읽어 올린 값을 지운다(테스트는 .env 에 영향받지 않게)
 
 EVAL_FILES = (guardrail_eval.CASES, guardrail_eval.TEST_SENTENCES)
@@ -127,10 +128,15 @@ def test_bedrock_off_in_mock_and_without_id():
         assert guardrail._guardrails_enabled("INPUT") and not guardrail._guardrails_enabled("OUTPUT")
         os.environ["GUARDRAIL_OUTPUT"] = "1"
         assert guardrail._guardrails_enabled("OUTPUT")
+        # GUARDRAIL_ID 가 비어 있으면 BEDROCK_GUARDRAIL_ID(ai/chat.py 설정)를 쓴다
+        os.environ["GUARDRAIL_ID"] = ""
+        assert not guardrail._guardrails_enabled("INPUT")
+        os.environ["BEDROCK_GUARDRAIL_ID"] = "g-chat"
+        assert guardrail._guardrails_enabled("INPUT") and guardrail.guardrail_id() == "g-chat"
     finally:
         os.environ["BEDROCK_MOCK"] = old
-        os.environ.pop("GUARDRAIL_ID", None)
-        os.environ.pop("GUARDRAIL_OUTPUT", None)
+        for name in ("GUARDRAIL_ID", "GUARDRAIL_OUTPUT", "BEDROCK_GUARDRAIL_ID"):
+            os.environ.pop(name, None)
 
 
 class FakeGuardrails:
@@ -144,9 +150,9 @@ class FakeGuardrails:
         return self.response
 
 
-def _with_bedrock(fake, fn):
+def _with_bedrock(fake, fn, env=None):
     old_env, old_client = dict(os.environ), guardrail._client_cache
-    os.environ.update({"BEDROCK_MOCK": "0", "GUARDRAIL_ID": "g-test"})
+    os.environ.update(env if env is not None else {"BEDROCK_MOCK": "0", "GUARDRAIL_ID": "g-test"})
     guardrail._client_cache = fake
     try:
         return fn()
@@ -161,17 +167,18 @@ TOPIC = {"action": "GUARDRAIL_INTERVENED",
 
 
 def test_topic_block_setting():
-    # 기본(GUARDRAIL_TOPIC_BLOCK=0): 차단 주제 판정은 기록만 하고 막지 않는다. 차별 판단은 코드 검사가 맡는다
+    # 기본(GUARDRAIL_TOPIC_BLOCK 없음 = 1, 시연 설정): 차단 주제로도 막는다. .env 를 빠뜨려도 막는 쪽
     fake = FakeGuardrails(TOPIC)
-    assert _with_bedrock(fake, lambda: guardrail.check_input("코드 검사는 통과하는 문장")) == guardrail.PASS
+    r = _with_bedrock(fake, lambda: guardrail.check_input("코드 검사는 통과하는 문장"))
+    assert r == guardrail.GuardResult(True, "guardrails", "주제", "Personal attribute judgment")
     assert fake.calls[0]["source"] == "INPUT" and fake.calls[0]["guardrailVersion"] == "DRAFT"
-    # GUARDRAIL_TOPIC_BLOCK=1 이면 차단 주제로도 막는다
-    os.environ["GUARDRAIL_TOPIC_BLOCK"] = "1"
+    # GUARDRAIL_TOPIC_BLOCK=0(버전 1 을 쓸 때): 차단 주제 판정은 기록만 하고 막지 않는다
+    os.environ["GUARDRAIL_TOPIC_BLOCK"] = "0"
     try:
         r = _with_bedrock(FakeGuardrails(TOPIC), lambda: guardrail.check_input("코드 검사는 통과하는 문장"))
     finally:
         os.environ.pop("GUARDRAIL_TOPIC_BLOCK", None)
-    assert r == guardrail.GuardResult(True, "guardrails", "주제", "Personal attribute judgment")
+    assert r == guardrail.PASS
     # 차단 주제와 필터가 함께 막으면, 주제를 쓰지 않아도 필터로 막는다
     both = [("주제", "Personal attribute judgment"), ("콘텐츠", "HATE")]
     assert guardrail.decide(both, topic_block=False) == guardrail.GuardResult(True, "guardrails", "콘텐츠", "HATE")
@@ -188,14 +195,71 @@ def test_bedrock_check_parses_response():
     masked = {"action": "GUARDRAIL_INTERVENED",
               "assessments": [{"sensitiveInformationPolicy": {"piiEntities": [{"type": "EMAIL", "action": "ANONYMIZED"}]}}]}
     assert _with_bedrock(FakeGuardrails(masked), lambda: guardrail.check_input("x")) == guardrail.PASS
-    # 호출이 실패해도 상담을 멈추지 않는다(코드 검사 결과만)
-    assert _with_bedrock(FakeGuardrails(error=RuntimeError("AccessDenied")), lambda: guardrail.check_input("x")) == guardrail.PASS
     # 코드 검사가 먼저 막으면 Guardrails 는 부르지 않는다
     fake = FakeGuardrails(TOPIC)
     assert _with_bedrock(fake, lambda: guardrail.check_input(S["block_gender"])).source == "code" and fake.calls == []
     # 답 검사는 GUARDRAIL_OUTPUT=1 일 때만 Guardrails 를 부른다
     fake = FakeGuardrails(TOPIC)
     assert _with_bedrock(fake, lambda: guardrail.check_output("평범한 답")) == guardrail.PASS and fake.calls == []
+
+
+def test_guardrail_id_fallback_to_chat_settings():
+    # GUARDRAIL_ID·VERSION 이 비어 있으면 BEDROCK_GUARDRAIL_ID·VERSION. 둘 다 있으면 GUARDRAIL_* 가 먼저
+    fake = FakeGuardrails({"action": "NONE"})
+    _with_bedrock(fake, lambda: guardrail.check_input("x"),
+                  {"BEDROCK_MOCK": "0", "GUARDRAIL_ID": "", "GUARDRAIL_VERSION": "",
+                   "BEDROCK_GUARDRAIL_ID": "g-chat", "BEDROCK_GUARDRAIL_VERSION": "3"})
+    assert (fake.calls[0]["guardrailIdentifier"], fake.calls[0]["guardrailVersion"]) == ("g-chat", "3")
+    fake = FakeGuardrails({"action": "NONE"})
+    _with_bedrock(fake, lambda: guardrail.check_input("x"),
+                  {"BEDROCK_MOCK": "0", "GUARDRAIL_ID": "g-agent", "GUARDRAIL_VERSION": "2",
+                   "BEDROCK_GUARDRAIL_ID": "g-chat", "BEDROCK_GUARDRAIL_VERSION": "3"})
+    assert (fake.calls[0]["guardrailIdentifier"], fake.calls[0]["guardrailVersion"]) == ("g-agent", "2")
+
+
+def _capture_log(fn):
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    log = logging.getLogger("ai.guardrail")
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    try:
+        return fn(), buf.getvalue()
+    finally:
+        log.removeHandler(handler)
+
+
+def test_fail_closed_when_guardrails_call_fails():
+    # 실제 모드에서 ID 가 있는데 호출이 실패하면 막는다(CLAUDE.md: 검사에 실패하면 그 요청은 종료)
+    failing = FakeGuardrails(error=RuntimeError("AccessDenied: secret detail"))
+    r, log_text = _capture_log(lambda: _with_bedrock(failing, lambda: guardrail.check_input("Docker 다음은 뭘 배워요?")))
+    assert r == guardrail.GuardResult(True, "guardrails", guardrail.FAILED, "RuntimeError")
+    assert guardrail.message_for(r, guardrail.BLOCK_MESSAGE) == guardrail.UNAVAILABLE_MESSAGE
+    # 로그에는 "가드레일 호출 실패, 막음"과 예외 이름만. 예외 메시지·입력 원문은 남기지 않는다
+    assert "가드레일 호출 실패, 막음" in log_text and "RuntimeError" in log_text
+    assert "secret detail" not in log_text and "Docker" not in log_text
+    # 답 검사(GUARDRAIL_OUTPUT=1)도 실패하면 막는다
+    env = {"BEDROCK_MOCK": "0", "GUARDRAIL_ID": "g-test", "GUARDRAIL_OUTPUT": "1"}
+    r = _with_bedrock(FakeGuardrails(error=TimeoutError()), lambda: guardrail.check_output("평범한 답"), env)
+    assert r.blocked and r.category == guardrail.FAILED
+    # 가짜 모드나 ID 가 없으면 Guardrails 를 부르지 않고 코드 검사만(실패할 일이 없다)
+    for env in ({"BEDROCK_MOCK": "1", "GUARDRAIL_ID": "g-test"}, {"BEDROCK_MOCK": "0", "GUARDRAIL_ID": ""}):
+        fake = FakeGuardrails(error=RuntimeError())
+        assert _with_bedrock(fake, lambda: guardrail.check_input("x"), env) == guardrail.PASS and fake.calls == []
+
+
+def test_agent_fail_closed():
+    # 입력 검사가 실패하면 도구·모델을 부르지 않고 안내 문장
+    r = _with_bedrock(FakeGuardrails(error=RuntimeError()), lambda: agent.chat(QUESTION))
+    assert r["answer"] == guardrail.UNAVAILABLE_MESSAGE and r["tool_calls"] == [] and r["usage"]["totalTokens"] == 0
+    # 답 검사가 실패하면 답 대신 같은 안내
+    old = agent.guardrail.check_output
+    agent.guardrail.check_output = lambda answer: guardrail.GuardResult(True, "guardrails", guardrail.FAILED, "RuntimeError")
+    try:
+        r = agent.chat(QUESTION)
+    finally:
+        agent.guardrail.check_output = old
+    assert r["answer"] == guardrail.UNAVAILABLE_MESSAGE and r["uncertain_reason"] == "guardrail"
 
 
 @needs_eval
