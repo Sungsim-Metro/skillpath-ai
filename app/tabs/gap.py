@@ -3,6 +3,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from app.tabs.connect import render_connect
 from app.common import (
     ACCENT,
     ACCENT_LIGHT,
@@ -16,6 +17,7 @@ from app.common import (
     load,
     notice,
 )
+from app.tabs.radar import render_radar
 from backend import api
 
 def render_area_gap(ctx: Ctx):
@@ -139,6 +141,10 @@ def _render_gap(ctx: Ctx):
         render_area_gap(ctx)
 
     with st.container(border=True):
+        st.subheader("영역별 역량: 지금과 추천 과정을 마친 뒤")
+        render_radar(ctx)
+
+    with st.container(border=True):
         st.subheader("채용 시장 Gap")
         render_market_gap(ctx)
 
@@ -177,6 +183,10 @@ def _render_gap(ctx: Ctx):
         if have:
             st.caption("이미 보유: " + ", ".join(
                 r["skill"] + (" (불확실)" if r["required_level_confidence"] == "uncertain" else "") for r in have))
+
+    with st.container(border=True):
+        st.subheader("현직자에게 물어보기")
+        render_connect(ctx)
 
 
 
