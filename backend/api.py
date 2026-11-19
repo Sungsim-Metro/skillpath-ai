@@ -120,7 +120,7 @@ def _area_of(skill: str, job_category: str = DEFAULT_JOB) -> tuple[str, str]:
 def get_gap(job_category: str, owned_skills, min_ratio: float = 0.2) -> list[dict]:
     """공고 비율이 min_ratio 이상인 기술을 수요 높은 순으로 돌려주고, 내 단계와 보유 여부를 표시한다.
 
-    owned_skills 는 {세부 능력 id: 0~5}(보유 수준 진단) 또는 기술 이름 목록(예전 형식, 상담 채팅)이다.
+    owned_skills 는 {세부 능력 ID 또는 custom:기술명: 0~5} 또는 기술 이름 목록(상담 채팅)이다.
     단계·기준 단계·충족도 계산은 backend/levels.py 에 있다. 계산은 전부 코드로 한다. LLM 을 쓰지 않는다.
     """
     demand = get_demand(job_category)
@@ -230,6 +230,77 @@ def get_market_gap(job_category: str = DEFAULT_JOB) -> dict:
     return dashboard_gap(DATA_DIR.parent, job_category, allow_example=is_mock())
 
 
+def get_demand_status(job_category: str) -> dict:
+    """관리자 화면용 수요 집계 현황: 집계 시각, 선정 버전, 추출 품질. 화면의 수요 조회(get_demand)는 이 값을 버린다.
+
+    가짜 모드의 예시 집계에는 품질 값이 없어 NotImplementedError 를 낸다(화면은 "개발 중"으로 보여 준다).
+    """
+    if is_mock():
+        raise NotImplementedError("가짜 모드의 예시 집계에는 추출 품질 값이 없습니다.")
+    snapshot = DynamoDBStore.from_env().get_demand_snapshot(job_category)
+    if snapshot is None:
+        raise LookupError(f"완성된 직무 수요 집계가 없습니다: {job_category}")
+    snapshot = json_numbers(snapshot)
+    demand, quality = snapshot["demand"], snapshot.get("quality", {})
+    uncertain = sorted(quality.get("uncertain_skills", []), key=lambda row: (-row["postings"], row["skill"]))
+    return {
+        "job_category": job_category,
+        "job_title": JOBS[job_category],
+        "generated_at": snapshot.get("generated_at"),
+        "total_postings": demand["total_postings"],
+        "sources": demand.get("sources", []),
+        "collected": demand.get("collected"),
+        "counted_skills": len(demand["skills"]),
+        "selection_version": snapshot.get("policy", {}).get("selection_version"),
+        "empty_extraction_postings": quality.get("empty_extraction_postings"),
+        "uncertain_only_postings": quality.get("uncertain_only_postings"),
+        "excluded_postings": quality.get("excluded_postings", []),
+        "uncertain_skill_count": len(uncertain),
+        "uncertain_skills": uncertain,
+    }
+
+
+def get_course_coverage(job_category: str) -> list[dict]:
+    """수요에 잡힌 기술마다 AWS 교육과정이 있는지: [{"skill", "postings", "ratio", "status", "courses"}].
+
+    status 는 "certain"(그 기술을 직접 다루는 과정이 있음), "uncertain"(관련 과정만 있음), "none"(과정 없음),
+    "unknown"(과정 데이터가 맞지 않아 확인하지 못함, courses 는 None)이다. 한 기술의 오류가 표 전체를 막지 않는다.
+    모델과 검색 서비스를 부르지 않고 규칙(과정 제목·학습 목표와 세부 능력 연결)만으로 본다. 실제 추천은 여기에
+    키워드·임베딩 검색으로 관련 과정을 더 채우므로, "none" 은 실제 화면에서 불확실한 과정이 붙어 나올 수 있다.
+    """
+    from ai.recommend import candidate_courses
+
+    demand = get_demand(job_category)
+    total = demand["total_postings"]
+    rows = []
+    for item in demand["skills"]:
+        try:
+            courses = candidate_courses(item["skill"], rules_only=True)
+            certain = sum(course["match"] != "uncertain" for course in courses)
+            status, found = "certain" if certain else "uncertain" if courses else "none", len(courses)
+        except (KeyError, ValueError) as exc:
+            logger.warning("과정 커버리지 %s 확인 실패: %s", item["skill"], type(exc).__name__)
+            status, found = "unknown", None
+        rows.append({"skill": item["skill"], "postings": item["postings"], "ratio": round(item["postings"] / total, 3) if total else 0,
+                     "status": status, "courses": found})
+    return rows
+
+
+def demand_pairs(job_category: str, gap_skills: list[str]) -> list[tuple[str, dict]]:
+    """추천에 넘기는 (기술, 수요 숫자) 목록. 숫자는 수요 집계에서 코드로 만든다."""
+    demand_all = get_demand(job_category)
+    by_demand = {s["skill"]: s for s in demand_all["skills"]}
+    pairs = []
+    for skill in gap_skills:
+        d = by_demand.get(skill, {"postings": 0, "required": 0})  # 수요에 없는 기술은 0 으로 넘긴다
+        pairs.append((skill, {
+            "postings": d["postings"],
+            "of": demand_all["total_postings"],
+            "required_ratio": round(d["required"] / d["postings"], 2) if d["postings"] else 0,
+        }))
+    return pairs
+
+
 def get_recommendations(job_category: str, gap_skills: list[str], *, review: bool = False,
                         levels: dict[str, float] | None = None) -> list[dict]:
     """부족 기술마다 추천(③)을 돌려준다. 찾은 과정이 없으면 courses 가 빈 목록이다.
@@ -245,26 +316,20 @@ def get_recommendations(job_category: str, gap_skills: list[str], *, review: boo
     채팅에서 review=True이면 과정 목표로 사유를 검증한다. 모의 모드에서도 로컬 과정 목록을 쓴다.
     """
     mock = is_mock()
-    demand_all = get_demand(job_category)
-    by_demand = {s["skill"]: s for s in demand_all["skills"]}
     if not mock or review:
         gap_skills = gap_skills[:RECOMMEND_TOP_N]  # 기술별 모델 호출 비용과 화면 길이를 제한한다
-    pairs = []
-    for skill in gap_skills:
-        d = by_demand.get(skill, {"postings": 0, "required": 0})  # 수요에 없는 기술은 0 으로 넘긴다
-        pairs.append((skill, {
-            "postings": d["postings"],
-            "of": demand_all["total_postings"],
-            "required_ratio": round(d["required"] / d["postings"], 2) if d["postings"] else 0,
-        }))
+    pairs = demand_pairs(job_category, gap_skills)
     if mock and not review:
         by_skill = {r["gap_skill"]: r for r in _load("recommendations.json", job_category)}
         return [_with_level(by_skill[skill] if skill in by_skill else {"gap_skill": skill, "demand": demand, "courses": []},
                             levels)
                 for skill, demand in pairs]
 
+    from ai.bedrock import current_model
+
     kb_scope = None if mock else (os.getenv("AWS_REGION", "ap-northeast-2"), os.getenv("BEDROCK_KB_ID", ""))
-    key = (job_category, review, mock, kb_scope,
+    # 모델도 키에 넣는다. 상담 실험은 메시지마다 모델이 달라서, 다른 모델이 쓴 이유가 섞여 나오면 안 된다
+    key = (job_category, review, mock, kb_scope, None if mock else current_model(),
            tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
     with _recommend_cache_lock:
         cached = _recommend_cache.get(key)

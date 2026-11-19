@@ -1,6 +1,7 @@
 """학습 상담 화면의 호출 범위와 세션 분리를 확인한다."""
 import json
 import os
+import tempfile
 import unittest
 from dataclasses import asdict
 from pathlib import Path
@@ -18,9 +19,13 @@ MAIN = str(Path(__file__).with_name("main.py"))
 
 
 class ChatScreenTest(unittest.TestCase):
+    password = "example profile password"
+
     def setUp(self):
+        self.profile_db = Path(self.enterContext(TemporaryDirectory())) / "profiles.sqlite3"
         self.enterContext(patch.dict(os.environ, {
             "BEDROCK_MOCK": "1", "PYTHON_DOTENV_DISABLED": "1", "USAGE_LOG": "off",
+            "SKILLPATH_MOCK_PROFILE_DB": str(self.profile_db),
         }))
 
     def open_screen(self, view="chat"):
@@ -29,6 +34,12 @@ class ChatScreenTest(unittest.TestCase):
         at.run()
         self.assertFalse(at.exception)
         return at
+
+    def authenticate(self, at, nickname, *, register=False, password=None):
+        at.text_input(key="auth_nickname").set_value(nickname)
+        at.text_input(key="auth_password").set_value(self.password if password is None else password)
+        at.button(key="auth_register" if register else "auth_login").click().run()
+        self.assertFalse(at.exception)
 
     def test_token_usage_counts_retries_and_failed_turns_only_for_this_chat(self):
         log = Path(self.enterContext(TemporaryDirectory())) / "usage.jsonl"
@@ -64,21 +75,21 @@ class ChatScreenTest(unittest.TestCase):
             self.assertEqual(other.metric[0].value, "0")
             self.assertEqual(call.call_count, 4)
 
-        at.text_input(key="chat_nickname").set_value("처음 닉네임").run()
+        self.authenticate(at, "처음 닉네임", register=True)
         at.radio(key="view").set_value("dashboard").run()
         at.radio(key="view").set_value("chat").run()
         self.assertEqual(at.metric[0].value, "110")
         self.assertEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
-        at.text_input(key="chat_nickname").set_value("새 닉네임").run()
+        at.button(key="auth_logout").click().run()
         self.assertEqual(at.metric[0].value, "0")
         self.assertNotEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
 
-        admin = AppTest.from_file(MAIN, default_timeout=60)
-        admin.query_params["admin"] = "test-key"
-        admin.run()
+        root = str(Path(MAIN).parent.parent)
+        page = "\n".join(["import sys", f"sys.path.insert(0, {root!r})", "from app import admin", "admin.render()"])
+        admin = AppTest.from_string(page, default_timeout=60).run()  # 관리자 화면의 토큰·비용 탭
         self.assertFalse(admin.exception)
         session_table = next(
-            frame.value for frame in admin.tabs[-1].dataframe if "세션 ID" in frame.value.columns
+            frame.value for frame in admin.dataframe if "세션 ID" in frame.value.columns
         )
         self.assertEqual(session_table["세션 ID"].tolist(), [session_id])
         row = session_table.iloc[0]
@@ -134,6 +145,39 @@ class ChatScreenTest(unittest.TestCase):
             self.assertEqual(recs.call_count, 1)
             self.assertFalse(at.exception)
 
+    def test_answers_take_a_rating_and_two_recommendations_take_a_choice(self):
+        """비교 실험: 답마다 평가를 받고, 추천 구조가 둘이면 A/B 로 나란히 보여 준다(기록에는 내용이 없다)."""
+        from backend import experiments
+
+        off = self.open_screen()
+        off.chat_input[0].set_value("클라우드 엔지니어 기준으로 뭐가 부족해?").run()
+        self.assertFalse(off.get("feedback"))                       # 실험이 꺼져 있으면 평가 위젯이 없다
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "feedback.jsonl"
+            with patch.dict(os.environ, {"AB_STRUCTURES": "single,reviewed", "FEEDBACK_LOG": str(log)}):
+                at = self.open_screen()
+                at.chat_input[0].set_value("클라우드 엔지니어 기준으로 뭐가 부족해?").run()
+                self.assertFalse(at.exception)
+                self.assertEqual(len(at.get("feedback")), 1)        # 답 하나에 평가 위젯 하나
+                self.assertFalse(at.radio(key="view") is None)
+                self.assertFalse([r for r in at.radio if r.key and r.key.startswith("ab_")])
+                at.chat_input[0].set_value("그중 먼저 들을 교육과정을 추천해줘.").run()
+                self.assertFalse(at.exception)
+                choice = [r for r in at.radio if r.key and r.key.startswith("ab_")]
+                self.assertEqual(len(choice), 1)
+                self.assertEqual([m.value for m in at.markdown if m.value in ("**추천 A**", "**추천 B**")],
+                                 ["**추천 A**", "**추천 B**"])
+                choice[0].set_value("A").run()
+                self.assertFalse(at.exception)
+                rows = experiments.load_feedback()
+            self.assertEqual(len(rows), 2)                          # 턴마다 한 건(평가를 안 눌러도 요청 종류와 토큰은 남는다)
+            self.assertEqual(sorted(row["action"] for row in rows), ["courses", "gap"])
+            chosen = [row for row in rows if row.get("picked")]
+            self.assertEqual(len(chosen), 1)
+            self.assertIn(chosen[0]["picked"], ("single", "reviewed"))
+            self.assertEqual({chosen[0]["left"], chosen[0]["right"]}, {"single", "reviewed"})
+            self.assertNotIn("추천해줘", log.read_text(encoding="utf-8"))
+
     def diagnose(self, at, levels):
         """모달 저장과 같은 상태를 만든다(AppTest 는 모달 안 버튼을 다시 그리지 못한다)."""
         at.session_state["levels"] = levels
@@ -154,91 +198,140 @@ class ChatScreenTest(unittest.TestCase):
         self.assertEqual(len(at.tabs), 4)
         self.assertFalse(at.exception)
 
-    def test_levels_are_saved_and_reloaded_by_nickname(self):
-        from app import levels as levels_screen
-
-        folder = self.enterContext(TemporaryDirectory())
-        self.enterContext(patch.dict(os.environ, {"SKILLPATH_MOCK_PROFILE_DB": str(Path(folder) / "p.sqlite3")}))
-        chosen = {sid: 0 for sid in levels_screen.level_guide()["subskills"]}
-        chosen.update({"C1-4": 4, "C2-3": 2})
-        class State(dict):
-            __getattr__, __setattr__ = dict.get, dict.__setitem__
-
-        with patch.object(levels_screen.st, "session_state", State()):
-            levels_screen.save_levels("수준 예시", chosen)
-        self.assertEqual({k: v for k, v in chat_profiles.load_profile("수준 예시")["levels"].items() if v},
-                         {"C1-4": 4, "C2-3": 2})
+    def test_levels_require_authentication_before_they_are_reloaded(self):
+        session = chat_profiles.create_profile("수준 예시", self.password)
+        chat_profiles.update_profile(session, levels={"C1-4": 4, "C2-3": 2})
         at = self.open_screen("dashboard")
-        self.assertTrue(at.session_state["levels_example"])
-        at.text_input(key="chat_nickname").set_value("수준 예시").run()
+        with patch.object(chat_profiles, "load_profile", wraps=chat_profiles.load_profile) as read:
+            at.text_input(key="auth_nickname").set_value("수준 예시").run()
+            self.authenticate(at, "수준 예시", password="incorrect example password")
+            read.assert_not_called()
+            self.assertTrue(at.session_state["levels_example"])
+            self.assertEqual(at.text_input(key="auth_password").value, "")
+            self.assertTrue(at.error)
+            self.authenticate(at, "수준 예시")
         self.assertFalse(at.session_state["levels_example"])
         self.assertEqual(at.session_state["levels"]["C1-4"], 4)
-        at.text_input(key="chat_nickname").set_value("다른 사람").run()
-        self.assertTrue(at.session_state["levels_example"])  # 다른 닉네임은 예시 값으로 돌아간다
+        at.button(key="auth_logout").click().run()
+        self.assertTrue(at.session_state["levels_example"])
+        self.assertTrue(at.button(key="open_report").disabled)
+        self.assertEqual(at.text_input(key="auth_password").value, "")
         self.assertFalse(at.exception)
 
-    def test_nickname_and_reruns_do_not_replay_or_leak_messages(self):
+    def test_logout_and_failed_sign_in_clear_previous_private_state(self):
         at = self.open_screen()
-        echo = "![text](https://example.com/image)"
-        with patch("backend.chat.handle_message", return_value=SimpleNamespace(text=echo, courses=[])) as handle:
-            at.chat_input[0].set_value(echo).run()
-            at.text_input(key="chat_nickname").set_value("첫째").run()
-            self.assertEqual([m.text[0].value for m in at.chat_message], [echo, echo])
-            self.assertFalse(any(echo in m.value for m in at.markdown))
-            self.diagnose(at, {"C1-4": 3})
-            at.chat_input[0].set_value("Docker 경험을 저장해줘").run()
-            self.assertEqual(handle.call_args.kwargs["nickname"], "첫째")
-            # 공통 기술(AWS·Azure)은 고른 세부 능력 평균(3)이라 기준을 넘는다
-            self.assertEqual(handle.call_args.kwargs["sidebar_skills"], ["AWS", "Docker", "Kubernetes", "Azure"])
-            first_state = handle.call_args.args[0]
-            at.radio(key="view").set_value("dashboard").run()
-            at.radio(key="view").set_value("chat").run()
-            self.assertEqual(len(at.chat_message), 4)
-            self.assertEqual(at.text_input(key="chat_nickname").value, "첫째")
-            at.text_input(key="chat_nickname").set_value("둘째").run()
+        self.authenticate(at, "첫째", register=True)
+        self.diagnose(at, {"C1-4": 3})
+        at.chat_input[0].set_value("프로젝트에서 제가 Docker로 API를 배포했어요.").run()
+        at.radio(key="view").set_value("dashboard").run()
+        at.radio(key="view").set_value("chat").run()
+        self.assertEqual(len(at.chat_message), 2)
+        first_state = at.session_state["chat_conversation"]
+        self.assertEqual(first_state.session.nickname, "첫째")
+        for key in ("lv_page", "extraction", "extracted_text"):
+            at.session_state[key] = "private draft"
+        at.button(key="auth_logout").click().run()
+        with (patch.object(chat_profiles, "load_profile", wraps=chat_profiles.load_profile) as read,
+              patch.object(chat_profiles, "update_profile", wraps=chat_profiles.update_profile) as write):
+            self.authenticate(at, "첫째", password="incorrect example password")
+            self.assertFalse(at.chat_message)
+            self.assertIsNot(at.session_state["chat_conversation"], first_state)
+            self.assertTrue(at.session_state["levels_example"])
+            self.assertTrue(at.button(key="open_report").disabled)
+            for key in ("lv_page", "extraction", "extracted_text", "profile_session"):
+                self.assertNotIn(key, at.session_state)
+            at.chat_input[0].set_value("내 상태를 정리해줘").run()
+            self.assertNotIn("Docker", at.chat_message[-1].text[0].value)
+            read.assert_not_called()
+            write.assert_not_called()
+        self.authenticate(at, "둘째", register=True)
+        self.assertEqual(at.session_state["profile_session"].nickname, "둘째")
+
+    def test_legacy_nickname_session_starts_again_as_guest(self):
+        at = self.open_screen()
+        at.session_state["chat_identity"] = "기존 닉네임"
+        at.session_state["chat_history"] = [("private message", "private reply", [])]
+        at.session_state["levels"] = {"C1-4": 5}
+        at.session_state["levels_example"] = False
+        with patch.object(chat_profiles, "load_profile", wraps=chat_profiles.load_profile) as read:
+            at.run()
             self.assertFalse(at.chat_message)
             self.assertTrue(at.session_state["levels_example"])
-            self.assertEqual(handle.call_count, 2)
-            at.chat_input[0].set_value("내 상태를 정리해줘").run()
-            self.assertIsNot(handle.call_args.args[0], first_state)
-            self.assertEqual(handle.call_args.kwargs["nickname"], "둘째")
-            at.text_input(key="chat_nickname").set_value("").run()
-            self.assertFalse(at.chat_message)
-            self.assertFalse(at.exception)
+            read.assert_not_called()
+        self.assertNotIn("chat_identity", at.session_state)
 
-    def test_saving_a_guest_experience_after_entering_a_nickname(self):
-        folder = self.enterContext(TemporaryDirectory())
-        database = Path(folder) / "profiles.sqlite3"
-        self.enterContext(patch.dict(os.environ, {"SKILLPATH_MOCK_PROFILE_DB": str(database)}))
+    def test_legacy_tuple_history_shows_courses_without_feedback_for_guests_and_users(self):
+        self.enterContext(patch.dict(os.environ, {"AB_STRUCTURES": "single,reviewed"}))
+        legacy_course = {"title": "이전 추천 과정", "match": "certain", "url": "https://example.com/legacy"}
+        for signed_in in (False, True):
+            with self.subTest(signed_in=signed_in):
+                at = self.open_screen()
+                if signed_in:
+                    self.authenticate(at, "기존 세션 예시", register=True)
+                at.session_state["chat_history"] = [("이전 질문", "이전 답변", [legacy_course])]
+                at.run()
+                self.assertFalse(at.exception)
+                self.assertEqual(at.chat_message[0].text[0].value, "이전 질문")
+                self.assertEqual(at.chat_message[1].text[0].value, "이전 답변")
+                self.assertEqual(at.get("link_button")[0].proto.url, legacy_course["url"])
+                self.assertFalse(at.get("feedback"))
+
+    def test_saving_a_guest_experience_after_login(self):
         at = self.open_screen()
         at.chat_input[0].set_value("프로젝트에서 제가 Docker로 API를 배포했어요.").run()
-        at.text_input(key="chat_nickname").set_value("상담 예시").run()
         with patch.object(chat_profiles, "update_profile", wraps=chat_profiles.update_profile) as save:
-            self.assertFalse(database.exists())
+            at.chat_input[0].set_value("방금 말한 Docker 배포 경험을 프로필에 저장해줘.").run()
+            self.assertIn("로그인", at.chat_message[-1].text[0].value)
+            save.assert_not_called()
+            self.assertFalse(self.profile_db.exists())
+            self.authenticate(at, "상담 예시", register=True)
+            self.assertEqual(len(at.chat_message), 4)
             at.chat_input[0].set_value("방금 말한 Docker 배포 경험을 프로필에 저장해줘.").run()
             self.assertIn("저장했습니다", at.chat_message[-1].text[0].value)
             at.run()
             self.assertEqual(save.call_count, 1)
-        profile = chat_profiles.load_profile("상담 예시")
+        session = at.session_state["profile_session"]
+        profile = chat_profiles.load_profile(session)
         self.assertFalse(profile["skills"])
         self.assertEqual(len(profile["experiences"]), 1)
         self.assertIn("Docker", profile["experiences"][0])
         reopened = self.open_screen()
-        reopened.text_input(key="chat_nickname").set_value("상담 예시").run()
+        self.authenticate(reopened, "상담 예시")
+        self.assertFalse(reopened.chat_message)
         with patch.object(api, "get_gap", wraps=api.get_gap) as gap:
             reopened.chat_input[0].set_value("내 경험 기준으로 뭐가 부족해?").run()
             gap.assert_called_once_with("cloud_engineer", ["Docker"])
-        self.assertEqual(chat_profiles.load_profile("상담 예시"), profile)
+        self.assertEqual(chat_profiles.load_profile(session), profile)
+
+    def test_chat_reuses_one_unlisted_skill_across_jobs_and_sign_ins(self):
+        first = self.open_screen()
+        self.authenticate(first, "역량 예시", register=True, password="x")
+        first.chat_input[0].set_value("제가 Acme.Flow를 사용했어요. Acme.Flow만 프로필에 저장해줘.").run()
+        session = first.session_state["profile_session"]
+        self.assertEqual(chat_profiles.load_profile(session)["skills"], ["Acme.Flow"])
+        first.button(key="auth_logout").click().run()
+
+        second = self.open_screen()
+        self.authenticate(second, "역량 예시", password="x")
+        second.selectbox(key="job").set_value("ai_engineer").run()
+        second.chat_input[0].set_value("제가 acme.flow를 사용했어요. acme.flow만 프로필에 저장해줘.").run()
+        self.assertFalse(second.exception)
+        profile = chat_profiles.load_profile(second.session_state["profile_session"])
+        self.assertEqual(profile["skills"], ["Acme.Flow"])
+        self.assertEqual(profile["levels"], {})
 
     def test_returned_course_links_have_plain_text_details(self):
         at = self.open_screen()
         course = {"title": "[예시 과정]", "url": "https://example.com/course", "match": "uncertain",
                   "level": "기초", "prerequisites": "없음", "reason": "과정에서 배포 실습을 다룹니다."}
         invalid = {**course, "url": "javascript:alert(1)"}
-        reply = SimpleNamespace(text="검토한 교육과정입니다.", courses=[course, invalid])
+        plain_text = "![텍스트](https://example.com/image)"
+        reply = SimpleNamespace(text=plain_text, courses=[course, invalid])
         with patch("backend.chat.handle_message", return_value=reply):
-            at.chat_input[0].set_value("과정 추천해줘").run()
+            at.chat_input[0].set_value(plain_text).run()
             at.chat_input[0].set_value("과정을 다시 보여줘").run()
+        self.assertEqual([message.text[0].value for message in at.chat_message[:2]], [plain_text, plain_text])
+        self.assertFalse(any(plain_text in block.value for block in at.markdown))
         self.assertFalse(at.exception)
         self.assertEqual([item.proto.url for item in at.get("link_button")], [course["url"], course["url"]])
         details = " ".join(item.value for item in at.chat_message[-1].text)

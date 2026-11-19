@@ -1,13 +1,14 @@
 """학습 상담 상태를 합치고, 사용자가 요청한 범위의 도구만 실행한다."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from ai import chat as intake
-from ai.bedrock import BedrockJSONError
-from ai.usage import SessionUsage, track_session
-from backend import api, chat_profiles
+from ai.bedrock import BedrockJSONError, current_model, use_model
+from ai.usage import SessionUsage, current_session, track_session
+from backend import api, chat_profiles, experiments
 from backend.jobs import JOBS
 from pipeline.aliases import normalize_skill
 
@@ -16,7 +17,7 @@ from pipeline.aliases import normalize_skill
 class Conversation:
     """접속 중인 한 이용자의 대화 상태. False인 수정값은 이전 보유 진술을 취소한다."""
 
-    nickname: str = ""
+    session: chat_profiles.ProfileSession | None = field(default=None, repr=False)
     profile: dict | None = None
     job: str | None = None
     needs_role: bool = False
@@ -31,8 +32,19 @@ class Conversation:
 
 @dataclass
 class Reply:
+    """한 턴의 답. turn_id 아래는 비교 실험(backend/experiments.py) 기록용이다.
+
+    alternatives 가 둘이면 화면이 A/B 로 나란히 보여 준다: [{"structure", "courses", "tokens"}] 왼쪽, 오른쪽 순서.
+    failed 는 모델 응답이 검사를 통과하지 못해 답을 만들지 못한 턴이다.
+    """
+
     text: str
     courses: list[dict] = field(default_factory=list)
+    turn_id: str = field(default_factory=lambda: uuid4().hex)
+    model: str = ""
+    action: str = ""
+    alternatives: list[dict] = field(default_factory=list)
+    failed: bool = False
 
 
 def _skill(name: str) -> str:
@@ -45,15 +57,14 @@ def _effective(base: list[str], edits: dict[str, bool]) -> list[str]:
     return [name for name, present in merged.items() if present]
 
 
-def _context(state: Conversation, sidebar_job: str, sidebar_skills: list[str]) -> dict:
+def _context(state: Conversation, sidebar_job: str, base_skills: list[str]) -> dict:
     profile = state.profile or {}
-    skills = [_skill(s) for s in [*profile.get("skills", []), *sidebar_skills]]
     job = state.job or profile.get("job") or sidebar_job
     return {
         "job": job if job in JOBS and not state.needs_role else None,
         "needs_role": state.needs_role,
         "pending_save": state.pending_save,
-        "skills": _effective(skills, state.skills),
+        "skills": _effective(base_skills, state.skills),
         "excluded_skills": [skill for skill, present in state.skills.items() if not present],
         "experiences": _effective(profile.get("experiences", []), state.experiences),
         "history": state.history,
@@ -62,8 +73,8 @@ def _context(state: Conversation, sidebar_job: str, sidebar_skills: list[str]) -
 
 
 def _apply_turn(state: Conversation, turn: intake.Turn) -> None:
-    added = [_skill(x) for x in turn.add_skills]
-    removed = [_skill(x) for x in turn.remove_skills]
+    added = turn.add_skills
+    removed = turn.remove_skills
     state.skills.update(dict.fromkeys(added, True))
     state.skills.update(dict.fromkeys(removed, False))
     state.experiences.update(dict.fromkeys(turn.add_experiences, True))
@@ -87,7 +98,7 @@ def _save(state: Conversation, turn: intake.Turn, facts: dict) -> str:
         changes["job"] = facts["job"]
         labels.append(JOBS[facts["job"]])
     for key, selected, edits in (
-        ("skills", [_skill(s) for s in turn.save_skills], state.skills),
+        ("skills", turn.save_skills, state.skills),
         ("experiences", turn.save_experiences, state.experiences),
     ):
         for item in dict.fromkeys(selected):
@@ -98,15 +109,21 @@ def _save(state: Conversation, turn: intake.Turn, facts: dict) -> str:
             else:
                 state.pending_save = True
                 return "프로필에 반영할 기술이나 직접 맡은 일을 구체적으로 알려 주세요."
-            changes.setdefault(f"{op}_{key}", []).append(item)
+            stored_names = []
+            if key == "skills":
+                # 예전 프로필의 별칭도 실제 저장 표기로 수정한다.
+                stored_names = [s for s in (state.profile or {}).get("skills", [])
+                                if _skill(s).casefold() == item.casefold()]
+            values = stored_names if op == "remove" else stored_names[:1]
+            changes.setdefault(f"{op}_{key}", []).extend(values or [item])
             labels.append(item if op == "add" else f"{item} (삭제)")
     if not changes:
         state.pending_save = True
         return "프로필에 저장할 항목을 지정해 주세요."
-    if not state.nickname:
-        return "프로필을 저장하려면 닉네임을 입력한 뒤 저장할 항목을 다시 말씀해 주세요."
+    if state.session is None:
+        return "프로필을 저장하려면 사이드바에서 로그인한 뒤 저장할 항목을 다시 말씀해 주세요."
     try:
-        state.profile = chat_profiles.update_profile(state.nickname, **changes)
+        state.profile = chat_profiles.update_profile(state.session, **changes)
     except Exception:
         return "프로필 저장에 실패했습니다. 이번 상담 내용은 유지됩니다."
     return "프로필에 저장했습니다. " + ", ".join(labels)
@@ -140,6 +157,35 @@ def _verified_courses(recommendations: list[dict], missing: list[dict]) -> list[
     return courses
 
 
+def _compare_structures(pair: tuple[str, str], job: str, requested: list[str],
+                        missing: list[dict]) -> tuple[list[dict], list[dict]]:
+    """추천 구조 두 개로 각각 추천을 만들고 같은 검사를 한다. (나란히 보여 줄 두 결과, 기본으로 보여 줄 과정)을 돌려준다.
+
+    둘 다 과정을 냈을 때만 A/B 로 보여 준다. 그렇지 않으면 기본 구조(검토를 거친 쪽)의 결과만 보여 준다.
+    검토를 거치지 않은 구조의 추천은 A/B 밖에서 혼자 나가지 않는다. 기본 구조가 검사에 실패했으면 그 오류를 낸다.
+    구조별 토큰은 세션 사용량의 앞뒤 차이로 잰다.
+    """
+    usage = current_session()
+    results, error = [], None
+    for name in pair:
+        before = (usage.input_tokens, usage.output_tokens) if usage else (0, 0)
+        try:
+            found = _verified_courses(experiments.recommend_with(name, job, requested), missing)
+        except (BedrockJSONError, KeyError, TypeError, ValueError) as exc:
+            found, error = [], exc
+        after = (usage.input_tokens, usage.output_tokens) if usage else (0, 0)
+        results.append({"structure": name, "courses": found,
+                        "tokens": {"input": after[0] - before[0], "output": after[1] - before[1]}})
+    default = next((r for r in results if r["structure"] == experiments.DEFAULT_STRUCTURE), None)
+    if all(r["courses"] for r in results):
+        return results, (default or results[0])["courses"]
+    if default is None:  # 기본 구조가 비교 대상에 없으면 A/B 가 성립할 때만 보여 준다
+        default = {"courses": []}
+    if not default["courses"] and error is not None:
+        raise error
+    return [], default["courses"]
+
+
 def _analyze(facts: dict, *, courses: bool) -> Reply:
     job = facts["job"]
     try:
@@ -159,19 +205,27 @@ def _analyze(facts: dict, *, courses: bool) -> Reply:
     if courses:
         try:
             requested = [r["skill"] for r in missing][:api.RECOMMEND_TOP_N]
-            recs = api.get_recommendations(job, requested, review=True)
-            reply.courses = _verified_courses(recs, missing[:len(requested)])
+            pair = experiments.pick_pair()
+            if pair:
+                reply.alternatives, reply.courses = _compare_structures(pair, job, requested, missing[:len(requested)])
+            else:
+                recs = api.get_recommendations(job, requested, review=True)
+                reply.courses = _verified_courses(recs, missing[:len(requested)])
             detail = ("부족 기술과 연결된 과정입니다. 과정별 추천 이유와 매칭 상태를 확인해 주세요." if reply.courses
                       else "상위 부족 기술에 연결할 교육과정을 찾지 못했습니다.")
+            if reply.alternatives:
+                detail = ("부족 기술과 연결된 과정을 두 가지 방식으로 추천했습니다. "
+                          "과정별 추천 이유를 읽고 더 도움이 되는 쪽을 골라 주세요.")
         except (BedrockJSONError, KeyError, TypeError, ValueError):
             detail = "추천 결과가 검증을 통과하지 못해 과정을 표시할 수 없습니다."
+            reply.failed = True
         except Exception:
             detail = "교육과정 추천을 불러오지 못했습니다."
         reply.text += "\n\n" + detail
     return reply
 
 
-def _answer(state: Conversation, turn: intake.Turn, job: str, sidebar_skills: list[str]) -> Reply:
+def _answer(state: Conversation, turn: intake.Turn, job: str, base_skills: list[str]) -> Reply:
     supported = ", ".join(JOBS.values())
     if turn.status == "unsupported" or (turn.job and turn.job not in JOBS):
         state.needs_role = True
@@ -186,9 +240,9 @@ def _answer(state: Conversation, turn: intake.Turn, job: str, sidebar_skills: li
     if turn.status != "ok":
         return Reply(f"{supported} 직무 준비와 본인의 역량에 관한 질문을 도와드릴 수 있습니다.")
     _apply_turn(state, turn)
-    facts = _context(state, job, sidebar_skills)
+    facts = _context(state, job, base_skills)
     # 저장한 경험 자체에서 확인한 기술은 이번 답변의 비교에만 쓴다.
-    facts["skills"] = _effective([*facts["skills"], *map(_skill, turn.experience_skills)], state.skills)
+    facts["skills"] = _effective([*facts["skills"], *turn.experience_skills], state.skills)
     if turn.action in {"gap", "courses"}:
         if not facts["job"]:
             reply = Reply(f"{supported} 직무 기준으로 비교할까요?")
@@ -214,14 +268,43 @@ def _answer(state: Conversation, turn: intake.Turn, job: str, sidebar_skills: li
 
 
 def handle_message(state: Conversation, message: str, *, job: str, sidebar_skills: list[str],
-                   nickname: str = "") -> Reply:
+                   session: chat_profiles.ProfileSession | None = None) -> Reply:
     """새 메시지 한 건을 처리한다. 화면 재표시는 이 진입점을 호출하지 않는다."""
-    nickname = nickname.strip()
-    if state.nickname and nickname != state.nickname:
-        state.__init__()
-    state.nickname = nickname
-    with track_session(state.usage):
-        return _handle_turn(state, message, job, sidebar_skills)
+    previous = getattr(state, "session", None)
+    # Open connections may still hold the pre-authentication Conversation type.
+    legacy_nickname = vars(state).pop("nickname", "")
+    if legacy_nickname or (previous is not None and session is not previous):
+        Conversation.__init__(state)
+    state.session = session
+    model = experiments.pick_model()  # 실험이 꺼져 있으면 None: 기본 모델 그대로
+    turn_id = uuid4().hex
+    before = (state.usage.input_tokens, state.usage.output_tokens)
+    with track_session(state.usage), use_model(model):
+        used = "" if api.is_mock() else current_model()
+        try:
+            reply = _handle_turn(state, message, job, sidebar_skills)
+        except Exception:
+            _record_turn(state, turn_id, job, used, before, failed=True)
+            raise
+    reply.turn_id, reply.model = turn_id, used
+    _record_turn(state, turn_id, job, used, before, action=reply.action, failed=reply.failed)
+    return reply
+
+
+def _record_turn(state: Conversation, turn_id: str, job: str, model: str, before: tuple[int, int], *,
+                 action: str = "", failed: bool = False) -> None:
+    """실험이 켜져 있으면 턴마다 배정된 모델, 요청 종류, 쓴 토큰, 검사 실패 여부를 남긴다(내용은 남기지 않는다).
+
+    평가를 누르지 않은 턴도 모델별 턴 수와 턴당 비용을 세는 데 필요하다. 기록 실패는 상담을 막지 않는다.
+    """
+    if not experiments.active():
+        return
+    tokens = {"input": state.usage.input_tokens - before[0], "output": state.usage.output_tokens - before[1]}
+    try:
+        experiments.save_feedback(state.usage.session_id, turn_id, job=job, model=model or None, action=action or None,
+                                  turn_tokens=tokens, failed=True if failed else None)
+    except Exception:
+        pass
 
 
 def _handle_turn(state: Conversation, message: str, job: str, sidebar_skills: list[str]) -> Reply:
@@ -234,23 +317,39 @@ def _handle_turn(state: Conversation, message: str, job: str, sidebar_skills: li
     if not allowed:
         return Reply("이 요청은 학습 상담 범위에서 처리할 수 없습니다.")
     read_failed = False
-    if state.nickname and state.profile is None:
+    if state.session is not None and state.profile is None:
         try:
-            state.profile = chat_profiles.load_profile(state.nickname)
+            state.profile = chat_profiles.load_profile(state.session)
         except Exception:
             read_failed = True
+    # 기술 하나에는 프로필 또는 세션에서 처음 사용한 표기를 쓴다. 경험 문구는 원문을 유지한다.
+    spellings: dict[str, str] = {}
+
+    def display_name(raw: str) -> str:
+        name = _skill(raw)
+        return spellings.setdefault(name.casefold(), name)
+
+    def names(raws: list[str]) -> list[str]:
+        return list(dict.fromkeys(map(display_name, raws)))
+
+    base_skills = names((state.profile or {}).get("skills", []))
+    state.skills = {display_name(raw): present for raw, present in state.skills.items()}
+    base_skills.extend(names(sidebar_skills))
     try:
-        context = _context(state, job, sidebar_skills)
+        context = _context(state, job, base_skills)
         turn = intake.interpret(message, context, screened=True)
+        turn = replace(turn, add_skills=names(turn.add_skills), remove_skills=names(turn.remove_skills),
+                       experience_skills=names(turn.experience_skills), save_skills=names(turn.save_skills))
     except intake.ChatIntakeError:
-        return Reply("메시지를 해석하지 못했습니다. 요청을 다시 말씀해 주세요.")
+        return Reply("메시지를 해석하지 못했습니다. 요청을 다시 말씀해 주세요.", action="intake", failed=True)
     if (state.offered_gap and turn.status == "ok" and turn.action == "note"
             and message.strip().rstrip(".!").strip() in {"네", "예", "응", "좋아요", "비교해줘", "비교해 주세요"}):
         turn.action = "gap"
     if turn.status not in {"blocked", "out_of_scope"}:
         state.pending_save = False
         state.offered_gap = False
-    reply = _answer(state, turn, job, sidebar_skills)
+    reply = _answer(state, turn, job, base_skills)
+    reply.action = turn.action if turn.status == "ok" else turn.status
     if turn.status == "ok" and turn.action == "summary" and "상태" in message and not any(
         word in message for word in ("정리", "요약", "만")
     ):
