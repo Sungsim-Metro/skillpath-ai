@@ -2,7 +2,7 @@
 
 `backend/dynamodb.py`의 테이블 생성·저장, `backend/demand.py`의 수요 집계,
 `pipeline/extraction_batch.py`의 배치 실행 규칙을 설명한다.
-단일 직무, 수십~수백 건 규모의 배치를 기준으로 하며, 규모가 커질 때 검토할 장치는 10절에 정리했다.
+배치 한 번에 한 직무의 공고를 분석한다. 수십~수백 건 규모를 기준으로 하며, 규모가 커질 때 검토할 장치는 10절에 정리했다.
 
 ## 1. 저장 구조와 책임
 
@@ -45,22 +45,16 @@ flowchart LR
 | `skillpath-demand` | `job_category` (String) | 없음 | 직무별 현재 수요 스냅샷 1개 |
 
 테이블 이름은 논리 이름이다. 구현에서는 환경 설정으로 주입하고 실제 계정·리소스 식별자는 코드에 넣지 않는다.
-`job_category`는 서비스 직무 코드(현재 `cloud_engineer`)다. 로켓펀치 직군 코드 `dev`와는 다르다.
+`job_category`는 분석 직무 코드다. 클라우드는 `cloud_engineer`, AI는 `ai_engineer`를 쓴다.
 공고 ID는 `rp-155106`처럼 출처 접두어를 포함한다. 같은 공고가 여러 검색 목록에 있어도 같은 키를 쓴다.
 
 ### 직무를 정하는 방법
 
-직무는 모델이 공고에서 추출하지 않는다. 수집·선정 단계에서 지정하고 모든 추출 항목의 partition key로 기록한다.
-직무별 수요는 `job_category` 하나로 Query한 공고를 세어 만든다.
+수집 단계에서 로켓펀치 상세 응답에 적힌 업무를 모델이 검토해 직무를 분류한다. 관련 판정을 받은 공고의 ① `role`에는 해당 영역의 이름을 기록한다. 사람이 이 판정을 검증한 이력은 없다.
 
-- 공고의 직무는 ①의 `role`에 있다(수집기의 `--role` 값).
-- 배치는 직무 코드 하나를 받아 실행한다. 대상 공고의 `role`을 대응표로 직무 코드로 바꾼 값이 실행한 직무와 같아야 한다.
-  다르거나 대응표에 없으면 저장하지 않고 오류를 보고한다.
-- 직무 코드, 화면에 보여줄 이름(`demand.job_title`), `role` 값의 대응표는 `backend/jobs.py`의 `JOBS`에 두고 화면과 배치가 함께 읽는다.
-  공고의 `role`과 실행 직무의 일치는 같은 모듈의 `validate_role()`로 검사한다.
-- 로켓펀치 상세 응답의 `jobCategory`는 현재 수집한 공고 전부가 `dev`여서 직무를 구분하지 못한다.
-- 직무에 맞지 않는 공고는 선정 규칙으로 거른다(4절). 모델로 직무를 분류하는 방식은 ② 계약 변경이 필요하고,
-  분류가 바뀌면 키가 달라져 항목을 지우고 다시 써야 하므로 쓰지 않는다.
+- 배치는 `backend/jobs.py`의 `REVIEWED_DOMAINS`에서 분석 직무의 입력 폴더를 찾고, `validate_role()`로 각 공고의 `role`이 `ANALYSIS_JOBS`의 이름과 일치하는지 검사한다. 폴더 이름은 AI가 `ai`, 클라우드가 `cloud`다.
+- 양쪽 업무를 맡는 공고는 각 직무에서 같은 공고 ID를 한 번씩 사용한다. 직무·공고 ID의 조합이 추출 항목의 키이므로 두 직무의 집계를 독립적으로 만들 수 있다.
+- 대시보드와 상담의 지원 직무는 `JOBS`에 등록된 클라우드 엔지니어와 AI 엔지니어다(2026-11-19). 두 직무 모두 같은 표에 `job_category`로 나뉜다.
 
 직무 하나를 한 partition key에 모으는 선택은 현재 규모에 맞춘 것이다.
 트래픽·공고 수가 크게 증가하면 접근 패턴과 부하를 측정한 뒤 키 분산과 인덱스를 재검토한다.
@@ -152,15 +146,10 @@ flowchart LR
 
 ### 분석 대상 선정
 
-- 분석 대상은 수집기가 현재 통과시킨 전처리 공고(`data/raw/rp-*.posting.json`)다. 배치를 시작할 때 이 목록을 대상으로 고정한다.
-- 상세 응답이 S3에 있다는 사실만으로 분석 대상에 포함하지 않는다. 현재 수집기의 후보 상세와 필터 통과 공고를 구분한다.
-- S3의 `processed/postings/`를 나열해 대상을 정하지 않는다. 수집기는 필터에서 탈락한 공고의 로컬 통과본을 지우지만
-  S3에 올라간 예전 통과본은 지우지 않는다. 내용이 바뀐 공고는 예전 버전도 S3에 남는다.
+- 배치 시작 시 `data/raw/rocketpunch-2026-11-17/postings-reviewed/`에서 해당 직무 폴더의 공고 목록과 파일 내용을 고정한다. 기존 수집 후보·상세 캐시나 S3에 남은 과거 공고는 입력 선정에 사용하지 않는다.
 - 대상 공고마다 `pipeline.storage.object_key()`로 S3 키를 계산하고, 객체가 없으면 올린 뒤 그 키에서 전처리 공고를 읽어 분석한다.
   로컬 파일을 직접 분석하지 않으므로 로컬 실행과 Lambda 실행이 같은 입력을 읽는다.
-- 수집기와 배치는 공고 제목을 `pipeline/rocketpunch.py`의 `ROLE_TERMS`와 비교해 직무를 선정한다.
-  기본 선정 버전은 `cloud-role-title-v1`이며, `--terms`로 바꾼 제목 필터는 단어 목록의 해시를 버전에 반영한다.
-  적용한 버전은 집계의 `policy.selection_version`에 기록한다.
+- 기본 선정 버전은 `rocketpunch-reviewed-v1`이며 해당 직무의 검토본 전체를 사용한다. 독립 배치에서 `--terms`를 지정하면 제목으로 범위를 좁히고 단어 목록의 해시를 버전에 붙인다. `--selection-version`을 지정하면 그 값을 `policy.selection_version`에 기록한다.
 - 추출이 반복해서 실패하는 공고는 실행 인자로 제외를 지정한다. 제외한 공고는 분모에 넣지 않고
   `quality.excluded_postings`에 공고 ID와 사유를 남긴다. 지정 없이 실패한 공고를 건너뛰고 공개하지 않는다.
 
@@ -242,14 +231,14 @@ v2·v2.1은 별칭 표준화 후 확신 있는 NCS 연결을 채우며, 수요 �
 ```json
 {
   "job_category": "cloud_engineer",
-  "snapshot_id": "20261115T030000Z-demo",
-  "generated_at": "2026-11-15T03:00:00Z",
+  "snapshot_id": "20261119T030000Z-demo",
+  "generated_at": "2026-11-19T03:00:00Z",
   "demand": {
     "job_category": "cloud_engineer",
     "job_title": "클라우드 엔지니어",
     "total_postings": 12,
     "sources": ["rocketpunch"],
-    "collected": "2026-11-15",
+    "collected": "2026-11-17~19 (이전 캐시 포함)",
     "skills": [
       {
         "skill": "Docker",
@@ -293,7 +282,7 @@ v2·v2.1은 별칭 표준화 후 확신 있는 NCS 연결을 채우며, 수요 �
     "uncertain_skills": [{"skill": "Terraform", "postings": 1}]
   },
   "policy": {
-    "selection_version": "cloud-role-title-v1",
+    "selection_version": "rocketpunch-reviewed-v1",
     "aggregation_version": "demand-v1",
     "count_confidence": "high"
   }
@@ -310,7 +299,7 @@ v2·v2.1은 별칭 표준화 후 확신 있는 NCS 연결을 채우며, 수요 �
 
 ### 실행 방식
 
-- 배치는 사람이 수동으로 시작한다. 로컬에서 실행하거나, 로컬에서 만든 대상 목록(공고 ID와 S3 키)을 입력으로 받는 Lambda를 수동으로 호출한다.
+- 로컬에서 `pipeline.extraction_batch`를 직접 실행하거나, DynamoDB가 설정된 `pipeline.rocketpunch fetch`·`collect`가 끝날 때 배치를 실행한다. 두 경로 모두 지정한 직무의 검토 폴더에서 대상을 찾는다. 수집 명령의 `--terms`는 수집 후보에만 적용한다.
 - S3에 객체가 올라올 때마다 Lambda를 실행하는 방식은 쓰지 않는다.
   공고마다 실행이 따로 돌면 아래의 "직무별 배치 하나" 전제가 깨지고 집계 시점을 정할 수 없다.
 - Lambda 한 번의 실행은 최대 15분이다. 대상이 많아 한 번에 끝나지 않으면 다시 호출한다.
@@ -401,7 +390,7 @@ boto3 resource는 숫자를 정수여도 `Decimal`로 돌려준다.
   DB 메타데이터를 기존 화면 API에 그대로 반환하지 않는다.
 - `get_demand()`의 실제 모드는 집계 테이블의 `demand`를 읽어 숫자를 `int`로 바꾼 뒤 반환하고, 짧은 캐시를 둔다(7절).
   개인 Gap의 기본식은 그대로 사용할 수 있다.
-- 화면은 `backend/jobs.py`의 `JOBS`를 읽고, 집계는 같은 대응표의 이름을 `demand.job_title`에 넣는다(2절).
+- 화면은 `backend/jobs.py`의 `JOBS`를 읽고, 집계는 `ANALYSIS_JOBS`에서 실행 직무의 이름을 가져와 `demand.job_title`에 넣는다(2절).
 - `BEDROCK_MOCK`은 설정하지 않으면 `1`이다. 배치와 Lambda 환경에서 `0`으로 설정했는지 확인하고, 가짜 모드에서는 저장하지 않는다(6절).
 - S3 키와 SHA-256은 로컬 파일의 바이트로 계산한다. 수집기는 줄바꿈을 `\n`으로 고정해 저장하므로 OS가 달라도 같은 내용은 같은 키가 된다.
   고정하기 전에 Windows에서 저장한 파일은 CRLF 그대로라 키가 다르다. 전처리 공고는 `fetch`나 `collect`를 다시 실행하면 `\n`으로 다시 저장된다.

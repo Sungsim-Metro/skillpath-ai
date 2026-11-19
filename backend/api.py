@@ -28,6 +28,9 @@ from threading import Lock
 from time import monotonic
 
 from backend.dynamodb import DynamoDBStore, json_numbers
+from backend.jobs import DEFAULT_JOB, JOBS, job_file
+from backend.levels import (course_level_first, level_after_courses, required_level, satisfaction, skill_levels,
+                            whole)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SAMPLE_DIR = DATA_DIR / "sample"
@@ -62,14 +65,18 @@ def is_mock() -> bool:
     return os.getenv("BEDROCK_MOCK", "1") == "1"
 
 
-def _load(name: str):
-    return json.loads((SAMPLE_DIR / name).read_text(encoding="utf-8"))
+def _load(name: str, job_category: str = DEFAULT_JOB):
+    """data/sample 의 가짜 데이터. 직무별 파일이 있으면 그것을 읽는다(backend.jobs.job_file)."""
+    path = SAMPLE_DIR / job_file(name, job_category)
+    if not path.exists():
+        path = SAMPLE_DIR / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def get_demand(job_category: str) -> dict:
     """직무 수요 집계(④). 실제 모드는 완성된 DB 결과를 60초간 재사용한다."""
     if is_mock():
-        return _load("demand.json")
+        return _load("demand.json", job_category)
     table_name = os.getenv("DYNAMODB_DEMAND_TABLE", "").strip()
     if not table_name:
         raise ValueError("DYNAMODB_DEMAND_TABLE을 설정하세요.")
@@ -91,68 +98,117 @@ def get_demand(job_category: str) -> dict:
 
 
 @lru_cache
-def _skill_areas() -> dict:
-    """표준 기술명 → 영역 사전(data/skill_areas.json). 배정은 사람이 정하고 코드는 조회만 한다."""
-    return json.loads((DATA_DIR / "skill_areas.json").read_text(encoding="utf-8"))
+@lru_cache(maxsize=None)
+def _skill_areas(job_category: str = DEFAULT_JOB) -> dict:
+    """표준 기술명 → 영역 사전(data/skill_areas.json, AI 는 skill_areas_ai_engineer.json). 배정은 사람이 정하고 코드는 조회만 한다."""
+    return json.loads((DATA_DIR / job_file("skill_areas.json", job_category)).read_text(encoding="utf-8"))
 
 
-def _area_of(skill: str) -> tuple[str, str]:
+def get_areas(job_category: str) -> dict[str, str]:
+    """그 직무의 영역 {id: 이름}(공통 제외). 수준 진단 화면이 영역별로 질문을 나눌 때 쓴다."""
+    return {k: v for k, v in _skill_areas(job_category)["areas"].items() if k != "COMMON"}
+
+
+def _area_of(skill: str, job_category: str = DEFAULT_JOB) -> tuple[str, str]:
     """(영역 id, 영역 이름). 사전에 없으면 미분류."""
-    table = _skill_areas()
+    table = _skill_areas(job_category)
     area_id = table["skills"].get(skill)
     return (area_id, table["areas"][area_id]) if area_id else ("UNCLASSIFIED", UNCLASSIFIED)
 
 
-def get_gap(job_category: str, owned_skills: list[str], min_ratio: float = 0.2) -> list[dict]:
-    """공고 비율이 min_ratio 이상인 기술을 수요 높은 순으로 돌려주고, 보유 여부를 표시한다.
+def get_gap(job_category: str, owned_skills, min_ratio: float = 0.2) -> list[dict]:
+    """공고 비율이 min_ratio 이상인 기술을 수요 높은 순으로 돌려주고, 내 단계와 보유 여부를 표시한다.
 
-    계산은 전부 코드로 한다. LLM 을 쓰지 않는다.
+    owned_skills 는 {세부 능력 id: 0~5}(보유 수준 진단) 또는 기술 이름 목록(예전 형식, 상담 채팅)이다.
+    단계·기준 단계·충족도 계산은 backend/levels.py 에 있다. 계산은 전부 코드로 한다. LLM 을 쓰지 않는다.
     """
     demand = get_demand(job_category)
     total = demand["total_postings"]
-    owned = {s.lower() for s in owned_skills}
+    picked = [s for s in demand["skills"] if (s["postings"] / total if total else 0) >= min_ratio]
+    mine = skill_levels(owned_skills, [s["skill"] for s in picked], job_category)
     rows = []
-    for s in demand["skills"]:
-        ratio = s["postings"] / total if total else 0
-        if ratio < min_ratio:
-            continue
+    for s in picked:
+        level = mine[s["skill"]]
+        need, confidence = required_level(s["skill"], job_category)
         rows.append({
             "skill": s["skill"],
-            "area": _area_of(s["skill"])[1],
+            "area": _area_of(s["skill"], job_category)[1],
             "postings": s["postings"],
             "of": total,
-            "ratio": round(ratio, 2),
+            "ratio": round(s["postings"] / total, 2),
             "required_ratio": round(s["required"] / s["postings"], 2) if s["postings"] else 0,
-            "owned": s["skill"].lower() in owned,
+            "owned": level >= need,
+            "user_level": whole(level),
+            "required_level": need,
+            "required_level_confidence": confidence,
+            "satisfaction": satisfaction(level, need, s.get("required", 0), s.get("preferred", 0)),
         })
     rows.sort(key=lambda r: r["postings"], reverse=True)
     return rows
 
 
-def get_area_gap(job_category: str, owned_skills: list[str]) -> list[dict]:
-    """영역(능력 범주)마다 공고 수요와 그중 내가 가진 몫을 돌려준다. 계산은 전부 코드로 한다.
+def owned_skill_names(job_category: str, owned_skills) -> list[str]:
+    """수요 집계의 기술 중 내 단계가 기준 단계 이상인 기술 이름(수요 높은 순). 상담 채팅과 시장 Gap 표에 쓴다."""
+    skills = [s["skill"] for s in get_demand(job_category)["skills"]]
+    mine = skill_levels(owned_skills, skills, job_category)
+    return [s for s in skills if mine[s] >= required_level(s, job_category)[0]]
+
+
+def get_area_gap(job_category: str, owned_skills) -> list[dict]:
+    """영역(능력 범주)마다 공고 수요와 그중 내가 채운 몫을 돌려준다. 계산은 전부 코드로 한다.
 
     - demand: 그 영역 기술들의 요구 공고 수를 더한 값. 한 공고가 영역의 기술 둘을 요구하면 2로 센다.
-    - owned: 그중 보유 기술의 요구 공고 수 합. coverage = owned / demand (demand 가 0이면 0).
+    - owned: 기술마다 요구 공고 수 × 충족도(backend/levels.py)를 더한 값. 소수일 수 있다.
+      coverage = owned / demand (demand 가 0이면 0). 기준 단계에 못 미친 기술은 missing_skills 에 남는다.
     영역 순서는 data/skill_areas.json 의 순서이고, 사전에 없는 기술은 마지막의 미분류에 모은다.
     """
     demand = get_demand(job_category)
-    owned = {s.lower() for s in owned_skills}
+    skills = [s["skill"] for s in demand["skills"]]
+    return _area_rows(demand, skill_levels(owned_skills, skills, job_category), job_category)
+
+
+def _area_rows(demand: dict, mine: dict[str, float], job_category: str) -> list[dict]:
+    """get_area_gap 의 계산. mine 은 {기술: 내 단계}."""
     rows = {
-        area_id: {"area_id": area_id, "area": name, "demand": 0, "owned": 0, "skills": [], "missing_skills": []}
-        for area_id, name in [*_skill_areas()["areas"].items(), ("UNCLASSIFIED", UNCLASSIFIED)]
+        area_id: {"area_id": area_id, "area": name, "demand": 0, "owned": 0.0, "skills": [], "missing_skills": []}
+        for area_id, name in [*_skill_areas(job_category)["areas"].items(), ("UNCLASSIFIED", UNCLASSIFIED)]
     }
     for s in demand["skills"]:
-        row = rows[_area_of(s["skill"])[0]]
+        row = rows[_area_of(s["skill"], job_category)[0]]
+        level = mine[s["skill"]]
+        need, _ = required_level(s["skill"], job_category)
         row["demand"] += s["postings"]
         row["skills"].append(s["skill"])
-        if s["skill"].lower() in owned:
-            row["owned"] += s["postings"]
-        else:
+        row["owned"] += s["postings"] * satisfaction(level, need, s.get("required", 0), s.get("preferred", 0))
+        if level < need:
             row["missing_skills"].append(s["skill"])
     for row in rows.values():
         row["coverage"] = round(row["owned"] / row["demand"], 2) if row["demand"] else 0
+        row["owned"] = whole(round(row["owned"], 1))
     return list(rows.values())
+
+
+def get_area_gap_after(job_category: str, owned_skills, recommendations: list[dict]) -> list[dict]:
+    """추천 과정을 모두 마쳤다고 볼 때의 영역별 Gap(예상, #91). 계산은 전부 코드로 한다.
+
+    recommendations 는 get_recommendations 결과다. "확실"한 과정만 마친 것으로 친다("불확실"은 넣지 않는다, 원칙 4).
+    마친 기술의 예상 단계는 과정 난이도로 정한다(backend.levels.level_after_courses: 기초 2단계, 중급 3단계).
+    지금 단계가 더 높으면 그대로 둔다. 형식은 get_area_gap 과 같고, 영역마다 raised 가 더 붙는다:
+    [{"skill", "from", "to"}] 단계가 오르는 기술. 과정을 마친다고 그 단계가 된다는 보장은 없다. 화면에는 "예상"이라고 적는다.
+    """
+    demand = get_demand(job_category)
+    skills = [s["skill"] for s in demand["skills"]]
+    now = skill_levels(owned_skills, skills, job_category)
+    after = dict(now)
+    for rec in recommendations:
+        if rec["gap_skill"] not in after:
+            continue
+        done = [c.get("level", "") for c in rec["courses"] if c.get("match") == "certain"]
+        after[rec["gap_skill"]] = level_after_courses(now[rec["gap_skill"]], done)
+    rows = _area_rows(demand, after, job_category)
+    for row in rows:
+        row["raised"] = [{"skill": s, "from": whole(now[s]), "to": whole(after[s])} for s in row["skills"] if after[s] > now[s]]
+    return rows
 
 
 def _get_supply() -> dict:
@@ -204,20 +260,25 @@ def get_market_gap(job_category: str) -> dict:
     }
 
 
-def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
+def get_recommendations(job_category: str, gap_skills: list[str], *, review: bool = False,
+                        levels: dict[str, float] | None = None) -> list[dict]:
     """부족 기술마다 추천(③)을 돌려준다. 찾은 과정이 없으면 courses 가 빈 목록이다.
+
+    levels 는 부족 기술의 내 단계 {기술: 0~5}(get_gap 의 user_level)다. 주면 추천마다 user_level 을 적고,
+    0~2단계는 기초, 3단계 이상은 중급 과정을 앞에 놓는다(확실한 과정이 불확실한 과정보다 먼저).
+    과정을 새로 찾거나 빼지 않고 순서만 바꾼다. 주지 않으면 전과 같다.
 
     가짜 모드는 data/sample 의 추천을 읽는다. 실제 모드는 수요 숫자를 코드로 만들고(get_demand),
     과정 찾기와 추천 이유는 ai.recommend 가 맡는다(Bedrock 은 reason 만 쓴다).
     실제 모드는 gap_skills 앞에서부터(화면은 수요 높은 순으로 준다) RECOMMEND_TOP_N 개만 추천하고,
     같은 직무·같은 기술·같은 수요 숫자면 Bedrock 을 다시 부르지 않고 캐시를 돌려준다.
+    채팅에서 review=True이면 과정 목표로 사유를 검증한다. 모의 모드에서도 로컬 과정 목록을 쓴다.
     """
     mock = is_mock()
     demand_all = get_demand(job_category)
     by_demand = {s["skill"]: s for s in demand_all["skills"]}
-    by_skill = {r["gap_skill"]: r for r in _load("recommendations.json")} if mock else {}
-    if not mock:
-        gap_skills = gap_skills[:RECOMMEND_TOP_N]  # 기술마다 Bedrock 을 한 번 부른다(비용·화면 길이)
+    if not mock or review:
+        gap_skills = gap_skills[:RECOMMEND_TOP_N]  # 기술별 모델 호출 비용과 화면 길이를 제한한다
     pairs = []
     for skill in gap_skills:
         d = by_demand.get(skill, {"postings": 0, "required": 0})  # 수요에 없는 기술은 0 으로 넘긴다
@@ -226,32 +287,67 @@ def get_recommendations(job_category: str, gap_skills: list[str]) -> list[dict]:
             "of": demand_all["total_postings"],
             "required_ratio": round(d["required"] / d["postings"], 2) if d["postings"] else 0,
         }))
-    if mock:
-        return [by_skill[skill] if skill in by_skill else {"gap_skill": skill, "demand": demand, "courses": []}
+    if mock and not review:
+        by_skill = {r["gap_skill"]: r for r in _load("recommendations.json", job_category)}
+        return [_with_level(by_skill[skill] if skill in by_skill else {"gap_skill": skill, "demand": demand, "courses": []},
+                            levels)
                 for skill, demand in pairs]
 
-    key = (job_category, tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
+    key = (job_category, review, mock,
+           tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
     with _recommend_cache_lock:
         cached = _recommend_cache.get(key)
         if cached is not None:
             _recommend_cache.move_to_end(key)  # 방금 쓴 것으로 표시
-    if cached is not None:
-        return deepcopy(cached)
+    if cached is not None:  # 단계는 캐시 키에 넣지 않는다. 과정과 이유는 단계와 무관하고 순서만 바꾼다
+        return [_with_level(rec, levels) for rec in deepcopy(cached)]
 
+    from ai.bedrock import BedrockJSONError
     from ai.recommend import build_recommendation
 
     out = []
+    failed_review = None
+    unavailable = None
     for skill, demand in pairs:
-        rec, result = build_recommendation(skill, demand)
+        if review:
+            try:
+                rec, result = build_recommendation(skill, demand, review=True)
+            except (BedrockJSONError, KeyError, TypeError, ValueError) as exc:
+                failed_review = exc
+                continue
+            except Exception as exc:
+                unavailable = exc
+                continue
+        else:
+            rec, result = build_recommendation(skill, demand)
         out.append(rec)
         if result is not None:
             logger.info("추천 %s: 시도 %d회, 토큰 %s", skill, result.attempts, result.usage.get("totalTokens", 0))
+    if unavailable is not None or failed_review is not None:
+        if any(rec["courses"] for rec in out):
+            return [_with_level(rec, levels) for rec in out]
+        if unavailable is not None:
+            raise unavailable
+        raise failed_review
     with _recommend_cache_lock:  # 실패하면 여기까지 오지 않으므로 오류는 캐시하지 않는다
         _recommend_cache[key] = deepcopy(out)
         _recommend_cache.move_to_end(key)
         while len(_recommend_cache) > RECOMMEND_CACHE_MAX:
             _recommend_cache.popitem(last=False)
-    return out
+    return [_with_level(rec, levels) for rec in deepcopy(out)]
+
+
+def _with_level(rec: dict, levels: dict[str, float] | None) -> dict:
+    """추천 1건에 user_level 을 적고, 단계에 맞는 난이도의 과정을 앞으로 옮긴다. levels 가 없으면 그대로 둔다.
+
+    "불확실" 과정이 "확실" 과정을 앞지르지 않는다. 같은 조건 안의 순서는 그대로 둔다(정렬은 안정적이다).
+    """
+    if levels is None or rec["gap_skill"] not in levels:
+        return rec
+    level = levels[rec["gap_skill"]]
+    first = course_level_first(level)
+    courses = sorted(rec["courses"], key=lambda c: (c.get("match") == "uncertain", c.get("level") != first))
+    return {**rec, "user_level": whole(level), "courses": courses}
 
 
 def extract_posting(text: str, posting_id: str = "manual-input") -> dict:
@@ -265,7 +361,8 @@ def extract_posting(text: str, posting_id: str = "manual-input") -> dict:
         return extract_skills({"id": posting_id, "text": text})
     from ai.sections import EXCLUDED, find_section
 
-    vocab = {s["skill"]: s["skill"] for s in _load("demand.json")["skills"]}
+    # 두 직무의 가짜 수요 기술을 모두 찾는다(AI 공고도 붙여 넣을 수 있게)
+    vocab = {s["skill"]: s["skill"] for job in JOBS for s in _load("demand.json", job)["skills"]}
     vocab.update(_MOCK_ALIASES)
     clauses = [c.strip() for c in re.split(r"[.\n,·;]", text) if c.strip()]
     skills, seen = [], set()
