@@ -37,7 +37,7 @@ def reopen() -> None:
     st.session_state.tour_step = 0
 
 
-@st.dialog("처음 오셨나요? 이렇게 쓰세요")
+@st.dialog("처음 오셨나요? 이렇게 쓰세요", on_dismiss=_close)  # X 나 Esc 로 닫아도 버튼으로 닫은 것과 같게
 def _dialog() -> None:
     step = min(max(st.session_state.get("tour_step", 0), 0), len(STEPS) - 1)
     icon, title, body = STEPS[step]

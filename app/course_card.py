@@ -52,7 +52,7 @@ def saved_list() -> None:
     if not saved:
         return
     with st.expander(f"담아 둔 과정 {len(saved)}개"):
-        for number, item in enumerate(saved.values()):
+        for item in saved.values():
             st.link_button(item["title"], item["url"], type="tertiary", icon=":material/bookmark:",
                            help="AWS Skill Builder 과정 페이지를 엽니다.")
         st.caption("이번 접속 동안만 보관합니다. 창을 닫으면 사라집니다.")
