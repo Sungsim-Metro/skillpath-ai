@@ -14,7 +14,8 @@ from app.tabs import usage as tab_usage
 from backend import api, eval_results, experiments
 from backend.jobs import JOBS
 
-COVERAGE_LABEL = {"certain": "직접 다루는 과정 있음", "uncertain": "관련 과정만(불확실)", "none": "과정 없음"}
+COVERAGE_LABEL = {"certain": "직접 다루는 과정 있음", "uncertain": "관련 과정만(불확실)", "none": "과정 없음",
+                  "unknown": "확인하지 못함"}
 DECISION_LABEL = {"decided": "결정", "provisional": "참고용(평가 부족)", "insufficient": "비교 불가"}
 
 
@@ -56,7 +57,8 @@ def _models() -> None:
     st.markdown(f"**쓸 모델: {decision['model'] or EMPTY}** · {DECISION_LABEL[decision['status']]}")
     st.caption(f"{decision['reason']} 규칙: 좋아요 비율이 가장 높은 모델과 {rule['tolerance'] * 100:.0f}%p 안인 모델 중 "
                f"턴당 추정 비용이 가장 낮은 모델. 모델마다 평가 {rule['min_ratings']}건 이상이어야 결정으로 봅니다. "
-               "비용은 토큰 수 × data/pricing.json 단가로 낸 추정입니다.")
+               "비용은 토큰 수 × data/pricing.json 단가로 낸 추정입니다. 과정 추천 턴은 A/B 로 구조 두 개를 모두 돌린 토큰이 "
+               "들어 있어 실제 한 번의 비용보다 큽니다(두 모델에 똑같이 적용되므로 모델끼리의 비교에는 영향이 없습니다).")
     if st.button("이 결과를 결정 기록으로 남기기", key="save_decision", disabled=decision["status"] == "insufficient"):
         _, save_err = load(experiments.save_decision, summary, decision)
         if save_err:
@@ -134,11 +136,11 @@ def _coverage() -> None:
             notice(f"{title} 과정 커버리지", err)
             continue
         counts = {status: sum(r["status"] == status for r in rows) for status in COVERAGE_LABEL}
-        for column, (status, label) in zip(st.columns(3), COVERAGE_LABEL.items()):
+        for column, (status, label) in zip(st.columns(len(COVERAGE_LABEL)), COVERAGE_LABEL.items()):
             column.metric(label, f"{counts[status]}개", border=True)
         st.dataframe(pd.DataFrame([
             {"기술": r["skill"], "요구 공고": r["postings"], "요구 비율": _ratio(r["ratio"]),
-             "교육과정": COVERAGE_LABEL[r["status"]], "찾은 과정 수": r["courses"]}
+             "교육과정": COVERAGE_LABEL[r["status"]], "찾은 과정 수": _number(r["courses"])}
             for r in sorted(rows, key=lambda r: (list(COVERAGE_LABEL).index(r["status"]), -r["postings"]), reverse=False)
         ]), hide_index=True, width="stretch")
 
