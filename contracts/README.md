@@ -118,7 +118,7 @@ AWS 운영 경험 우대
 | `skills[].courses` | integer | 해당 기술이 검출된 프로그램 수 |
 | `note` | string | 선택 사항. 조사 범위나 자료의 한계 |
 
-현재 AWS Skill Builder 목록의 158개 과정 중 Docker가 검출된 과정은 2개입니다. ⑤는 전체 과정 수 158과 Docker 과정 수 2를 기록합니다. [프로그램 목록](../data/courses/courses.csv)
+예를 들어 Docker의 교육 공급량은 `skills[]`에서 `skill`이 `Docker`인 행의 `courses`로 확인합니다. `total_courses`에는 기술이 하나도 검출되지 않은 과정도 포함합니다. [프로그램 목록](../data/courses/courses.csv)
 
 ## ⑦ 보유 수준 — app → backend · 2026-11-19 추가(#90)
 
@@ -186,4 +186,4 @@ Gap 행(`get_gap`)에 더한 필드:
 | `supply_pct` | ⑤의 해당 기술 과정 수 ÷ 모든 기술의 과정 수 합계 × 100 |
 | `gap_pp` | 반올림 전 수요 비중과 공급 비중의 차이 (%p). 세 수치는 각각 소수 첫째 자리로 반올림합니다. |
 
-현재 목록에서 기술별 과정 수의 합은 159이므로 Docker의 공급 비중은 2 ÷ 159 ≈ 1.3%입니다. 가상 공고 2건에서는 Docker 수요 비중이 43.6%이고 Gap은 +42.3%p입니다. [입력 경로와 갱신 방법](../pipeline/README.md#산업별-시장-gap)
+현재 과정 목록과 예시 공고로 검산하려면 `python -m pipeline.market_gap --example`을 실행합니다. `outputs/example/learning_program_gap_table.csv`에서 산업이 `예시`이고 기술이 `Docker`인 행의 수요 비중, 공급 비중, Gap을 확인할 수 있습니다. [입력 경로와 갱신 방법](../pipeline/README.md#산업별-시장-gap)
