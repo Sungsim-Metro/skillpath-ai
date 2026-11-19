@@ -21,8 +21,9 @@ from app.common import (
 )
 from app.tabs.radar import render_radar
 from backend import api
-from backend.industry_gap import gap_csv
-from pipeline.market_gap import CLEAN, PROGRAM_CATALOGS, RAW, REVIEWED, TABLE
+from backend.industry_gap import job_gap_csv
+from backend.jobs import JOBS
+from pipeline.market_gap import PROGRAM_CATALOGS
 
 
 def render_area_gap(ctx: Ctx):
@@ -83,15 +84,14 @@ def render_supply() -> None:
 
 
 def render_market_gap(ctx: Ctx) -> None:
-    """채용 시장 Gap: 선택 산업의 수요·공급 비중과 산업별 Gap(%p)을 보여준다. 계산은 backend가 한다."""
+    """선택한 직군의 공고 수요와 학습 프로그램 공급 비중을 비교한다."""
+    job_title = JOBS[ctx.job]
     try:
-        market = api.get_market_gap()
+        market = api.get_market_gap(ctx.job)
     except FileNotFoundError:
         catalogs = ", ".join(f"{name} (`{path.as_posix()}`)" for name, path in PROGRAM_CATALOGS.items())
         st.info(
-            f"시장 Gap의 공고는 `{CLEAN.as_posix()}`, `{RAW.as_posix()}`, 검토본 폴더 `{REVIEWED.as_posix()}` 순으로 찾습니다. "
-            f"현재 학습 프로그램 출처는 {catalogs}입니다. "
-            f"저장된 결과는 `{TABLE.as_posix()}`에서 읽습니다."
+            f"{job_title}의 시장 Gap 자료를 찾지 못했습니다. 이 직군의 공고와 학습 프로그램 목록({catalogs})을 확인하세요."
         )
         return
     except (OSError, ValueError) as exc:
@@ -99,19 +99,18 @@ def render_market_gap(ctx: Ctx) -> None:
         st.error(f"시장 Gap 자료를 읽을 수 없습니다({type(exc).__name__}). 입력 파일 형식과 실행 로그를 확인하세요.")
         return
 
-    st.caption(f"자료 · {md_escape(market['source'])}")
+    st.caption(f"{job_title} · {md_escape(market['source'])}")
     if not market["rows"]:
-        st.info("표시할 산업이 없습니다. 공고 본문에 기술 사전과 매칭된 기술이 있는지 확인하세요.")
+        st.info(f"{job_title}의 공고에서 기술 사전과 매칭된 기술이 없습니다.")
         return
 
     df = pd.DataFrame(market["rows"]).rename(columns={
-        "industry": "산업", "skill": "기술", "demand_pct": "수요 비중", "supply_pct": "공급 비중", "gap_pp": "Gap",
+        "job_category": "직군", "skill": "기술", "demand_pct": "수요 비중", "supply_pct": "공급 비중", "gap_pp": "Gap",
     })
+    df["직군"] = df["직군"].map(JOBS)
     df["내 보유"] = df["기술"].isin(ctx.owned).map({True: "보유", False: "-"})
-    industries = df["산업"].drop_duplicates().tolist()
-    industry = st.selectbox("분석할 산업", industries, key="market_industry")
     st.caption(
-        "Gap은 산업별 기술 수요 비중에서 학습 프로그램의 기술 공급 비중을 뺀 값입니다. "
+        f"Gap은 {job_title} 공고의 기술 수요 비중에서 학습 프로그램의 기술 공급 비중을 뺀 값입니다. "
         "공고 한 건에서 기술마다 가장 높은 구역 가중치(자격요건 1.0, 주요업무 0.7, 우대사항·기타 0.5)를 적용합니다. "
         "프로그램 제목·설명·학습 목표에 같은 기술이 여러 번 나와도 프로그램당 한 번만 셉니다. "
         "양수이면 채용 수요 비중이 더 크고, 음수이면 프로그램의 공급 비중이 더 큽니다."
@@ -119,10 +118,10 @@ def render_market_gap(ctx: Ctx) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.markdown("**선택 산업의 수요·공급 비중 (%)**")
-        selected = df.loc[df["산업"] == industry].nlargest(MARKET_ROWS, "수요 비중")
+        st.markdown("**기술별 수요·공급 비중 (%)**")
+        selected = df.nlargest(MARKET_ROWS, "수요 비중")
         long = selected.melt(
-            id_vars=["산업", "기술"], value_vars=["수요 비중", "공급 비중"], var_name="구분", value_name="비중",
+            id_vars=["기술"], value_vars=["수요 비중", "공급 비중"], var_name="구분", value_name="비중",
         )
         bars = alt.Chart(long).mark_bar().encode(
             y=alt.Y("기술:N", sort=selected["기술"].tolist(), title=None),
@@ -131,35 +130,31 @@ def render_market_gap(ctx: Ctx) -> None:
             color=alt.Color("구분:N", scale=alt.Scale(domain=["수요 비중", "공급 비중"],
                                                     range=[MARKET_DEMAND, MARKET_SUPPLY]),
                             legend=alt.Legend(orient="bottom", title=None)),
-            tooltip=["산업:N", "기술:N", "구분:N", alt.Tooltip("비중:Q", title="비중 (%)", format=".1f")],
+            tooltip=["기술:N", "구분:N", alt.Tooltip("비중:Q", title="비중 (%)", format=".1f")],
         ).properties(height=30 * len(selected))
         st.altair_chart(bars, width="stretch")
 
     with right:
-        st.markdown("**산업별 기술 Gap (%p)**")
-        skills = df.groupby("기술")["Gap"].max().nlargest(MARKET_ROWS).index.tolist()
-        cells = df[df["기술"].isin(skills)]
-        limit = float(cells["Gap"].abs().max()) or 1.0
-        heatmap = alt.Chart(cells).mark_rect().encode(
-            x=alt.X("산업:N", sort=industries, title=None),
-            y=alt.Y("기술:N", sort=skills, title=None),
-            color=alt.Color("Gap:Q", title="Gap (%p)", scale=alt.Scale(
-                domain=[-limit, 0, limit], range=[MARKET_SUPPLY, "#F6F6F6", MARKET_DEMAND],
-            )),
-            tooltip=["산업:N", "기술:N", alt.Tooltip("수요 비중:Q", title="수요 (%)", format=".1f"),
+        st.markdown("**기술별 시장 Gap (%p)**")
+        ranked = df.nlargest(MARKET_ROWS, "Gap")
+        gaps = alt.Chart(ranked).mark_bar().encode(
+            x=alt.X("Gap:Q", title="Gap (%p)"),
+            y=alt.Y("기술:N", sort=ranked["기술"].tolist(), title=None),
+            color=alt.condition(alt.datum.Gap > 0, alt.value(MARKET_DEMAND), alt.value(MARKET_SUPPLY)),
+            tooltip=["기술:N", alt.Tooltip("수요 비중:Q", title="수요 (%)", format=".1f"),
                      alt.Tooltip("공급 비중:Q", title="공급 (%)", format=".1f"),
                      alt.Tooltip("Gap:Q", title="Gap (%p)", format="+.1f"), "내 보유:N"],
-        ).properties(height=30 * len(skills))
-        st.altair_chart(heatmap, width="stretch")
-        st.caption(f"기술마다 산업별 Gap 중 최댓값을 비교해 높은 순으로 최대 {MARKET_ROWS}개를 표시합니다.")
+        ).properties(height=30 * len(ranked))
+        st.altair_chart(gaps, width="stretch")
 
-    with st.expander("전체 산업·기술 표"):
+    with st.expander(f"{job_title} 전체 기술 표"):
         st.dataframe(df, hide_index=True, width="stretch", column_config={
             "수요 비중": st.column_config.NumberColumn("수요 비중 (%)", format="%.1f"),
             "공급 비중": st.column_config.NumberColumn("공급 비중 (%)", format="%.1f"),
             "Gap": st.column_config.NumberColumn("Gap (%p)", format="%.1f"),
         })
-        st.download_button("전체 산업 CSV 내려받기", data=gap_csv(market["rows"]), file_name=TABLE.name,
+        st.download_button("선택 직군 CSV 내려받기", data=job_gap_csv(market["rows"]),
+                           file_name=f"learning_program_gap_{ctx.job}.csv",
                            mime="text/csv", key="market_gap_csv", on_click="ignore")
 
 

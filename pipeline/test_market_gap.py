@@ -44,8 +44,8 @@ class MarketGapFilesTest(unittest.TestCase):
             self.assertEqual(list(snapshot.parent.iterdir()), [snapshot])
             (self.root / "data/courses/courses.csv").rename(self.root / "archived.csv")
             self.assertEqual(api.get_supply(), expected)
-            self.put_json("outputs/postings_clean.json", [{"industry": "IT", "text": "SQL"}])
-            market = api.get_market_gap()
+            self.put_json("outputs/postings_clean.json", [{"job_category": "cloud_engineer", "text": "SQL"}])
+            market = api.get_market_gap("cloud_engineer")
             self.assertEqual({r["skill"]: r["supply_pct"] for r in market["rows"]},
                              {"Docker": 33.3, "SQL": 66.7})
 
@@ -61,106 +61,143 @@ class MarketGapFilesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "과정 수"):
             market_gap.dashboard_supply(self.root, allow_example=True)
 
+    def test_zero_course_snapshot_gives_demanded_skill_zero_supply(self):
+        self.put_json(market_gap.SUPPLY, {
+            "source": "빈 목록", "total_courses": 0, "skills": [{"skill": "Docker", "courses": 0}],
+        })
+        self.put_json("outputs/postings_clean.json", [{"job_category": "cloud_engineer", "text": "Docker"}])
+
+        result = market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)
+
+        self.assertEqual(result["rows"], [
+            {"job_category": "cloud_engineer", "skill": "Docker", "demand_pct": 100.0,
+             "supply_pct": 0.0, "gap_pp": 100.0},
+        ])
+
     def test_clean_input_wins_and_is_not_cleaned_twice(self):
         self.put_json("outputs/postings_clean.json", [
-            {"industry": "유통", "text": "<Docker> data", "skills_rule": ["SQL"], "title": "Java"},
-            {"industry": "금융", "text": "Dockerfile"},
+            {"id": "1", "job_category": "cloud_engineer", "text": "<Docker>", "skills_rule": ["SQL"], "title": "Java"},
+            {"id": "1", "job_category": "cloud_engineer", "text": "<Docker>"},
+            {"id": "2", "job_category": "cloud_engineer", "text": "AWS"},
+            {"id": "1", "job_category": "ai_engineer", "text": "LLM"},
         ])
         self.put_json("data/raw/job_postings_raw.json", {})
         self.put_programs()
-        result = market_gap.dashboard_gap(self.root, allow_example=False)
-        self.assertEqual(result["rows"], [
-            {"industry": "유통", "skill": "Docker", "demand_pct": 100.0,
-             "supply_pct": 0.0, "gap_pp": 100.0}
-        ])
+        result = market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)
+        self.assertEqual([(row["skill"], row["demand_pct"]) for row in result["rows"]],
+                         [("AWS", 50.0), ("Docker", 50.0)])
+        ai = market_gap.dashboard_gap(self.root, "ai_engineer", allow_example=False)
+        self.assertEqual([(row["skill"], row["demand_pct"]) for row in ai["rows"]], [("LLM", 100.0)])
 
     def test_raw_fallback_then_dashboard_reads_export_until_rebuilt(self):
         self.put_json("data/raw/job_postings_raw.json", {"response": {"items": [
-            {"indTpNm": "유통", "jobCont": "[자격요건]<br>Docker\nAWS\n[주요업무]\n k8s &nbsp; AWS"},
-            {"indTpNm": "금융", "jobCont": "<b>SQL</b>"},
+            {"role": "클라우드 엔지니어", "jobCont": "[자격요건]<br>Docker\nAWS\n[주요업무]\n k8s &nbsp; AWS"},
+            {"role": "AI 엔지니어", "jobCont": "<b>SQL</b>"},
         ]}})
         self.put_programs([("p1", "파이썬", "Python", "", "Docker")])
-        before = market_gap.dashboard_gap(self.root, allow_example=False)
-        self.assertEqual([(r["skill"], r["gap_pp"]) for r in before["rows"] if r["industry"] == "유통"],
+        before = market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)
+        self.assertEqual([(r["skill"], r["gap_pp"]) for r in before["rows"]],
                          [("AWS", 58.8), ("Kubernetes", 41.2), ("Python", -100.0)])
         args = ["--root", str(self.root)]
         market_gap.main(args)
         self.put_json("outputs/postings_clean.json", [])
-        after = market_gap.dashboard_gap(self.root, allow_example=False)
+        after = market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)
         self.assertEqual(after["rows"], before["rows"])
+        ai_rows = market_gap.dashboard_gap(self.root, "ai_engineer", allow_example=False)["rows"]
+        self.assertEqual([(row["job_category"], row["skill"], row["gap_pp"]) for row in ai_rows],
+                         [("ai_engineer", "Python", -100.0), ("ai_engineer", "SQL", 100.0)])
         output = self.root / "outputs"
-        self.assertTrue((output / "learning_program_gap_table.csv").read_bytes().startswith(b"\xef\xbb\xbf"))
-        report = (output / "learning_program_gap_report.md").read_text(encoding="utf-8")
-        self.assertIn("유통", report)
+        self.assertTrue((output / "learning_program_job_gap_table.csv").read_bytes().startswith(b"\xef\xbb\xbf"))
+        report = (output / "learning_program_job_gap_report.md").read_text(encoding="utf-8")
+        self.assertIn("클라우드 엔지니어", report)
+        self.assertIn("AI 엔지니어", report)
         self.assertIn("AWS Skill Builder", report)
         self.assertIn("-100.0", report)
         market_gap.main(args)
-        self.assertEqual(market_gap.dashboard_gap(self.root, allow_example=False)["rows"], [])
+        self.assertEqual(market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)["rows"], [])
 
     def test_missing_partial_or_malformed_sources_do_not_become_empty_supply(self):
         with self.assertRaises(FileNotFoundError):
-            market_gap.dashboard_gap(self.root, allow_example=False)
+            market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)
         self.put_json("outputs/postings_clean.json", [])
         with self.assertRaisesRegex(FileNotFoundError, "courses.csv"):
-            market_gap.dashboard_gap(self.root, allow_example=True)
+            market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=True)
         self.put_programs()
         (self.root / "data/courses/courses.csv").write_text("title,prerequisites\nAWS,Python\n")
         with self.assertRaisesRegex(ValueError, "objectives"):
-            market_gap.dashboard_gap(self.root, allow_example=True)
+            market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=True)
 
     def test_mock_postings_still_use_the_registered_catalog_and_ignore_legacy_results(self):
         from backend import api
 
         self.put_programs([("l1", "Linux", "Linux", "", "Docker")])
-        legacy = self.root / "outputs/gap_table.csv"
+        legacy = self.root / "outputs/learning_program_gap_table.csv"
         legacy.parent.mkdir()
         legacy.write_text("industry,skill,demand_pct,supply_pct,gap_pp\n예시,Python,0.0,100.0,-100.0\n")
         with patch.object(api, "DATA_DIR", self.root / "data"), patch.object(api, "is_mock", return_value=True):
-            market = api.get_market_gap()
+            market = api.get_market_gap("cloud_engineer")
         self.assertIn("예시", market["source"])
         self.assertIn("AWS Skill Builder", market["source"])
         supply = {r["skill"]: r["supply_pct"] for r in market["rows"]}
         self.assertEqual(supply, {"AWS": 0.0, "Docker": 0.0, "Kubernetes": 0.0, "Linux": 100.0})
         market_gap.main(["--root", str(self.root), "--example"])
-        example = self.root / "outputs/example/learning_program_gap_table.csv"
+        example = self.root / "outputs/example/learning_program_job_gap_table.csv"
         with example.open(encoding="utf-8-sig") as stream:
-            self.assertEqual(len(list(csv.DictReader(stream))), 4)
-        self.assertFalse((self.root / "outputs/learning_program_gap_table.csv").exists())
+            rows = list(csv.DictReader(stream))
+            self.assertEqual({row["job_category"] for row in rows}, {"ai_engineer", "cloud_engineer"})
+            self.assertEqual(sum(row["job_category"] == "cloud_engineer" for row in rows), 4)
+        self.assertFalse((self.root / "outputs/learning_program_job_gap_table.csv").exists())
 
     def test_supply_combines_programs_across_providers_before_normalizing(self):
-        self.put_json("outputs/postings_clean.json", [{"industry": "유통", "text": "AWS"}])
+        self.put_json("outputs/postings_clean.json", [{"job_category": "cloud_engineer", "text": "AWS"}])
         self.put_programs([("1", "SQL", "SQL", "", "Azure"), ("2", "Docker", "", "", "")])
         self.put_programs([("1", "SQL", "", "", "")], "data/programs/partner.csv")
         catalogs = {"공급처 A": Path("data/courses/courses.csv"), "공급처 B": Path("data/programs/partner.csv")}
         with patch.object(market_gap, "PROGRAM_CATALOGS", catalogs):
-            result = market_gap.dashboard_gap(self.root, allow_example=False)
+            result = market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=False)
         self.assertEqual({r["skill"]: r["supply_pct"] for r in result["rows"]},
                          {"AWS": 0.0, "Docker": 33.3, "SQL": 66.7})
         for provider in catalogs:
             self.assertIn(provider, result["source"])
 
-    def test_reviewed_files_are_combined_by_id_with_missing_industries_included(self):
-        reviewed = "data/raw/rocketpunch-2026-11-17/postings-reviewed"
+    def test_shared_reviewed_posting_counts_once_in_each_role(self):
+        reviewed = market_gap.REVIEWED
         shared = {"id": "rp-1", "industry": None, "text": "Docker"}
-        self.put_json(f"{reviewed}/ai/rp-1.posting.json", shared)
-        self.put_json(f"{reviewed}/cloud/rp-1.posting.json", shared)
-        self.put_json(f"{reviewed}/cloud/rp-2.posting.json", {"id": "rp-2", "industry": "금융", "text": "AWS"})
+        self.put_json(reviewed / "ai/rp-1.posting.json", shared)
+        self.put_json(reviewed / "cloud/rp-1.posting.json", shared)
+        self.put_json(reviewed / "cloud/rp-2.posting.json", {"id": "rp-2", "industry": "IT", "text": "AWS"})
+        self.put_json(market_gap.CLEAN, [{"industry": "IT", "text": "Java"}])
         self.put_programs()
-        result = market_gap.dashboard_gap(self.root, allow_example=True)
-        self.assertEqual([(row["industry"], row["skill"]) for row in result["rows"]],
-                         [("산업 미기재", "Docker"), ("금융", "AWS")])
-        self.assertIn("2건", result["source"])
-        self.assertIn("산업 미기재 1건", result["source"])
 
-        self.put_json("outputs/postings_clean.json", [])
-        self.assertEqual(market_gap.dashboard_gap(self.root, allow_example=True)["rows"], [])
+        for job, expected, count in [
+            ("ai_engineer", [("Docker", 100.0)], 1),
+            ("cloud_engineer", [("AWS", 50.0), ("Docker", 50.0)], 2),
+        ]:
+            with self.subTest(job=job):
+                result = market_gap.dashboard_gap(self.root, job, allow_example=True)
+                self.assertEqual([(row["skill"], row["demand_pct"]) for row in result["rows"]], expected)
+                self.assertEqual({row["job_category"] for row in result["rows"]}, {job})
+                self.assertIn(f"{count}건", result["source"])
+
+        self.put_json(market_gap.CLEAN, [])
+        self.assertEqual(market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=True)["rows"], [])
+
+    def test_unlabelled_postings_alone_cannot_be_assigned_to_a_role(self):
+        self.put_json(market_gap.RAW, {"response": {"items": [{"indTpNm": "IT", "jobCont": "Docker"}]}})
+        self.put_programs()
+        with self.assertRaisesRegex(ValueError, "직무"):
+            market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=True)
+
+    def test_unknown_job_category_rejected_before_reading_data(self):
+        with self.assertRaisesRegex(ValueError, "직무"):
+            market_gap.dashboard_gap(self.root, "unsupported", allow_example=True)
 
     def test_partial_reviewed_folders_do_not_fall_back_to_example(self):
         reviewed = self.root / "data/raw/rocketpunch-2026-11-17/postings-reviewed"
         (reviewed / "ai").mkdir(parents=True)
         self.put_programs()
         with self.assertRaisesRegex(FileNotFoundError, "cloud"):
-            market_gap.dashboard_gap(self.root, allow_example=True)
+            market_gap.dashboard_gap(self.root, "cloud_engineer", allow_example=True)
 
 
 if __name__ == "__main__":

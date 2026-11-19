@@ -29,17 +29,10 @@ def _build(job: str, levels: dict[str, int]) -> tuple[str | None, str | None]:
     recs, rec_err = (load(api.get_recommendations, job, [r["skill"] for r in missing], levels=level_of)
                      if missing else ([], None))
     recs = recs or []
-    market, _ = load(api.get_market_gap)  # 못 받으면 보고서에서 그 표만 건너뛴다
-    market_rows = market["rows"] if market else []
-    if market_rows:
-        industries = dict.fromkeys(row["industry"] for row in market_rows)
-        industry = st.session_state.get("market_industry")
-        if industry not in industries:
-            industry = next(iter(industries))
-        market_rows = [row for row in market_rows if row["industry"] == industry]
+    market, _ = load(api.get_market_gap, job)  # 못 받으면 보고서에서 그 표만 건너뛴다
     md = build_report(job_title=JOBS[job], demand=demand, gap_rows=gap_rows, area_rows=areas,
                       recommendations=recs, plan=study_order(recs), uncovered=uncovered_skills(recs),
-                      market_rows=market_rows, market_source=market["source"] if market else None,
+                      market_rows=market["rows"] if market else None, market_source=market["source"] if market else None,
                       level_names=level_guide()["level_names"],
                       mock=api.is_mock(), recommend_failed=bool(rec_err))
     return md, ("추천을 불러오지 못해 보고서의 학습 프로그램 추천 절은 비어 있습니다." if rec_err else None)

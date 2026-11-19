@@ -69,7 +69,7 @@ def build_report(*, job_title: str, demand: dict, gap_rows: list[dict], area_row
     """진단 보고서 마크다운 문자열. 인자는 모두 화면과 backend 가 이미 계산한 값이다.
 
     plan, uncovered: backend.plan.study_order / uncovered_skills 결과.
-    market_rows: 대시보드에서 선택한 산업의 시장 Gap 행. 못 받았으면 None(절을 건너뛴다).
+    market_rows: 목표 직군의 시장 Gap 행. 못 받았으면 None(절을 건너뛴다).
     recommend_failed: 추천을 불러오지 못했을 때 참. "추천할 과정이 없다"와 구분해 적는다.
     """
     today = today or _today()
@@ -191,13 +191,13 @@ def build_report(*, job_title: str, demand: dict, gap_rows: list[dict], area_row
     missing_names = {r["skill"] for r in missing}
     market = [r for r in (market_rows or []) if r["skill"] in missing_names]
     if market:
-        add(f"### {_t(market[0]['industry'])} 산업의 시장 Gap (내 부족 기술)\n")
+        add(f"### {_t(job_title)} 시장 Gap (내 부족 기술)\n")
         if market_source:
             add(f"집계 출처 {_t(market_source)}\n")
         add(_table(["기술", "공고 수요 비중", "학습 프로그램 공급 비중", "Gap"],
                    [[_t(r["skill"]), f"{r['demand_pct']:.1f}%", f"{r['supply_pct']:.1f}%", f"{r['gap_pp']:+.1f}%p"]
                     for r in market]))
-        add("\nGap = 수요 비중 − 공급 비중. 양수이면 산업 내 채용 수요에서 해당 기술이 차지하는 비중이 "
+        add("\nGap = 수요 비중 − 공급 비중. 양수이면 이 직군의 채용 수요에서 해당 기술이 차지하는 비중이 "
             "학습 프로그램에서의 공급 비중보다 큽니다.\n")
 
     add("## 읽을 때 주의할 점\n")

@@ -13,9 +13,9 @@
 | ⑤ 교육 공급 | `data/sample/supply.json` | 기술별 학습 프로그램 수를 기록하는 형식 예시 |
 | ⑥ 상담 발화 해석 | `data/sample/chat_turn.json` | 상담에서 갱신할 사실과 이번에 요청한 작업 |
 | ⑦ 보유 수준 | `data/skill_levels.json`, `data/required_levels.json` | 세부 능력별 단계 예시, 기술별 기준 단계 |
-| ⑧ 산업별 시장 Gap | `data/sample/market_postings.json`, `data/courses/courses.csv` | 예시 공고의 산업별 수요와 ⑤에서 구한 공급 비중 비교 |
+| ⑧ 직군별 시장 Gap | `data/sample/market_postings.json`, `data/courses/courses.csv` | AI·클라우드 엔지니어 각각의 기술 수요와 ⑤의 공급 비중 비교 |
 
-④의 모의 파일은 공고 40건을 가정한 가상 집계입니다. ⑤의 형식 예시는 과정 48개를 가정한 가상 집계입니다. ⑧의 계산 예시는 가상 공고 2건을 실제 학습 프로그램 목록 전체와 비교합니다.
+④의 모의 파일은 공고 40건을 가정한 가상 집계입니다. ⑤의 형식 예시는 과정 48개를 가정한 가상 집계입니다. ⑧의 계산 예시는 직군이 표시된 가상 공고를 실제 학습 프로그램 목록 전체와 비교합니다.
 
 ## ① 공고 (`posting`) — pipeline → ai
 
@@ -173,17 +173,17 @@ Gap 행(`get_gap`)에 더한 필드:
 | `save`, `save_job` | 명시적 프로필 쓰기 요청 여부와 직무가 저장 대상인지 나타내는 불리언. |
 | `save_skills`, `save_experiences` | 프로필 쓰기에서 명시적으로 지정한 항목 목록. 정정과 함께 지정하면 해당 항목을 삭제합니다. |
 
-## ⑧ 산업별 시장 Gap
+## ⑧ 직군별 시장 Gap
 
-산업별 공고 수요 비중에서 ⑤로 계산한 기술별 공급 비중을 빼서 Gap을 구합니다. 수요는 정제 공고의 `industry`와 `text`를 읽고 공고마다 기술별 최대 구역 가중치를 적용해 계산합니다. 모든 산업에 같은 공급 비중을 적용합니다.
+각 직군에 속한 공고의 본문에서 기술별 최대 구역 가중치를 구하고, 같은 직군의 전체 기술 가중치 합을 기준으로 수요 비중을 계산합니다. 두 직군에 속한 공고는 각 직군에서 한 번씩 집계합니다. 두 직군 모두 ⑤에서 구한 전체 학습 프로그램의 기술별 공급 비중과 비교합니다.
 
-`backend.api.get_market_gap()`은 전체 산업의 `rows` 배열과 자료 출처를 표시하는 `source` 문자열을 반환합니다. CSV 열과 각 행의 필드는 다음과 같습니다.
+`backend.api.get_market_gap(job_category)`은 선택한 직군의 `rows`와 자료 출처를 표시하는 `source`를 반환합니다. 배치 CSV는 두 직군을 모두 담고, 대시보드에서 내려받는 CSV는 선택한 직군의 행을 담습니다.
 
 | 필드 | 의미 |
 | --- | --- |
-| `industry`, `skill` | 산업명과 대표 기술명 |
-| `demand_pct` | 해당 산업 안에서 기술이 차지하는 가중 수요 비중 (%) |
+| `job_category`, `skill` | 직군 코드(`ai_engineer`, `cloud_engineer`)와 대표 기술명 |
+| `demand_pct` | 해당 직군 안에서 기술이 차지하는 가중 수요 비중 (%) |
 | `supply_pct` | ⑤의 해당 기술 과정 수 ÷ 모든 기술의 과정 수 합계 × 100 |
 | `gap_pp` | 반올림 전 수요 비중과 공급 비중의 차이 (%p). 세 수치는 각각 소수 첫째 자리로 반올림합니다. |
 
-현재 과정 목록과 예시 공고로 검산하려면 `python -m pipeline.market_gap --example`을 실행합니다. `outputs/example/learning_program_gap_table.csv`에서 산업이 `예시`이고 기술이 `Docker`인 행의 수요 비중, 공급 비중, Gap을 확인할 수 있습니다. [입력 경로와 갱신 방법](../pipeline/README.md#산업별-시장-gap)
+현재 과정 목록과 예시 공고로 검산하려면 `python -m pipeline.market_gap --example`을 실행합니다. `outputs/example/learning_program_job_gap_table.csv`에서 `job_category`가 `cloud_engineer`이고 기술이 `Docker`인 행의 수요 비중, 공급 비중, Gap을 확인할 수 있습니다. [입력 경로와 갱신 방법](../pipeline/README.md#직군별-시장-gap)

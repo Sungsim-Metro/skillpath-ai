@@ -7,9 +7,11 @@ from backend.industry_gap import (
     aggregate_supply,
     analyze_gap,
     analyze_gap_from_supply,
+    analyze_job_gap_from_supply,
     calculate_gap,
     extract_skills,
     gap_csv,
+    job_gap_csv,
     posting_weights,
 )
 
@@ -19,6 +21,28 @@ def course(name: str, content: str = "", goal: str = "") -> dict[str, str]:
 
 
 class IndustryGapTest(unittest.TestCase):
+    def test_job_gap_uses_each_roles_own_demand_and_the_same_catalog(self) -> None:
+        postings = [
+            {"job_category": "ai_engineer", "industry": "금융", "text": "Python"},
+            {"job_category": "cloud_engineer", "industry": "금융", "text": "Docker"},
+            {"job_category": "cloud_engineer", "industry": "IT", "text": "AWS"},
+        ]
+        supply = aggregate_supply([course("Docker")], source="교육과정")
+        result = analyze_job_gap_from_supply(postings, supply)
+        self.assertEqual(
+            [(r["job_category"], r["skill"], r["demand_pct"], r["supply_pct"], r["gap_pp"])
+             for r in result["rows"]],
+            [("ai_engineer", "Docker", 0.0, 100.0, -100.0),
+             ("ai_engineer", "Python", 100.0, 0.0, 100.0),
+             ("cloud_engineer", "AWS", 50.0, 0.0, 50.0),
+             ("cloud_engineer", "Docker", 50.0, 100.0, -50.0)],
+        )
+        self.assertEqual(result["top3"]["ai_engineer"][0], {"skill": "Python", "gap_pp": 100.0})
+        self.assertEqual(result["top3"]["cloud_engineer"][0], {"skill": "AWS", "gap_pp": 50.0})
+        exported = csv.DictReader(io.StringIO(job_gap_csv(result["rows"]).decode("utf-8-sig")))
+        self.assertEqual(exported.fieldnames, ["job_category", "skill", "demand_pct", "supply_pct", "gap_pp"])
+        self.assertEqual([r["job_category"] for r in exported], ["ai_engineer"] * 2 + ["cloud_engineer"] * 2)
+
     def test_supply_is_available_without_job_postings(self) -> None:
         courses = [course("Docker", "도커", "Practice Docker and SQL"), course("SQL"), course("무관")]
         supply = aggregate_supply(courses, source="테스트 목록")

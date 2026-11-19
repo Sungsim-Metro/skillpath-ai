@@ -9,7 +9,7 @@
 | get_gap              | Gap 목록            | 일현 (#12)              |
 | get_area_gap         | 영역별 Gap 목록      | 일현 (#12, #17)         |
 | get_supply           | ⑤ 교육 공급 집계     | 학습 프로그램 목록 집계   |
-| get_market_gap       | ⑧ 산업별 시장 Gap 표 | 공고 수요와 ⑤ 공급 비교   |
+| get_market_gap       | ⑧ 직군별 시장 Gap 표 | 공고 수요와 ⑤ 공급 비교   |
 | get_recommendations  | ③ 추천 목록          | 종훈·성진 (#14, #15) 연결됨 |
 | extract_posting      | ② 추출 결과          | 성진·일현 (#9, #11)      |
 
@@ -219,15 +219,15 @@ def get_supply() -> dict:
     return dashboard_supply(DATA_DIR.parent, allow_example=is_mock())
 
 
-def get_market_gap() -> dict:
-    """산업별 수요 비중, 학습 프로그램 공급 비중, Gap(%p)과 출처를 돌려준다.
+def get_market_gap(job_category: str = DEFAULT_JOB) -> dict:
+    """선택한 직군의 수요 비중, 학습 프로그램 공급 비중, Gap(%p)과 출처를 돌려준다.
 
     수요는 공고 한 건에서 기술별 최대 구역 가중치를, 공급은 해당 기술이 등장한 프로그램 수를 센다.
     각각 전체 기술 합으로 나눠 비중을 구한다. Gap은 반올림 전 수요 비중(%)에서 공급 비중(%)을 뺀 값이다.
     """
     from pipeline.market_gap import dashboard_gap
 
-    return dashboard_gap(DATA_DIR.parent, allow_example=is_mock())
+    return dashboard_gap(DATA_DIR.parent, job_category, allow_example=is_mock())
 
 
 def get_recommendations(job_category: str, gap_skills: list[str], *, review: bool = False,

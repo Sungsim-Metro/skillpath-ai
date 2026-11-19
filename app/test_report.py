@@ -64,7 +64,7 @@ class ReportTest(unittest.TestCase):
         recs = kw.pop("recs", None) or api.get_recommendations("cloud_engineer", [r["skill"] for r in missing])
         args = dict(job_title="클라우드 엔지니어", demand=demand, gap_rows=gap,
                     area_rows=api.get_area_gap("cloud_engineer", owned), recommendations=recs, plan=study_order(recs),
-                    uncovered=uncovered_skills(recs), market_rows=api.get_market_gap()["rows"],
+                    uncovered=uncovered_skills(recs), market_rows=api.get_market_gap("cloud_engineer")["rows"],
                     mock=True, today=date(2026, 11, 19))
         args.update(kw)
         return build_report(**args), demand, gap, missing, recs
@@ -117,22 +117,30 @@ class ReportTest(unittest.TestCase):
         at.sidebar.radio(key="view").set_value("chat").run()
         self.assertTrue(at.button(key="open_report"))
 
-    def test_report_uses_the_industry_selected_on_the_dashboard(self):
-        rows = [
-            {"industry": industry, "skill": "Docker", "demand_pct": demand, "supply_pct": 10.0, "gap_pp": demand - 10.0}
-            for industry, demand in [("유통", 60.0), ("금융", 70.0)]
-        ]
-        with mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "검산 자료"}):
+    def test_switching_target_role_changes_both_the_dashboard_and_report(self):
+        def market(job):
+            demand_pct = {"cloud_engineer": 60., "ai_engineer": 70.}[job]
+            row = {"job_category": job, "skill": "Python", "demand_pct": demand_pct,
+                   "supply_pct": 10., "gap_pp": demand_pct - 10.}
+            return {"rows": [row], "source": "검산 자료"}
+
+        with mock.patch("backend.api.get_market_gap", side_effect=market):
             at = AppTest.from_file(MAIN, default_timeout=60).run()
+            self.assertFalse(at.exception)
+            table = next(frame.value for frame in at.dataframe if "Gap" in frame.value.columns)
+            self.assertEqual(table["Gap"].tolist(), [50.])
             at.session_state["levels"] = {}
             at.session_state["levels_example"] = False
-            at.selectbox(key="market_industry").select("금융").run()
+            at.sidebar.selectbox(key="job").set_value("ai_engineer").run()
+            table = next(frame.value for frame in at.dataframe if "Gap" in frame.value.columns)
+            self.assertEqual(table["직군"].tolist(), ["AI 엔지니어"])
+            self.assertEqual(table["Gap"].tolist(), [60.])
             at.button(key="open_report").click().run()
         self.assertFalse(at.exception)
-        md = next(item.value for item in at.markdown if "산업의 시장 Gap" in item.value)
-        self.assertIn("금융 산업의 시장 Gap", md)
-        self.assertIn("| Docker | 70.0% | 10.0% | +60.0%p |", md)
-        self.assertNotIn("| Docker | 60.0% | 10.0% | +50.0%p |", md)
+        md = next(item.value for item in at.markdown if "시장 Gap (내 부족 기술)" in item.value)
+        self.assertIn("AI 엔지니어", md)
+        self.assertIn("| Python | 70.0% | 10.0% | +60.0%p |", md)
+        self.assertNotIn("| Python | 60.0% | 10.0% | +50.0%p |", md)
 
 
 if __name__ == "__main__":

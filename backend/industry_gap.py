@@ -1,4 +1,4 @@
-"""산업별 채용공고의 기술 수요 비중과 학습 프로그램의 기술 공급 비중으로 시장 Gap을 계산한다."""
+"""직군별 시장 Gap과 원본 실습의 산업별 Gap을 같은 수요·공급 비중 공식으로 계산한다."""
 
 import csv
 import io
@@ -44,6 +44,7 @@ _PATTERNS = {
 _HEADING = re.compile(r"\s*\[(.+?)\]")
 _WEIGHTS = {"자격요건": 1.0, "주요업무": 0.7, "우대사항": 0.5}
 CSV_FIELDS = ("industry", "skill", "demand_pct", "supply_pct", "gap_pp")
+JOB_CSV_FIELDS = ("job_category", *CSV_FIELDS[1:])
 PROGRAM_TEXT_FIELDS = ("title", "description", "objectives")
 
 
@@ -59,12 +60,19 @@ class EducationSupply(TypedDict):
     note: NotRequired[str]
 
 
-class GapRow(TypedDict):
-    industry: str
+class SkillGap(TypedDict):
     skill: str
     demand_pct: float
     supply_pct: float
     gap_pp: float
+
+
+class GapRow(SkillGap):
+    industry: str
+
+
+class JobGapRow(SkillGap):
+    job_category: str
 
 
 class RankedGap(TypedDict):
@@ -74,6 +82,11 @@ class RankedGap(TypedDict):
 
 class GapAnalysis(TypedDict):
     rows: list[GapRow]
+    top3: dict[str, list[RankedGap]]
+
+
+class JobGapAnalysis(TypedDict):
+    rows: list[JobGapRow]
     top3: dict[str, list[RankedGap]]
 
 
@@ -106,6 +119,8 @@ def posting_weights(text: str) -> dict[str, float]:
 
 
 def _shares(totals: Mapping[str, float], record_count: int) -> dict[str, float]:
+    if record_count == 0:
+        return {}
     rates = {skill: total / record_count for skill, total in totals.items()}
     # Python 3.12 changed float sum(). Preserve the reference's Python 3.11 rounding.
     rate_sum = 0.0
@@ -137,36 +152,53 @@ def aggregate_supply(courses: Sequence[Mapping[str, str | None]], source: str) -
     }
 
 
-def analyze_gap_from_supply(
-    postings: Sequence[Mapping[str, str]], supply: EducationSupply
-) -> GapAnalysis:
-    """산업별 채용 수요와 교육 공급 집계의 비중을 비교해 시장 Gap과 상위 세 기술을 구한다."""
+def _analyze_groups(
+    postings: Sequence[Mapping[str, str]], supply: EducationSupply, group_field: str
+) -> tuple[dict[str, list[SkillGap]], dict[str, list[RankedGap]]]:
     posting_counts: Counter[str] = Counter()
     demand_totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for posting in postings:
-        industry = posting["industry"]
-        posting_counts[industry] += 1
+        group = posting[group_field]
+        posting_counts[group] += 1
         for skill, weight in posting_weights(posting["text"]).items():
-            demand_totals[industry][skill] += weight
+            demand_totals[group][skill] += weight
 
     counts = {row["skill"]: row["courses"] for row in supply["skills"]}
     supply_shares = _shares(counts, supply["total_courses"])
 
-    rows: list[GapRow] = []
+    groups: dict[str, list[SkillGap]] = {}
     top3: dict[str, list[RankedGap]] = {}
-    for industry, totals in demand_totals.items():
-        demand = _shares(totals, posting_counts[industry])
-        top3[industry] = gap_table(demand, supply_shares)
+    for group, totals in demand_totals.items():
+        demand = _shares(totals, posting_counts[group])
+        top3[group] = gap_table(demand, supply_shares)
+        groups[group] = []
         for skill in sorted(demand.keys() | supply_shares.keys()):
             demand_pct = demand.get(skill, 0.0) * 100
             supply_pct = supply_shares.get(skill, 0.0) * 100
-            rows.append({
-                "industry": industry,
+            groups[group].append({
                 "skill": skill,
                 "demand_pct": round(demand_pct, 1),
                 "supply_pct": round(supply_pct, 1),
                 "gap_pp": round(demand_pct - supply_pct, 1),
             })
+    return groups, top3
+
+
+def analyze_job_gap_from_supply(
+    postings: Sequence[Mapping[str, str]], supply: EducationSupply
+) -> JobGapAnalysis:
+    """Compare each job category's demand with the same learning program catalog."""
+    groups, top3 = _analyze_groups(postings, supply, "job_category")
+    rows = [JobGapRow(job_category=job, **row) for job, skills in groups.items() for row in skills]
+    return {"rows": rows, "top3": top3}
+
+
+def analyze_gap_from_supply(
+    postings: Sequence[Mapping[str, str]], supply: EducationSupply
+) -> GapAnalysis:
+    """산업별 채용 수요와 교육 공급 집계의 비중을 비교해 시장 Gap과 상위 세 기술을 구한다."""
+    groups, top3 = _analyze_groups(postings, supply, "industry")
+    rows = [GapRow(industry=industry, **row) for industry, skills in groups.items() for row in skills]
     return {"rows": rows, "top3": top3}
 
 
@@ -184,10 +216,19 @@ def calculate_gap(
     return analyze_gap(postings, courses)["rows"]
 
 
-def gap_csv(rows: Sequence[GapRow]) -> bytes:
-    """빈 결과도 헤더를 갖는 UTF-8 BOM CSV로 직렬화한다."""
+def _csv(rows: Sequence[Mapping[str, object]], fields: tuple[str, ...]) -> bytes:
     output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=CSV_FIELDS)
+    writer = csv.DictWriter(output, fieldnames=fields)
     writer.writeheader()
     writer.writerows(rows)
     return output.getvalue().encode("utf-8-sig")
+
+
+def gap_csv(rows: Sequence[GapRow]) -> bytes:
+    """빈 결과도 헤더를 갖는 UTF-8 BOM CSV로 직렬화한다."""
+    return _csv(rows, CSV_FIELDS)
+
+
+def job_gap_csv(rows: Sequence[JobGapRow]) -> bytes:
+    """Export the job category alongside each skill and its market gap."""
+    return _csv(rows, JOB_CSV_FIELDS)

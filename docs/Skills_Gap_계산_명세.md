@@ -1,10 +1,12 @@
 # Skills Gap 계산 명세
 
-## SkillPath AI의 산업별 Gap
+## SkillPath AI의 직군별 시장 Gap
 
-**Gap(%p) = 해당 산업의 기술 수요 비중(%) − 학습 프로그램의 기술 공급 비중(%)**
+**Gap(%p) = 선택한 직군의 기술 수요 비중(%) − 학습 프로그램의 기술 공급 비중(%)**
 
-수요는 공고마다 해당 기술의 가장 높은 구역 가중치를 적용해 산업별로 계산합니다. 공급은 등록된 학습 프로그램 전체의 제목(`title`), 설명(`description`), 학습 목표(`objectives`)에서 기술을 찾고, 한 프로그램에서 같은 기술은 한 번만 셉니다. 기술별 프로그램 수를 모든 (프로그램, 기술) 쌍의 수로 나눠 비중을 구합니다. 현재 출처는 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정입니다. [프로그램 목록](../data/courses/courses.csv)
+수요는 AI 엔지니어와 클라우드 엔지니어 각각의 공고에서 구합니다. 공고마다 해당 기술의 가장 높은 구역 가중치를 적용하고, 그 직군 안에서 비중을 계산합니다. 두 직군에 모두 속한 공고는 각 직군에서 한 번씩 셉니다.
+
+공급은 두 직군에 같은 학습 프로그램 목록을 사용합니다. 제목(`title`), 설명(`description`), 학습 목표(`objectives`)에서 기술을 찾고, 한 프로그램에서 같은 기술은 한 번만 셉니다. 기술별 프로그램 수를 모든 (프로그램, 기술) 쌍의 수로 나눠 비중을 구합니다. 현재 출처는 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정입니다. [프로그램 목록](../data/courses/courses.csv)
 
 Docker의 공급 비중(%)은 `100 × Docker가 검출된 과정 수 ÷ 모든 기술의 과정 수 합계`입니다. 예시 공고의 Docker 수요 비중에서 이 공급 비중을 뺀 뒤 소수 첫째 자리로 반올림하면 예시 Gap(%p)이 됩니다. 저장소 루트에서 `python -m pipeline.market_gap --example`을 실행하면 현재 과정 목록으로 계산한 결과를 확인할 수 있습니다. [예시 공고](../data/sample/market_postings.json)
 

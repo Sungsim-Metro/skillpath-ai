@@ -1,22 +1,24 @@
-"""Export learning program supply counts and industry Skills Gap results."""
+"""Export learning program supply counts and market Skills Gap results by job category."""
 
 import argparse
 import csv
 import json
 import math
 import re
+from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from backend.industry_gap import (
-    CSV_FIELDS,
+    JOB_CSV_FIELDS,
     PROGRAM_TEXT_FIELDS,
     EducationSupply,
-    GapRow,
+    JobGapRow,
     aggregate_supply,
-    analyze_gap_from_supply,
-    gap_csv,
+    analyze_job_gap_from_supply,
+    job_gap_csv,
 )
+from backend.jobs import JOBS, REVIEWED_DOMAINS, validate_role
 from pipeline.reviewed_postings import SNAPSHOT, reviewed_paths
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +27,8 @@ RAW = Path("data/raw/job_postings_raw.json")
 REVIEWED = RAW.parent / SNAPSHOT / "postings-reviewed"
 PROGRAM_CATALOGS = {"AWS Skill Builder": Path("data/courses/courses.csv")}
 SUPPLY = Path("outputs/learning_program_supply.json")
-TABLE = Path("outputs/learning_program_gap_table.csv")
-REPORT_NAME = "learning_program_gap_report.md"
+TABLE = Path("outputs/learning_program_job_gap_table.csv")
+REPORT_NAME = "learning_program_job_gap_report.md"
 
 
 def _records(path: Path, keys: tuple[str, ...], fields: tuple[str, ...]) -> list[dict]:
@@ -96,70 +98,109 @@ def dashboard_supply(root: Path, *, allow_example: bool) -> EducationSupply:
     return catalog_supply(root)
 
 
-def _load_reviewed_postings(root: Path) -> tuple[list[dict[str, str]], str]:
-    """Load each reviewed posting ID once and retain postings with no industry."""
+def _labelled_postings(path: Path, *, raw: bool) -> list[dict[str, str]] | None:
+    """Read job-labelled inputs. An industry-only file cannot supply job membership."""
+    text_field = "jobCont" if raw else "text"
+    rows = _records(path, ("response", "items") if raw else (), (text_field,))
+    if rows and all("job_category" not in row and "role" not in row for row in rows):
+        return None
+    role_codes = {name: code for code, name in JOBS.items()}
     postings = []
-    missing = 0
-    for path in reviewed_paths(raw_dir=root / RAW.parent):
-        row = json.loads(path.read_text(encoding="utf-8-sig"))
-        if not isinstance(row, dict) or not isinstance(row.get("text"), str):
-            raise ValueError(f"{path.name}의 text 필드를 확인하세요.")  # noqa: TRY004 - invalid file contents
-        industry = row.get("industry")
-        if industry is not None and not isinstance(industry, str):
-            raise ValueError(f"{path.name}의 industry 필드를 확인하세요.")
-        if not industry or not industry.strip():
-            missing += 1
-            industry = "산업 미기재"
-        postings.append({"industry": industry, "text": row["text"]})
-    return postings, f"{REVIEWED} AI·클라우드 검토본, 공고 ID 중복 제거, 산업 미기재 {missing}건 포함"
+    seen = set()
+    for index, row in enumerate(rows, start=1):
+        job = row.get("job_category")
+        if job is None and isinstance(row.get("role"), str):
+            job = role_codes.get(row["role"])
+        if not isinstance(job, str) or job not in JOBS:
+            raise ValueError(f"{path.name} {index}번째 공고의 직무(job_category 또는 role)를 확인하세요.")
+        if "role" in row:
+            validate_role(job, row["role"])
+        posting_id = row.get("id")
+        if posting_id is not None:
+            if not isinstance(posting_id, str) or not posting_id.strip():
+                raise ValueError(f"{path.name} {index}번째 공고의 id를 확인하세요.")
+            key = (job, posting_id)
+            if key in seen:
+                continue
+            seen.add(key)
+        text = row[text_field]
+        postings.append({"job_category": job, "text": _clean_text(text) if raw else text})
+    return postings
 
 
-def _load_postings(root: Path, *, example: bool) -> tuple[list[dict], str]:
-    clean = ROOT / "data/sample/market_postings.json" if example else root / CLEAN
-    if clean.is_file():
-        postings = _records(clean, (), ("industry", "text"))
-        source = "예시 공고" if example else str(CLEAN)
-    elif not example and (root / RAW).is_file():
-        raw = _records(root / RAW, ("response", "items"), ("indTpNm", "jobCont"))
-        postings = [{"industry": row["indTpNm"], "text": _clean_text(row["jobCont"])} for row in raw]
-        source = str(RAW)
-    elif not example and (root / REVIEWED).exists():
-        postings, source = _load_reviewed_postings(root)
+def _load_reviewed_postings(root: Path, jobs: tuple[str, ...]) -> list[dict[str, str]]:
+    postings = []
+    for job in jobs:
+        for path in reviewed_paths(REVIEWED_DOMAINS[job], raw_dir=root / RAW.parent):
+            row = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(row, dict) or not isinstance(row.get("text"), str):
+                raise ValueError(f"{path.name}의 text 필드를 확인하세요.")
+            if "role" in row:
+                validate_role(job, row["role"])
+            postings.append({"job_category": job, "text": row["text"]})
+    return postings
+
+
+def _load_postings(root: Path, jobs: tuple[str, ...], *, example: bool) -> tuple[list[dict], str]:
+    sources = (CLEAN, RAW) if not example else (Path("data/sample/market_postings.json"),)
+    for name in sources:
+        path = (ROOT if example else root) / name
+        if not path.is_file():
+            continue
+        labelled = _labelled_postings(path, raw=name == RAW)
+        if labelled is not None:
+            postings = [row for row in labelled if row["job_category"] in jobs]
+            source = "예시 공고" if example else str(name)
+            break
     else:
-        raise FileNotFoundError(f"산업별 채용공고 파일 {CLEAN}, {RAW} 또는 검토 공고 폴더 {REVIEWED}을 준비하세요.")
-    return postings, f"{source} ({len(postings)}건)"
+        if (root / REVIEWED).exists() and not example:
+            postings = _load_reviewed_postings(root, jobs)
+            source = f"{REVIEWED} 직군별 검토본"
+        elif any((root / name).is_file() for name in sources):
+            raise ValueError(f"공고에 직무 코드(job_category)나 직무 이름(role)이 필요합니다: {sources}")
+        else:
+            raise FileNotFoundError(f"직군별 채용공고 파일 {CLEAN}, {RAW} 또는 검토 공고 폴더 {REVIEWED}을 준비하세요.")
+    counts = Counter(row["job_category"] for row in postings)
+    sizes = ", ".join(f"{JOBS[job]} {counts[job]}건" for job in jobs)
+    return postings, f"{source} ({sizes})"
 
 
 def _gap_source(posting_source: str, supply: EducationSupply) -> str:
     return f"{posting_source} · {supply['source']} (학습 프로그램 {supply['total_courses']}개)"
 
 
-def _read_table(path: Path) -> list[GapRow]:
+def _read_table(path: Path, job_category: str) -> list[JobGapRow]:
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
-        if reader.fieldnames != list(CSV_FIELDS):
-            raise ValueError(f"{path.name}의 열은 {', '.join(CSV_FIELDS)} 순서여야 합니다.")
+        if reader.fieldnames != list(JOB_CSV_FIELDS):
+            raise ValueError(f"{path.name}의 열은 {', '.join(JOB_CSV_FIELDS)} 순서여야 합니다.")
         rows = []
         for row in reader:
             try:
-                demand, supply, gap = (float(row[field]) for field in CSV_FIELDS[2:])
+                demand, supply, gap = (float(row[field]) for field in JOB_CSV_FIELDS[2:])
                 if None in row or not all(map(math.isfinite, (demand, supply, gap))):
                     raise ValueError
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{path.name} {reader.line_num}행의 열과 수치를 확인하세요.") from exc
-            rows.append(GapRow(industry=row["industry"], skill=row["skill"],
-                               demand_pct=demand, supply_pct=supply, gap_pp=gap))
+            if row["job_category"] not in JOBS:
+                raise ValueError(f"{path.name} {reader.line_num}행의 직무 코드를 확인하세요.")
+            if row["job_category"] == job_category:
+                rows.append(JobGapRow(job_category=job_category, skill=row["skill"],
+                                      demand_pct=demand, supply_pct=supply, gap_pp=gap))
         return rows
 
 
-def dashboard_gap(root: Path, *, allow_example: bool) -> dict:
+def dashboard_gap(root: Path, job_category: str, *, allow_example: bool) -> dict:
     """Use the learning-program export or calculate from the configured catalogs."""
+    if job_category not in JOBS:
+        raise ValueError(f"지원하지 않는 직무 코드: {job_category}")
     if (root / TABLE).is_file():
-        return {"rows": _read_table(root / TABLE), "source": f"{TABLE} · 등록된 공급 출처 {', '.join(PROGRAM_CATALOGS)}"}
+        return {"rows": _read_table(root / TABLE, job_category),
+                "source": f"{TABLE} · {JOBS[job_category]} · 등록된 공급 출처 {', '.join(PROGRAM_CATALOGS)}"}
     example = allow_example and not any((root / name).exists() for name in (CLEAN, RAW, REVIEWED))
-    postings, source = _load_postings(root, example=example)
+    postings, source = _load_postings(root, (job_category,), example=example)
     supply = dashboard_supply(root, allow_example=allow_example)
-    return {"rows": analyze_gap_from_supply(postings, supply)["rows"], "source": _gap_source(source, supply)}
+    return {"rows": analyze_job_gap_from_supply(postings, supply)["rows"], "source": _gap_source(source, supply)}
 
 
 def _publish(path: Path, content: bytes) -> None:
@@ -182,7 +223,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         supply = catalog_supply(args.root)
         if not args.supply_only:
-            postings, source = _load_postings(args.root, example=args.example)
+            postings, source = _load_postings(args.root, tuple(JOBS), example=args.example)
     except (ValueError, OSError) as exc:
         parser.exit(1, f"{exc}\n")
     dest.mkdir(parents=True, exist_ok=True)
@@ -190,15 +231,15 @@ def main(argv: list[str] | None = None) -> None:
     print(f"{dest / SUPPLY.name} (학습 프로그램 {supply['total_courses']}개)")
     if args.supply_only:
         return
-    result = analyze_gap_from_supply(postings, supply)
-    lines = ["# 산업별 Skills Gap Top 3", "", _gap_source(source, supply), ""]
-    for industry, ranking in result["top3"].items():
-        lines.extend([f"## {industry}", ""])
+    result = analyze_job_gap_from_supply(postings, supply)
+    lines = ["# 직군별 Skills Gap Top 3", "", _gap_source(source, supply), ""]
+    for job, ranking in result["top3"].items():
+        lines.extend([f"## {JOBS[job]}", ""])
         lines.extend(f"{rank}. {row['skill']} {row['gap_pp']:+.1f}%p"
                      for rank, row in enumerate(ranking, start=1))
         lines.append("")
     _publish(dest / REPORT_NAME, "\n".join(lines).encode("utf-8"))
-    _publish(dest / TABLE.name, gap_csv(result["rows"]))
+    _publish(dest / TABLE.name, job_gap_csv(result["rows"]))
     print(f"{dest / TABLE.name} ({len(result['rows'])}행)\n{dest / REPORT_NAME}")
 
 
