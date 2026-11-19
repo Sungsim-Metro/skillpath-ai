@@ -5,12 +5,11 @@
 import json
 import os
 import unittest
-from pathlib import Path
 from unittest import mock
 
 from streamlit.testing.v1 import AppTest
 
-MAIN = str(Path(__file__).resolve().parent / "main.py")
+from app.testing import MENU, open_app
 
 
 class AppSmokeTest(unittest.TestCase):
@@ -18,14 +17,46 @@ class AppSmokeTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.at = AppTest.from_file(MAIN, default_timeout=60).run()
+        self.at = open_app("gap")
 
-    def test_all_tabs_render_in_mock_mode(self):
-        self.assertFalse(self.at.exception)
-        self.assertEqual([t.label for t in self.at.tabs], ["시장 수요", "부족 역량", "학습 추천", "공고 직접 분석"])
+    def test_every_menu_screen_renders_in_mock_mode(self):
+        first = open_app()
+        self.assertEqual(first.session_state["view"], "chat")  # 첫 화면은 학습 상담
+        self.assertEqual(list(first.sidebar.radio(key="view").options), list(MENU.values()))
+        self.assertEqual(open_app("dashboard").session_state["view"], "chat")  # 모르는 값은 첫 화면으로
+        for view, label in MENU.items():
+            at = open_app(view)
+            self.assertFalse(at.exception, view)
+            self.assertFalse(at.tabs, view)
+            self.assertEqual(at.title[0].value, label)
+
+    def test_recommend_screen_shows_study_order_ranked_cards_and_ratings(self):
+        """학습 추천 화면: 먼저 들을 순서, 기술마다 1위부터 붙는 카드, 평점 줄(있는 과정만)."""
+        rated = {"title": "평점 있는 과정", "url": "https://example.com/a", "level": "기초", "prerequisites": "없음",
+                 "reason": "예시 이유", "match": "certain", "rating_avg": 4.6, "rating_count": 1280}
+        plain = {**{k: v for k, v in rated.items() if not k.startswith("rating_")}, "title": "평점 없는 과정",
+                 "url": "https://example.com/b", "match": "uncertain"}
+
+        def get_recommendations(job, skills, **kwargs):  # load() 가 함수 이름을 로그에 남기므로 Mock 이 아닌 함수로 바꾼다
+            demand = {"postings": 20, "of": 40, "required_ratio": 0.5}
+            return [{"gap_skill": skills[0], "demand": demand, "courses": [rated, plain]},
+                    {"gap_skill": skills[1], "demand": demand, "courses": [rated]}]
+
+        with mock.patch("backend.api.get_recommendations", get_recommendations):
+            at = open_app("recommend")
+        self.assertFalse(at.exception)
+        self.assertIn("먼저 들을 순서", [h.value for h in at.subheader])
+        self.assertTrue(any(t.value.startswith("1. 평점 있는 과정") for t in at.text))  # 불확실 과정은 순서에 넣지 않는다
+        self.assertFalse(any("평점 없는 과정 (" in t.value for t in at.text))
+        badges = [m.value.split("]")[0] for m in at.markdown if m.value.startswith(":blue-badge[")]
+        self.assertEqual(badges, [":blue-badge[1위", ":blue-badge[2위", ":blue-badge[1위"])
+        self.assertEqual([t.value for t in at.text if t.value.startswith("★")], ["★ 4.6 · 평가 1,280개"] * 2)
 
     def test_extract_button_shows_result(self):
-        at = self.at.button(key="extract_btn").click().run()
+        """공고 직접 분석은 메뉴에서 뺐지만 화면 코드는 남아 있다."""
+        at = AppTest.from_function(_extract_screen).run()
+        self.assertFalse(at.exception)
+        at = at.button(key="extract_btn").click().run()
         self.assertFalse(at.exception)
         self.assertIn("추출 결과", [h.value for h in at.subheader])
 
@@ -69,6 +100,13 @@ class AppSmokeTest(unittest.TestCase):
         self.assertFalse(at.exception)
 
 
+def _extract_screen():
+    from app.common import build_ctx
+    from app.tabs.extract import render
+
+    render(build_ctx("cloud_engineer", {}, None))
+
+
 def _market_without_personal_demand():
     from app.common import Ctx
     from app.tabs.gap import render
@@ -85,7 +123,7 @@ class MarketGapScreenTest(unittest.TestCase):
              mock.patch("backend.api.get_market_gap", side_effect=FileNotFoundError):
             at = AppTest.from_function(_market_without_personal_demand).run()
         self.assertFalse(at.exception)
-        self.assertIn("교육 공급", [heading.value for heading in at.subheader])
+        self.assertIn("교육 공급", [box.label for box in at.expander])
         self.assertTrue(any("교육과정 목록" in caption.value and "3개" in caption.value for caption in at.caption))
         table = next(frame.value for frame in at.dataframe if "과정 수" in frame.value.columns)
         self.assertEqual(table.to_dict("records"), [{"기술": "SQL", "과정 수": 2}, {"기술": "Docker", "과정 수": 1}])
@@ -96,7 +134,7 @@ class MarketGapScreenTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1"}), \
              mock.patch("backend.api.owned_skill_names", return_value=["AWS"]), \
              mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "검산 자료"}):
-            at = AppTest.from_file(MAIN, default_timeout=60).run()
+            at = open_app("gap")
         self.assertFalse(at.exception)
         table = next(frame.value for frame in at.dataframe if "Gap" in frame.value.columns)
         self.assertEqual(table["내 보유"].tolist(), ["보유", "-"])
@@ -108,7 +146,7 @@ class MarketGapScreenTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1"}), \
              mock.patch("backend.api.get_demand", return_value=demand), \
              mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "예시 입력"}):
-            at = AppTest.from_file(MAIN, default_timeout=60).run()
+            at = open_app("gap")
         self.assertFalse(at.exception)
         table = next(frame.value for frame in at.dataframe if "Gap" in frame.value.columns)
         self.assertEqual(table["직군"].tolist(), ["클라우드 엔지니어"])

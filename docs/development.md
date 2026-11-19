@@ -67,7 +67,7 @@ API Gateway는 쓰지 않습니다(2026-11-13). 수업 교안에 없고, 화면�
 
 | 위치 | 내용 |
 | --- | --- |
-| `app/main.py` | 사이드바와 탭 4개(시장 수요, 부족 역량, 학습 추천, 공고 분석). 가짜 데이터로 동작 |
+| `app/main.py` | 로그인·회원가입 첫 화면, 사이드바(마이페이지와 메뉴), 화면 5개(학습 상담, 시장 수요, 부족 역량, 학습 추천, 현직자에게 물어보기) |
 | `backend/api.py` | 화면이 부르는 함수 4개: `get_demand`, `get_gap`, `get_recommendations`, `extract_posting`. 지금은 가짜 데이터를 돌려주고, 담당자가 실제 구현으로 교체 |
 | `data/sample/` | ①~④ 형식의 예시 JSON |
 | `.github/workflows/` | PR 자동 리뷰(`claude-review.yml`), 댓글 호출(`claude.yml`) |

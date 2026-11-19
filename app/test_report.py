@@ -7,6 +7,8 @@ from unittest import mock
 
 from streamlit.testing.v1 import AppTest
 
+from app.testing import open_app
+
 MAIN = str(Path(__file__).resolve().parent / "main.py")
 
 
@@ -107,7 +109,7 @@ class ReportTest(unittest.TestCase):
 
     def test_sidebar_button_opens_report_only_after_diagnosis(self):
         """마이페이지 버튼: 진단 전(예시 값)에는 막혀 있고, 진단 뒤에는 창에서 내려받는다. 상담 화면에서도 보인다."""
-        at = AppTest.from_file(MAIN, default_timeout=60).run()
+        at = open_app()
         self.assertTrue(at.button(key="open_report").disabled)
         at.session_state["levels_example"] = False
         at.run()
@@ -125,7 +127,7 @@ class ReportTest(unittest.TestCase):
             return {"rows": [row], "source": "검산 자료"}
 
         with mock.patch("backend.api.get_market_gap", side_effect=market):
-            at = AppTest.from_file(MAIN, default_timeout=60).run()
+            at = open_app("gap")
             self.assertFalse(at.exception)
             table = next(frame.value for frame in at.dataframe if "Gap" in frame.value.columns)
             self.assertEqual(table["Gap"].tolist(), [50.])
