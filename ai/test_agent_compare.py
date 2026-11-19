@@ -182,6 +182,25 @@ def test_budget_stops_before_call():
     assert issubclass(ac.BudgetExceeded, BaseException) and not issubclass(ac.BudgetExceeded, Exception)
 
 
+def test_kb_and_embedding_calls_are_counted():
+    # 과정 검색의 KB Retrieve 와 임베딩 호출은 상한 없이 개수만 센다(가짜 함수로, 네트워크 없음)
+    from pipeline import embed, search
+
+    saved_kb = search._kb_scores
+    try:
+        search._kb_scores = lambda *a, **k: {}
+        with ac.Probe() as p:
+            search._kb_scores("Docker")
+            search._kb_scores("Docker", ["X"])
+            embed._usage["calls"] += 3  # 임베딩 3번 부른 것과 같게
+        assert (p.kb_retrieve_calls, p.embedding_calls) == (2, 3)
+        assert search._kb_scores("x") == {}  # 원래대로 돌아왔다(가짜 함수)
+    finally:
+        search._kb_scores = saved_kb
+        embed._usage["calls"] -= 3
+    assert any("KB Retrieve" in n for n in ac.RESULT_NOTES)
+
+
 def test_limit_exit_stops_parent():
     # 하위 프로세스가 한도 종료 코드로 끝나면 부모는 LimitReached 로 멈춘다
     old = ac.subprocess.run
@@ -214,7 +233,7 @@ def test_isolated_run_matches_in_process():
         assert "없는문항" in str(e) and "멈춥니다" in str(e)
     else:
         raise AssertionError("없는 문항인데 멈추지 않음")
-    assert len(ac.RESULT_NOTES) == 2 and "새 프로세스" in ac.RESULT_NOTES[1]
+    assert len(ac.RESULT_NOTES) == 3 and "새 프로세스" in ac.RESULT_NOTES[1]
 
 
 def test_holdout_placeholder_is_empty_schema():

@@ -64,6 +64,7 @@ ASK_BACK_STRUCTURES = {"A", "B"}
 RESULT_NOTES = [
     "모델 호출 수에 Guardrails(ApplyGuardrail) 호출은 포함하지 않음",
     "구조·문항마다 새 프로세스로 실행해 캐시가 비어 있음, DynamoDB 수요 조회가 문항마다 한 번씩 더 일어남",
+    "KB Retrieve(과정 검색)·임베딩 호출은 상한 없이 개수만 기록함(kb_retrieve_calls, embedding_calls)",
 ]
 ROW_MARK = "AGENT_COMPARE_ROW "  # 하위 프로세스가 결과 한 줄 앞에 붙이는 표시(다른 출력과 섞이지 않게)
 CHILD_TIMEOUT = 600                # 문항 하나의 하위 프로세스 시간 한도(초)
@@ -94,6 +95,9 @@ class Probe:
         self.tokens = 0
         self.recommendations = []  # 상담 에이전트 recommend_courses 결과
         self.guardrail_calls = 0   # 실제 ApplyGuardrail 호출(모델 호출 수와 따로 셈)
+        self.kb_retrieve_calls = 0  # 과정 검색의 KB Retrieve 호출(상한 없음, 개수만)
+        self.embedding_calls = 0    # 임베딩 호출(상한 없음, 개수만. 캐시에 있으면 부르지 않음)
+        self._embed_before = 0
         self._saved = None
 
     @staticmethod
@@ -105,6 +109,18 @@ class Probe:
         check, interpret, call, call_tools, assess = (guardrail.check_input, intake.interpret,
                                                      bedrock._call, bedrock._call_tools, guardrail.bedrock_assess)
         self._saved = (check, interpret, call, call_tools, assess)
+        from pipeline import embed, search
+
+        self._embed, self._search = embed, search
+        self._embed_before = embed.usage()["calls"]
+        kb_scores = search._kb_scores
+        self._saved_kb = kb_scores
+
+        def counted_kb(*a, **k):
+            self.kb_retrieve_calls += 1  # 실제 모드에서만 불린다(가짜 모드는 규칙 검색)
+            return kb_scores(*a, **k)
+
+        search._kb_scores = counted_kb
         model_budget, guard_budget = self._budget(MODEL_BUDGET_ENV), self._budget(GUARDRAIL_BUDGET_ENV)
 
         def watched_assess(text, source):
@@ -145,6 +161,8 @@ class Probe:
     def __exit__(self, *exc):
         (guardrail.check_input, intake.interpret, bedrock._call, bedrock._call_tools,
          guardrail.bedrock_assess) = self._saved
+        self._search._kb_scores = self._saved_kb
+        self.embedding_calls = self._embed.usage()["calls"] - self._embed_before
         return False
 
 
@@ -188,6 +206,8 @@ def run_screen(case: dict) -> dict:
         "model_calls": probe.model_calls,
         "mock_turns": probe.mock_turns,
         "guardrail_calls": probe.guardrail_calls,
+        "kb_retrieve_calls": probe.kb_retrieve_calls,
+        "embedding_calls": probe.embedding_calls,
         "tokens": probe.tokens,
         "seconds": round(seconds, 3),
         "answer_chars": len(reply.text),
@@ -240,6 +260,8 @@ def run_agent(case: dict) -> dict:
         "model_calls": probe.model_calls,
         "mock_turns": probe.mock_turns,
         "guardrail_calls": probe.guardrail_calls,
+        "kb_retrieve_calls": probe.kb_retrieve_calls,
+        "embedding_calls": probe.embedding_calls,
         "tokens": probe.tokens,
         "seconds": round(seconds, 3),
         "answer_chars": len(result["answer"]),
@@ -280,6 +302,8 @@ def summarize(cases: list[dict], rows: dict[str, dict], structure: str = "") -> 
         "courses_shown": shown,
         "model_calls": sum(rows[c["id"]]["model_calls"] for c in cases),
         "guardrail_calls": sum(rows[c["id"]].get("guardrail_calls", 0) for c in cases),
+        "kb_retrieve_calls": sum(rows[c["id"]].get("kb_retrieve_calls", 0) for c in cases),
+        "embedding_calls": sum(rows[c["id"]].get("embedding_calls", 0) for c in cases),
         "tokens": sum(rows[c["id"]]["tokens"] for c in cases),
         "seconds_median": round(statistics.median(seconds), 3) if seconds else None,
         "seconds_max": max(seconds) if seconds else None,
@@ -397,7 +421,7 @@ def main() -> int:
         s = r["summary"]
         print(f"\n[구조 {name}] 의도 {s['intent_correct']}/{s['intent_total']}(해당 없음 {s['intent_not_applicable']})  되묻기 {s['ask_back_correct']}/{s['ask_back_total']}(해당 없음 {s['ask_back_not_applicable']})"
               f"  가드레일 차단 {s['guard_blocked']}/{s['guard_total']}(검사 실패 {s['guard_check_failed']})"
-              f"  불확실 {s['uncertain_ratio']}  모델 {s['model_calls']}번  ApplyGuardrail {s['guardrail_calls']}번  토큰 {s['tokens']}"
+              f"  불확실 {s['uncertain_ratio']}  모델 {s['model_calls']}번  ApplyGuardrail {s['guardrail_calls']}번  KB 검색 {s['kb_retrieve_calls']}번  임베딩 {s['embedding_calls']}번  토큰 {s['tokens']}"
               f"  시간 중앙값 {s['seconds_median']}초 최대 {s['seconds_max']}초")
         if args.set == "dev":  # 보지 않은 문항은 숫자만
             print(f"  의도가 다른 문항: {', '.join(s['intent_wrong_ids']) or '없음'}"
