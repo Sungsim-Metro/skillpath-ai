@@ -85,6 +85,30 @@ class ChatScreenTest(unittest.TestCase):
         self.assertTrue(any("[전화번호]" in t.value for t in at.text))
         self.assertTrue(any("Kubernetes" in t.value for t in at.text))
 
+    def test_only_real_counseling_turns_are_saved(self):
+        """막힌 발화·범위 밖 질문·검사 실패·처리 오류는 화면에는 남아도 DB 에는 저장하지 않는다."""
+        from backend.chat import Reply
+
+        at = self.open_screen()
+        self.authenticate(at, "저장 기준", register=True)
+        session_id = at.session_state["chat_conversation"].usage.session_id
+        cases = [
+            ("막힌 발화", Reply("차단 안내", action="blocked"), False),
+            ("범위 밖", Reply("범위 안내", action="out_of_scope"), False),
+            ("검사 실패", Reply("해석 실패", action="intake", failed=True), False),
+            ("오류", RuntimeError("boom"), False),
+            ("정상", Reply("정상 답", action="note"), True),
+        ]
+        for text, outcome, saved in cases:
+            before = len(chat_history.load_session("저장 기준", session_id))
+            with patch("backend.chat.handle_message", side_effect=[outcome]):
+                at.chat_input[0].set_value(text).run()
+            self.assertFalse(at.exception, text)
+            after = len(chat_history.load_session("저장 기준", session_id))
+            self.assertEqual(after - before, 1 if saved else 0, text)
+        self.assertEqual([t[0] for t in chat_history.load_session("저장 기준", session_id)], ["정상"])
+        self.assertEqual(len(at.session_state["chat_history"]), 5)  # 화면에는 다섯 턴이 모두 보인다
+
     def test_token_usage_counts_retries_and_failed_turns_only_for_this_chat(self):
         log = Path(self.enterContext(TemporaryDirectory())) / "usage.jsonl"
         self.enterContext(patch.dict(os.environ, {"USAGE_LOG": str(log), "ADMIN_KEY": "test-key"}))

@@ -44,3 +44,19 @@ uv run --python 3.11 --with boto3 python -m backend.dynamodb create-chat-table
 ```
 
 한 턴 저장은 턴 줄 → 세션 줄 순서로 쓴다. 둘 사이에서 실패하면 그 턴은 남고 세션 줄만 늦게 생기며, 같은 세션의 다음 턴이 세션 줄을 만들어 목록이 복구된다.
+
+저장하지 않는 턴: 비회원의 대화, 가드레일에 막힌 발화(`blocked`), 범위 밖 질문(`out_of_scope`), 모델 응답 검사 실패, 처리 오류. 화면에는 보이지만 DB에는 남지 않는다.
+
+### 배포 체크리스트 (대화 기록)
+
+권한이 없으면 저장이 **조용히 실패**한다(상담은 계속되고 로그에 경고만 남는다). 배포 전후에 아래를 확인한다.
+
+1. 앱 환경(`.env`)에 `DYNAMODB_CHAT_TABLE=skillpath-chat-history`가 있다. 이 변수는 새 코드를 배포하기 전에 넣어도 안전하다(옛 코드는 읽지 않는다).
+2. 앱 실행 역할(IAM)이 이 테이블에 `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:Query`를 허용한다. 정책의 `Resource`가 `table/skillpath-*`처럼 이 테이블을 포함하는지 본다
+   (`aws iam get-role-policy --role-name <앱 실행 역할> --policy-name <정책 이름>`).
+3. 배포한 앱에서 회원으로 로그인해 질문을 한두 개 한다. 왼쪽 패널 **최근**에 제목이 뜨고, 아래 명령의 개수가 질문 1개당 2씩(세션 줄 + 턴 줄) 늘어난다.
+   ```bash
+   aws dynamodb scan --table-name skillpath-chat-history --select COUNT --query Count
+   ```
+4. 앱 로그에 `대화 기록을 저장하지 못했습니다(` 경고가 없다. `ClientError`가 보이면 2번 권한을, `ValueError`가 보이면 1번 설정을 먼저 본다.
+5. TTL이 켜져 있다(`aws dynamodb describe-time-to-live --table-name skillpath-chat-history`에서 `ENABLED`, `expires_at`).
