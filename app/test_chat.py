@@ -1,6 +1,8 @@
 """학습 상담 화면의 호출 범위와 세션 분리를 확인한다."""
+import json
 import os
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -8,6 +10,7 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
+from ai.chat import Turn
 from backend import api, chat_profiles
 from backend.jobs import JOBS
 
@@ -16,7 +19,9 @@ MAIN = str(Path(__file__).with_name("main.py"))
 
 class ChatScreenTest(unittest.TestCase):
     def setUp(self):
-        self.enterContext(patch.dict(os.environ, {"BEDROCK_MOCK": "1", "PYTHON_DOTENV_DISABLED": "1"}))
+        self.enterContext(patch.dict(os.environ, {
+            "BEDROCK_MOCK": "1", "PYTHON_DOTENV_DISABLED": "1", "USAGE_LOG": "off",
+        }))
 
     def open_screen(self, view="chat"):
         at = AppTest.from_file(MAIN, default_timeout=60)
@@ -24,6 +29,74 @@ class ChatScreenTest(unittest.TestCase):
         at.run()
         self.assertFalse(at.exception)
         return at
+
+    def test_token_usage_counts_retries_and_failed_turns_only_for_this_chat(self):
+        log = Path(self.enterContext(TemporaryDirectory())) / "usage.jsonl"
+        self.enterContext(patch.dict(os.environ, {"USAGE_LOG": str(log), "ADMIN_KEY": "test-key"}))
+        at = self.open_screen()
+        other = self.open_screen()
+        session_id = at.session_state["chat_conversation"].usage.session_id
+        self.assertNotEqual(session_id, other.session_state["chat_conversation"].usage.session_id)
+
+        def response(body, inputs, outputs):
+            return body, "end_turn", {"inputTokens": inputs, "outputTokens": outputs,
+                                      "totalTokens": inputs + outputs}
+
+        replies = [
+            response("invalid", 10, 1),
+            response(json.dumps(asdict(Turn(action="summary"))), 20, 2),
+            response("invalid", 30, 3),
+            response("invalid", 40, 4),
+        ]
+        with (patch("ai.chat.guard_input", return_value=True),
+              patch("ai.bedrock.is_mock", return_value=False),
+              patch("ai.bedrock._call", side_effect=replies) as call):
+            at.chat_input[0].set_value("내 경험을 정리해줘").run()
+            self.assertIn("보유 기술", at.chat_message[-1].text[0].value)
+            self.assertEqual(at.metric[0].value, "33")
+            at.chat_input[0].set_value("다시 정리해줘").run()
+            self.assertIn("해석하지 못했습니다", at.chat_message[-1].text[0].value)
+            self.assertEqual(at.metric[0].value, "110")
+            self.assertTrue(any(f"입력 100 · 출력 10 · 세션 ID `{session_id}`" in c.value for c in at.caption))
+            at.run()
+            other.run()
+            self.assertEqual(at.metric[0].value, "110")
+            self.assertEqual(other.metric[0].value, "0")
+            self.assertEqual(call.call_count, 4)
+
+        at.text_input(key="chat_nickname").set_value("처음 닉네임").run()
+        at.radio(key="view").set_value("dashboard").run()
+        at.radio(key="view").set_value("chat").run()
+        self.assertEqual(at.metric[0].value, "110")
+        self.assertEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
+        at.text_input(key="chat_nickname").set_value("새 닉네임").run()
+        self.assertEqual(at.metric[0].value, "0")
+        self.assertNotEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
+
+        admin = AppTest.from_file(MAIN, default_timeout=60)
+        admin.query_params["admin"] = "test-key"
+        admin.run()
+        self.assertFalse(admin.exception)
+        session_table = next(
+            frame.value for frame in admin.tabs[-1].dataframe if "세션 ID" in frame.value.columns
+        )
+        self.assertEqual(session_table["세션 ID"].tolist(), [session_id])
+        row = session_table.iloc[0]
+        self.assertEqual((row["입력 토큰"], row["출력 토큰"], row["합계 토큰"], row["재시도"]), (100, 10, 110, 2))
+
+    def test_in_progress_chat_starts_tracking_with_existing_history(self):
+        at = self.open_screen()
+        at.chat_input[0].set_value("제가 Docker로 API를 배포했어요.").run()
+        messages = [item.text[0].value for item in at.chat_message]
+        del at.session_state["chat_conversation"].usage
+
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual([item.text[0].value for item in at.chat_message], messages)
+        self.assertEqual(at.metric[0].value, "0")
+        session_id = at.session_state["chat_conversation"].usage.session_id
+        at.run()
+        self.assertEqual(at.session_state["chat_conversation"].usage.session_id, session_id)
 
     def test_chat_entry_and_experience_do_not_run_dashboard(self):
         with (patch.object(api, "get_demand", wraps=api.get_demand) as demand,
@@ -61,44 +134,48 @@ class ChatScreenTest(unittest.TestCase):
             self.assertEqual(recs.call_count, 1)
             self.assertFalse(at.exception)
 
-    def test_only_explicit_skills_travel_between_screens(self):
-        at = self.open_screen("dashboard")
-        at.sidebar.button_group(key="owned").select("Docker").run()
-        at.radio(key="view").set_value("chat").run()
-        self.assertEqual(at.multiselect(key="chat_owned").value, ["Docker"])
-        at.multiselect(key="chat_owned").set_value(["Git", "Kotlin"]).run()
+    def diagnose(self, at, levels):
+        """모달 저장과 같은 상태를 만든다(AppTest 는 모달 안 버튼을 다시 그리지 못한다)."""
+        at.session_state["levels"] = levels
+        at.session_state["levels_example"] = False
+        return at.run()
+
+    def test_only_diagnosed_levels_travel_to_chat(self):
+        at = self.open_screen()
+        with patch("backend.chat.handle_message", return_value=SimpleNamespace(text="확인", courses=[])) as handle:
+            at.chat_input[0].set_value("내 상태를 정리해줘").run()
+            self.assertEqual(handle.call_args.kwargs["sidebar_skills"], [])  # 진단 전 예시 값은 넘기지 않는다
+            self.diagnose(at, {"C1-4": 3, "C5-2": 2})
+            at.chat_input[0].set_value("다시 정리해줘").run()
+            # 컨테이너 3단계는 기준(3)을 넘어 Docker·Kubernetes 보유, 스크립트 2단계는 Python 미보유
+            self.assertEqual(handle.call_args.kwargs["sidebar_skills"], ["Docker", "Kubernetes"])
         at.radio(key="view").set_value("dashboard").run()
-        self.assertEqual(set(at.sidebar.button_group(key="owned").value), {"Git"})
+        self.assertEqual(at.session_state["levels"], {"C1-4": 3, "C5-2": 2})
         self.assertEqual(len(at.tabs), 4)
-        at.radio(key="view").set_value("chat").run()
-        self.assertEqual(set(at.multiselect(key="chat_owned").value), {"Git", "Kotlin"})
         self.assertFalse(at.exception)
 
-    def test_deselected_then_reselected_dashboard_example_is_explicit(self):
+    def test_levels_are_saved_and_reloaded_by_nickname(self):
+        from app import levels as levels_screen
+
+        folder = self.enterContext(TemporaryDirectory())
+        self.enterContext(patch.dict(os.environ, {"SKILLPATH_MOCK_PROFILE_DB": str(Path(folder) / "p.sqlite3")}))
+        chosen = {sid: 0 for sid in levels_screen.level_guide()["subskills"]}
+        chosen.update({"C1-4": 4, "C2-3": 2})
+        class State(dict):
+            __getattr__, __setattr__ = dict.get, dict.__setitem__
+
+        with patch.object(levels_screen.st, "session_state", State()):
+            levels_screen.save_levels("수준 예시", chosen)
+        self.assertEqual({k: v for k, v in chat_profiles.load_profile("수준 예시")["levels"].items() if v},
+                         {"C1-4": 4, "C2-3": 2})
         at = self.open_screen("dashboard")
-        at.sidebar.button_group(key="owned").unselect("Python").run()
-        at.sidebar.button_group(key="owned").select("Python").run()
-        at.radio(key="view").set_value("chat").run()
-        self.assertEqual(at.multiselect(key="chat_owned").value, ["Python"])
-
-    def test_job_change_preserves_chosen_skills_outside_new_dashboard_demand(self):
-        get_demand = api.get_demand
-
-        def demand_for_job(job):
-            result = get_demand(job)
-            if job == "test_job":
-                result["skills"] = [s for s in result["skills"] if s["skill"] != "Docker"]
-            return result
-
-        with patch.dict(JOBS, {"test_job": "테스트 직무"}), patch.object(api, "get_demand", demand_for_job):
-            at = self.open_screen("dashboard")
-            at.sidebar.button_group(key="owned").select("Docker").run()
-            at.selectbox(key="job").set_value("test_job").run()
-            self.assertNotIn("Docker", at.sidebar.button_group(key="owned").options)
-            at.radio(key="view").set_value("chat").run()
-            self.assertEqual(at.selectbox(key="job").value, "test_job")
-            self.assertEqual(at.multiselect(key="chat_owned").value, ["Docker"])
-            self.assertFalse(at.exception)
+        self.assertTrue(at.session_state["levels_example"])
+        at.text_input(key="chat_nickname").set_value("수준 예시").run()
+        self.assertFalse(at.session_state["levels_example"])
+        self.assertEqual(at.session_state["levels"]["C1-4"], 4)
+        at.text_input(key="chat_nickname").set_value("다른 사람").run()
+        self.assertTrue(at.session_state["levels_example"])  # 다른 닉네임은 예시 값으로 돌아간다
+        self.assertFalse(at.exception)
 
     def test_nickname_and_reruns_do_not_replay_or_leak_messages(self):
         at = self.open_screen()
@@ -108,10 +185,11 @@ class ChatScreenTest(unittest.TestCase):
             at.text_input(key="chat_nickname").set_value("첫째").run()
             self.assertEqual([m.text[0].value for m in at.chat_message], [echo, echo])
             self.assertFalse(any(echo in m.value for m in at.markdown))
-            at.multiselect(key="chat_owned").set_value(["Docker"]).run()
+            self.diagnose(at, {"C1-4": 3})
             at.chat_input[0].set_value("Docker 경험을 저장해줘").run()
             self.assertEqual(handle.call_args.kwargs["nickname"], "첫째")
-            self.assertEqual(handle.call_args.kwargs["sidebar_skills"], ["Docker"])
+            # 공통 기술(AWS·Azure)은 고른 세부 능력 평균(3)이라 기준을 넘는다
+            self.assertEqual(handle.call_args.kwargs["sidebar_skills"], ["AWS", "Docker", "Kubernetes", "Azure"])
             first_state = handle.call_args.args[0]
             at.radio(key="view").set_value("dashboard").run()
             at.radio(key="view").set_value("chat").run()
@@ -119,7 +197,7 @@ class ChatScreenTest(unittest.TestCase):
             self.assertEqual(at.text_input(key="chat_nickname").value, "첫째")
             at.text_input(key="chat_nickname").set_value("둘째").run()
             self.assertFalse(at.chat_message)
-            self.assertEqual(at.multiselect(key="chat_owned").value, [])
+            self.assertTrue(at.session_state["levels_example"])
             self.assertEqual(handle.call_count, 2)
             at.chat_input[0].set_value("내 상태를 정리해줘").run()
             self.assertIsNot(handle.call_args.args[0], first_state)

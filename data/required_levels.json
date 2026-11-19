@@ -1,0 +1,11 @@
+{
+  "note": "기술별 기준 단계. pipeline/required_levels.py 가 공고 근거 문장과 단계 예시(data/skill_levels.json)를 임베딩으로 비교해 만든다. 공고 문장은 저장하지 않는다. 파일에 없는 기술은 기본 단계와 uncertain 이다.",
+  "job_category": "cloud_engineer",
+  "source": "sample",
+  "generated": "2026-11-19",
+  "min_similarity": 0.3,
+  "min_postings": 3,
+  "default_level": 3,
+  "postings": 2,
+  "skills": {}
+}
