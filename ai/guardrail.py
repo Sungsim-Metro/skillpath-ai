@@ -10,7 +10,9 @@
 - 프롬프트 공격(이전 지시 무시, 시스템 프롬프트 요구, 제한 없는 AI 역할극)도 막는다(범주 "공격").
 
 두 단계 (둘 다 쓰고, 조합은 테스트 표로 정한다)
-1. 코드 검사: 아래 낱말표. 늘 돈다. 비용 0, 가짜 모드에서도 돈다. 답에는 공격 범주만 본다(기술 답의 "지역·유리" 오탐 때문)
+1. 코드 검사: 아래 낱말표. **질문에만** 돈다. 비용 0, 가짜 모드에서도 돈다.
+   답에는 돌리지 않는다(11/19): 답은 우리 모델이 도구 결과로 만들고, 기술 답에 흔한 "지역·유리·제한 없이"로
+   낱말 방식 오탐이 세 번 났다. 답 검사는 GUARDRAIL_OUTPUT=1 일 때 Guardrails 만 한다.
 2. Bedrock Guardrails(ApplyGuardrail): 실제 모드이고 Guardrail ID 가 있을 때만. 입력은 늘, 답은 GUARDRAIL_OUTPUT=1 일 때만.
    ID·버전은 GUARDRAIL_ID·GUARDRAIL_VERSION, 비어 있으면 BEDROCK_GUARDRAIL_ID·BEDROCK_GUARDRAIL_VERSION(ai/chat.py 설정).
    버전이 둘 다 없으면 DRAFT.
@@ -55,17 +57,27 @@ ATTRIBUTES = {
 # 11/19 리뷰: "유리·불리·안 맞·더 맞·포기·떨어지·소용 없·의미 없·피하는"은 상담·기술 문장에도 흔해 뺐다
 # ("남자인데 포기하지 않고 준비 중", "지방에 살아서 오프라인 수업은 안 맞아요", "다중 AZ 구성이 지역 장애에 유리").
 # 판단을 분명히 요구하는 표현만 남긴다. 그만큼 놓치는 요청은 Bedrock Guardrails 필터가 맡는다
+# 11/19 기술 답 정상 문장 세트: "따라 … 다르게"는 "리전에 따라 요금이 다르게"를 막아 뺐다(B4 는 "합격 확률"로 막힌다)
 JUDGMENT = (
     r"안\s*뽑|뽑지\s*않|만\s*뽑|뽑아\s*주지|걸러|거르|성향|실력이\s*떨어|"
-    r"피해야|피하라|기준으로\s*추천|따라\s*.{0,10}다르게|합격\s*확률|숨기"
+    r"피해야|피하라|기준으로\s*추천|합격\s*확률|숨기"
 )
-# 프롬프트 공격
-ATTACKS = {
-    "지시 무시": r"(이전|앞의|위의|기존)\s*(지시|명령|규칙|지침)\S*\s*(은|는|을|를)?\s*(모두\s*)?(무시|잊)",
-    "시스템 프롬프트": r"시스템\s*프롬프트|system\s*prompt|숨겨진\s*(설정|지침|프롬프트)|내부\s*(지침|프롬프트)",
-    "제한 해제": r"(제한|규칙|필터|검열)\s*(이\s*)?(없는|없이|풀린|해제)|탈옥|jailbreak|개발자\s*모드|DAN\b",
-    "영어 지시 무시": r"ignore\s+(all\s+|the\s+)?(previous|prior|above)\s+instructions",
-}
+# 프롬프트 공격. 낱말 하나가 아니라 분명한 지시 문장 형태만 막는다(11/19: "S3는 용량 제한 없이", "Dan 이라고 합니다" 오탐).
+# (규칙 이름, 패턴, 대소문자 무시 여부). DAN 은 대소문자를 구분한다(사람 이름 Dan)
+ATTACKS = (
+    ("지시 무시", r"(이전|앞의|위의|기존)\s*(지시|명령|규칙|지침)\S*\s*(은|는|을|를)?\s*(모두\s*)?"
+                  r"(무시\s*(하고|해|하라|해라|하세요)|잊\s*(어|고|으라|어라|으세요))", True),
+    ("시스템 프롬프트",
+     r"(시스템\s*프롬프트|system\s*prompt|숨겨진\s*(설정|지침|프롬프트)|내부\s*(지침|프롬프트))\S*\s*.{0,10}?"
+     r"(알려|보여|출력|공개|말해|reveal|show|print|tell)", True),
+    ("제한 해제",
+     r"(너는|넌|당신은|you\s+are)\s*(이제\s*|now\s+)?(제한|규칙|필터|검열)\s*(이\s*)?(없는|풀린)"
+     r"|(제한|규칙|필터|검열)\s*(이\s*)?없이\s*(답|대답|말|응답)"
+     r"|규칙\s*(은\s*)?신경\s*쓰지\s*말", True),
+    ("탈옥", r"탈옥\s*(모드|해|시켜|프롬프트)|jailbreak\s*(mode|prompt)", True),
+    ("DAN", r"\bDAN\s*(모드|mode|처럼|으로\s*(행동|답|대답))", False),
+    ("영어 지시 무시", r"ignore\s+(all\s+|the\s+)?(previous|prior|above)\s+instructions", True),
+)
 _SENTENCE = re.compile(r"[.?!。\n]+")
 
 logger = logging.getLogger(__name__)
@@ -81,17 +93,14 @@ class GuardResult(NamedTuple):
 PASS = GuardResult(False)
 
 
-def code_check(text: str, judgment: bool = True) -> GuardResult:
-    """낱말표 검사. 공격 표현은 어디에 있어도, 차별 판단은 속성 낱말과 판단 표현이 같은 문장에 있을 때만 막는다.
+def code_check(text: str) -> GuardResult:
+    """질문 낱말표 검사. 공격 지시 문장은 어디에 있어도, 차별 판단은 속성 낱말과 판단 표현이 같은 문장에 있을 때만 막는다.
 
-    judgment=False 면 공격 범주만 본다(답 검사). 기술 답에는 "리전·지역·유리" 같은 낱말이 흔해
-    낱말표로 차별을 가리면 정상 답을 막는다. 답의 차별 검사는 GUARDRAIL_OUTPUT=1 일 때 Guardrails 가 맡는다.
+    답에는 쓰지 않는다(_check). 답의 검사는 GUARDRAIL_OUTPUT=1 일 때 Guardrails 가 맡는다.
     """
-    for name, pattern in ATTACKS.items():
-        if re.search(pattern, text, flags=re.IGNORECASE):
+    for name, pattern, ignore_case in ATTACKS:
+        if re.search(pattern, text, flags=re.IGNORECASE if ignore_case else 0):
             return GuardResult(True, "code", "공격", name)
-    if not judgment:
-        return PASS
     for sentence in _SENTENCE.split(text):
         if not re.search(JUDGMENT, sentence):
             continue
@@ -207,7 +216,7 @@ def _client():
 
 
 def _check(text: str, source: str) -> GuardResult:
-    result = code_check(text, judgment=source == "INPUT")
+    result = code_check(text) if source == "INPUT" else PASS  # 답에는 코드 검사를 돌리지 않는다
     if not result.blocked:
         result = bedrock_check(text, source)
     if result.blocked:
@@ -226,6 +235,6 @@ def check_input(text: str) -> GuardResult:
 
 
 def check_output(text: str) -> GuardResult:
-    """모델 답 검사. 코드 검사는 공격 범주만 늘, 차별 검사는 GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 가.
+    """모델 답 검사. 코드 검사는 하지 않고, GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 만. 꺼져 있으면 늘 통과.
     막히면 message_for(result, OUTPUT_BLOCK_MESSAGE)."""
     return _check(text or "", "OUTPUT")

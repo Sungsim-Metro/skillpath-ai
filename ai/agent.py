@@ -190,7 +190,7 @@ def guard_input(message: str) -> Optional[str]:
 
 
 def guard_output(answer: str) -> Optional[str]:
-    """답 검사(#24). 코드 검사는 늘, Bedrock Guardrails 는 GUARDRAIL_OUTPUT=1 일 때만. 막히면(호출 실패 포함) 고정 문장."""
+    """답 검사(#24). GUARDRAIL_OUTPUT=1 일 때 Bedrock Guardrails 만(코드 검사는 질문에만). 막히면(호출 실패 포함) 고정 문장."""
     result = guardrail.check_output(answer)
     return guardrail.message_for(result, guardrail.OUTPUT_BLOCK_MESSAGE) if result.blocked else None
 
