@@ -1,10 +1,13 @@
 """학습 상담 화면과 세션 안에서만 유지하는 대화 표시 기록."""
+from __future__ import annotations
+
 from functools import lru_cache
 from urllib.parse import urlsplit
 
 import streamlit as st
 
 from ai.usage import SessionUsage
+from backend import chat_profiles
 from pipeline.aliases import skill_aliases
 
 
@@ -14,20 +17,50 @@ def skill_options() -> tuple[str, ...]:
     return tuple(skill_aliases())
 
 
-def nickname_input() -> str:
-    """첫 닉네임은 작성 중인 상담을 이어받고, 기존 닉네임이 바뀌면 상담을 비운다."""
-    previous = st.session_state.get("chat_identity", "")
-    if "chat_nickname" not in st.session_state:
-        st.session_state.chat_nickname = previous
-    nickname = st.text_input(
-        "닉네임 (선택)", key="chat_nickname",
-        help="같은 닉네임은 같은 프로필을 사용합니다. 사용 중인 닉네임을 바꾸거나 지우면 새 상담을 시작합니다.",
-    ).strip()
-    if previous and previous != nickname:
-        for key in ("chat_conversation", "chat_history", "sidebar_skills", "dashboard_examples"):
-            st.session_state.pop(key, None)
-    st.session_state.chat_identity = nickname
-    return nickname
+def _clear_private_state() -> None:
+    """Clear account data and widget drafts before the next screen renders."""
+    for key in list(st.session_state):
+        if key != "view":
+            del st.session_state[key]
+
+
+def _authenticate(register: bool) -> None:
+    nickname = st.session_state.auth_nickname
+    password = st.session_state.auth_password
+    st.session_state.auth_password = ""
+    authenticate = chat_profiles.create_profile if register else chat_profiles.sign_in
+    try:
+        session = authenticate(nickname, password)
+    except chat_profiles.ProfileAuthError as exc:
+        st.session_state.auth_error = str(exc)
+    except Exception:
+        st.session_state.auth_error = "프로필에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    else:
+        st.session_state.pop("auth_error", None)
+        st.session_state.profile_session = session
+
+
+def profile_access() -> chat_profiles.ProfileSession | None:
+    """Authenticate a profile without sending credentials to the chat."""
+    if st.session_state.pop("chat_identity", ""):
+        # Open sessions from the nickname-only UI must authenticate again.
+        _clear_private_state()
+    session = st.session_state.get("profile_session")
+    if session is not None:
+        st.text(f"로그인한 프로필 · {session.nickname}")
+        st.button("로그아웃", key="auth_logout", on_click=_clear_private_state)
+        return session
+
+    with st.form("profile_access"):
+        st.text_input("닉네임", key="auth_nickname")
+        st.text_input("비밀번호", type="password", key="auth_password",
+                      help="앞뒤 공백도 비밀번호에 포함됩니다.")
+        login, register = st.columns(2)
+        login.form_submit_button("로그인", key="auth_login", on_click=_authenticate, args=(False,))
+        register.form_submit_button("새 프로필 만들기", key="auth_register", on_click=_authenticate, args=(True,))
+    if error := st.session_state.get("auth_error"):
+        st.error(error)
+    return None
 
 
 def _render_course(course: dict) -> None:
@@ -51,7 +84,7 @@ def _render_course(course: dict) -> None:
             pass
 
 
-def render(job: str, sidebar_skills: list[str], nickname: str) -> None:
+def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSession | None) -> None:
     from backend import chat
 
     st.title("학습 상담")
@@ -68,7 +101,7 @@ def render(job: str, sidebar_skills: list[str], nickname: str) -> None:
         try:
             reply = chat.handle_message(
                 conversation, message,
-                job=job, sidebar_skills=sidebar_skills, nickname=nickname,
+                job=job, sidebar_skills=sidebar_skills, session=session,
             )
             response = (reply.text, reply.courses)
         except Exception:
