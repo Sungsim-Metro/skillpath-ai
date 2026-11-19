@@ -340,6 +340,10 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
         if conversation.job in JOBS and conversation.job != st.session_state.get("job"):
             st.session_state.job = conversation.job
             st.session_state.job_picked = conversation.job
+            # 다시 그리면 이번 답(reply)이 사라지므로, 이번 턴에 말한 기술의 수준 문항을 먼저 맡겨 둔다
+            mentioned = list(getattr(reply, "assessment_skills", None) or [])
+            if mentioned and getattr(reply, "assessment_job", "") == conversation.job:
+                st.session_state.chat_assessment = (conversation.job, mentioned, set())
             st.rerun()
     _assessment_panel(conversation, job, session, sidebar_levels, reply)
 
