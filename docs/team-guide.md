@@ -177,8 +177,8 @@ PR 올림 → 공개 검사 → 병합 → 검사 다시 → 통과하면 공개
 # 1) AWS 로그인 확인. 만료됐으면 다시 로그인 (AWS_PROFILE은 .env와 같은 값)
 aws sts get-caller-identity --profile "$AWS_PROFILE" > /dev/null && echo "로그인 OK" || aws sso login --profile "$AWS_PROFILE"
 
-# 2) .env 확인: BEDROCK_MOCK=0, BEDROCK_MODEL_ID, EMBED_MODEL_ID, DYNAMODB_DEMAND_TABLE
-#    EMBED_MODEL_ID는 data/courses/course_vectors.json 의 "model" 과 같아야 과정 검색이 임베딩을 씁니다
+# 2) 실제 모드 설정: BEDROCK_MOCK=0, BEDROCK_MODEL_ID, EMBED_MODEL_ID, BEDROCK_KB_ID, DYNAMODB_DEMAND_TABLE
+#    BEDROCK_KB_ID는 교육과정 KB의 ID입니다. 실행 역할에는 해당 KB의 bedrock:Retrieve 권한이 필요합니다.
 
 # 3) 임베딩 캐시 만들기. 처음이면 호출 약 200번, 40초 안팎. 이미 있으면 0번
 python -m ai.agent --warmup

@@ -29,7 +29,7 @@ flowchart LR
 재시도·재추출·공고 제외 때 카운터를 차감하거나 중복 증가를 되돌리는 로직을 줄일 수 있다.
 
 사용자별 보유 기술과 Gap은 이 두 테이블에 저장하지 않는다. 같은 수요 집계를 읽고 사용자 입력에 맞춰 코드로 계산한다.
-교육 공급 데이터는 수요와 다른 모집단이며, 시장 Gap에 필요한 공급 집계는 별도로 관리한다.
+교육 공급은 학습 프로그램 목록에서 전체 과정 수와 기술별 과정 수를 집계해 `outputs/learning_program_supply.json`에 기록한다. 현재 프로그램 목록은 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정이다. 직군별 시장 Gap은 선택한 직군의 공고 수요 비중에서 이 집계로 구한 공급 비중을 뺀 결과다.
 교육과정 검색도 이 두 테이블을 읽지 않는다. S3의 과정 문서를 Knowledge Base로 검색(RAG)하고,
 수요 수치는 집계 테이블에서 조회해 그대로 전달한다(7절).
 
@@ -293,7 +293,7 @@ v2·v2.1은 별칭 표준화 후 확신 있는 NCS 연결을 채우며, 수요 �
 
 비율은 저장하지 않고 건수에서 계산한다. Docker의 요구 비율은 8/12, 필수 비율은 5/8이다.
 개인 Gap은 요구 비율이 기준 이상(현재 20%)이면서 사용자가 보유하지 않은 기술을 고른다.
-시장 Gap은 이 건수에 가중치를 적용해 별도의 교육 공급 집계와 비교한다. 가중 합을 `postings`에 섞지 않는다.
+시장 Gap의 수요는 직군별로 공고 원문의 구역 가중치를 적용해 계산한다. 가중 합을 `postings`에 섞지 않는다. [시장 Gap 입력과 출력](../pipeline/README.md#직군별-시장-gap)
 
 ## 6. 저장·재집계·공개 순서
 
@@ -357,11 +357,11 @@ DynamoDB에는 같은 공고의 현재 결과 하나만 둔다.
 
 boto3 resource는 숫자를 정수여도 `Decimal`로 돌려준다.
 `get_demand()`는 읽은 직후 건수를 `int`로 바꿔 ④ 형식 그대로 돌려준다.
-바꾸지 않으면 `get_market_gap()`의 가중치 곱셈, 화면의 영역별 차트 축 계산, `json.dumps()`가 `TypeError`로 실패한다.
+이 변환으로 화면의 영역별 차트 축 계산과 `json.dumps()`에서 일반 Python 숫자를 사용할 수 있다.
 
 ### 한 번의 화면 렌더링
 
-`backend/api.py`의 Gap·추천 함수는 `get_demand()`를 함께 사용한다.
+`backend/api.py`의 개인 Gap·추천 함수는 `get_demand()`를 함께 사용한다.
 `get_demand()`는 직무·테이블·리전·프로필별 집계를 60초 동안 캐시해 비율·Gap·추천 계산에 재사용한다.
 새 집계는 캐시 시간이 지난 뒤 화면에 반영된다.
 갱신 직후 반영이 필요한 조회는 기본 테이블의 `ConsistentRead=true`를 사용한다.
@@ -415,7 +415,7 @@ boto3 resource는 숫자를 정수여도 `Decimal`로 돌려준다.
 - 모든 기술에서 `0 <= required, preferred <= postings <= total_postings`와 `required + preferred = postings`를 만족한다.
 - `total_postings`는 `counted_postings`의 개수와 같고, `eligible_postings`는 `total_postings`에 제외한 공고 수를 더한 값이다.
 - 서로 다른 기술·영역의 건수를 더해 전체 공고 수로 사용하지 않는다.
-- DynamoDB에서 읽은 집계로 `get_gap()`, `get_area_gap()`, `get_market_gap()`, `json.dumps()`가 모두 동작한다.
+- DynamoDB에서 읽은 집계로 `get_gap()`, `get_area_gap()`, `json.dumps()`가 모두 동작한다.
 - 가짜 모드에서 배치를 실행하면 두 테이블에 아무것도 쓰지 않고 중단한다.
 - 페이지 처리, DB 저장 실패, 크기 초과 시 잘못된 성공을 반환하지 않는다.
 - 같은 공고를 Windows와 다른 OS에서 저장해도 S3 키가 같다.
