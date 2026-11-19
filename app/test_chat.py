@@ -139,6 +139,9 @@ class ChatScreenTest(unittest.TestCase):
         """비교 실험: 답마다 평가를 받고, 추천 구조가 둘이면 A/B 로 나란히 보여 준다(기록에는 내용이 없다)."""
         from backend import experiments
 
+        off = self.open_screen()
+        off.chat_input[0].set_value("클라우드 엔지니어 기준으로 뭐가 부족해?").run()
+        self.assertFalse(off.get("feedback"))                       # 실험이 꺼져 있으면 평가 위젯이 없다
         with tempfile.TemporaryDirectory() as folder:
             log = Path(folder) / "feedback.jsonl"
             with patch.dict(os.environ, {"AB_STRUCTURES": "single,reviewed", "FEEDBACK_LOG": str(log)}):

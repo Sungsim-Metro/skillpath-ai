@@ -84,6 +84,8 @@ def _on_pick(entry: dict) -> None:
 
 
 def _render_answer(entry: dict) -> None:
+    from backend import experiments
+
     st.text(entry["answer"])
     if len(entry["alternatives"]) == 2:
         for column, label, side in zip(st.columns(2), ("추천 A", "추천 B"), entry["alternatives"]):
@@ -96,7 +98,7 @@ def _render_answer(entry: dict) -> None:
     else:
         for course in entry["courses"]:
             _render_course(course)
-    if entry["turn_id"]:
+    if entry["turn_id"] and experiments.active():  # 실험이 꺼져 있으면 평가를 받지 않는다(화면이 전과 같다)
         st.feedback("thumbs", key=f"fb_{entry['turn_id']}", on_change=_on_rating, args=(entry,))
 
 

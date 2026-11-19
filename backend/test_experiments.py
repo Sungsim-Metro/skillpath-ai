@@ -148,6 +148,10 @@ class ChatExperimentTest(Base):
         self.assertEqual(reply.alternatives, [])
         self.assertEqual(reply.courses[0]["reason"], "검토한 이유")
         self.assertFalse(reply.failed)
+        empty = {"gap_skill": "Docker", "demand": rec("")["demand"], "courses": []}
+        made.side_effect = lambda name, job, skills: [rec("한 번에 쓴 이유")] if name == "single" else [empty]
+        reply = self.send(Turn(action="courses"))                      # 검토한 쪽이 비면 검토 안 한 쪽만 혼자 나가지 않는다
+        self.assertEqual((reply.alternatives, reply.courses, reply.failed), ([], [], False))
         made.side_effect = ValueError("검사 실패")                      # 둘 다 실패하면 과정을 보여 주지 않는다
         reply = self.send(Turn(action="courses"))
         self.assertTrue(reply.failed)

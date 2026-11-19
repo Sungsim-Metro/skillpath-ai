@@ -30,7 +30,7 @@ RETRY_MESSAGE = (
 )
 
 logger = logging.getLogger(__name__)
-# 이 범위 안의 호출에만 쓰는 모델 ID. 없으면 BEDROCK_MODEL_ID 를 쓴다(상담 실험의 모델 무작위 배정, 2026-11-20)
+# 이 범위 안의 호출에만 쓰는 모델 ID. 없으면 BEDROCK_MODEL_ID 를 쓴다(상담 실험의 모델 무작위 배정, 2026-11-19 회의)
 _model_override: ContextVar[Optional[str]] = ContextVar("bedrock_model", default=None)
 
 

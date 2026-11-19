@@ -156,7 +156,8 @@ def _compare_structures(pair: tuple[str, str], job: str, requested: list[str],
                         missing: list[dict]) -> tuple[list[dict], list[dict]]:
     """추천 구조 두 개로 각각 추천을 만들고 같은 검사를 한다. (나란히 보여 줄 두 결과, 기본으로 보여 줄 과정)을 돌려준다.
 
-    둘 다 과정을 냈을 때만 A/B 로 보여 준다. 한쪽만 냈으면 그 결과만, 둘 다 검사에 실패했으면 그 오류를 낸다.
+    둘 다 과정을 냈을 때만 A/B 로 보여 준다. 그렇지 않으면 기본 구조(검토를 거친 쪽)의 결과만 보여 준다.
+    검토를 거치지 않은 구조의 추천은 A/B 밖에서 혼자 나가지 않는다. 기본 구조가 검사에 실패했으면 그 오류를 낸다.
     구조별 토큰은 세션 사용량의 앞뒤 차이로 잰다.
     """
     usage = current_session()
@@ -170,13 +171,14 @@ def _compare_structures(pair: tuple[str, str], job: str, requested: list[str],
         after = (usage.input_tokens, usage.output_tokens) if usage else (0, 0)
         results.append({"structure": name, "courses": found,
                         "tokens": {"input": after[0] - before[0], "output": after[1] - before[1]}})
-    shown = [r for r in results if r["courses"]]
-    if len(shown) == 2:
-        default = next((r for r in results if r["structure"] == experiments.DEFAULT_STRUCTURE), results[0])
-        return results, default["courses"]
-    if not shown and error is not None:
+    default = next((r for r in results if r["structure"] == experiments.DEFAULT_STRUCTURE), None)
+    if all(r["courses"] for r in results):
+        return results, (default or results[0])["courses"]
+    if default is None:  # 기본 구조가 비교 대상에 없으면 A/B 가 성립할 때만 보여 준다
+        default = {"courses": []}
+    if not default["courses"] and error is not None:
         raise error
-    return [], shown[0]["courses"] if shown else []
+    return [], default["courses"]
 
 
 def _analyze(facts: dict, *, courses: bool) -> Reply:

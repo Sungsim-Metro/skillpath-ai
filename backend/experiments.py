@@ -99,6 +99,11 @@ def recommend_with(structure: str, job_category: str, gap_skills: list[str]) -> 
     return out
 
 
+def active() -> bool:
+    """실험이 하나라도 켜져 있는가. 꺼져 있으면 화면은 평가를 받지 않는다."""
+    return bool(models() or structures())
+
+
 # ---------- 기록 ----------
 
 def _log_path() -> Path:
