@@ -1,6 +1,7 @@
 """학습 상담 화면의 호출 범위와 세션 분리를 확인한다."""
 import json
 import os
+import tempfile
 import unittest
 from dataclasses import asdict
 from pathlib import Path
@@ -83,12 +84,12 @@ class ChatScreenTest(unittest.TestCase):
         self.assertEqual(at.metric[0].value, "0")
         self.assertNotEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
 
-        admin = AppTest.from_file(MAIN, default_timeout=60)
-        admin.query_params["admin"] = "test-key"
-        admin.run()
+        root = str(Path(MAIN).parent.parent)
+        page = "\n".join(["import sys", f"sys.path.insert(0, {root!r})", "from app import admin", "admin.render()"])
+        admin = AppTest.from_string(page, default_timeout=60).run()  # 관리자 화면의 토큰·비용 탭
         self.assertFalse(admin.exception)
         session_table = next(
-            frame.value for frame in admin.tabs[-1].dataframe if "세션 ID" in frame.value.columns
+            frame.value for frame in admin.dataframe if "세션 ID" in frame.value.columns
         )
         self.assertEqual(session_table["세션 ID"].tolist(), [session_id])
         row = session_table.iloc[0]
@@ -143,6 +144,39 @@ class ChatScreenTest(unittest.TestCase):
             self.assertEqual(gap.call_count, count)
             self.assertEqual(recs.call_count, 1)
             self.assertFalse(at.exception)
+
+    def test_answers_take_a_rating_and_two_recommendations_take_a_choice(self):
+        """비교 실험: 답마다 평가를 받고, 추천 구조가 둘이면 A/B 로 나란히 보여 준다(기록에는 내용이 없다)."""
+        from backend import experiments
+
+        off = self.open_screen()
+        off.chat_input[0].set_value("클라우드 엔지니어 기준으로 뭐가 부족해?").run()
+        self.assertFalse(off.get("feedback"))                       # 실험이 꺼져 있으면 평가 위젯이 없다
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "feedback.jsonl"
+            with patch.dict(os.environ, {"AB_STRUCTURES": "single,reviewed", "FEEDBACK_LOG": str(log)}):
+                at = self.open_screen()
+                at.chat_input[0].set_value("클라우드 엔지니어 기준으로 뭐가 부족해?").run()
+                self.assertFalse(at.exception)
+                self.assertEqual(len(at.get("feedback")), 1)        # 답 하나에 평가 위젯 하나
+                self.assertFalse(at.radio(key="view") is None)
+                self.assertFalse([r for r in at.radio if r.key and r.key.startswith("ab_")])
+                at.chat_input[0].set_value("그중 먼저 들을 교육과정을 추천해줘.").run()
+                self.assertFalse(at.exception)
+                choice = [r for r in at.radio if r.key and r.key.startswith("ab_")]
+                self.assertEqual(len(choice), 1)
+                self.assertEqual([m.value for m in at.markdown if m.value in ("**추천 A**", "**추천 B**")],
+                                 ["**추천 A**", "**추천 B**"])
+                choice[0].set_value("A").run()
+                self.assertFalse(at.exception)
+                rows = experiments.load_feedback()
+            self.assertEqual(len(rows), 2)                          # 턴마다 한 건(평가를 안 눌러도 요청 종류와 토큰은 남는다)
+            self.assertEqual(sorted(row["action"] for row in rows), ["courses", "gap"])
+            chosen = [row for row in rows if row.get("picked")]
+            self.assertEqual(len(chosen), 1)
+            self.assertIn(chosen[0]["picked"], ("single", "reviewed"))
+            self.assertEqual({chosen[0]["left"], chosen[0]["right"]}, {"single", "reviewed"})
+            self.assertNotIn("추천해줘", log.read_text(encoding="utf-8"))
 
     def diagnose(self, at, levels):
         """모달 저장과 같은 상태를 만든다(AppTest 는 모달 안 버튼을 다시 그리지 못한다)."""
@@ -225,6 +259,22 @@ class ChatScreenTest(unittest.TestCase):
             self.assertTrue(at.session_state["levels_example"])
             read.assert_not_called()
         self.assertNotIn("chat_identity", at.session_state)
+
+    def test_legacy_tuple_history_shows_courses_without_feedback_for_guests_and_users(self):
+        self.enterContext(patch.dict(os.environ, {"AB_STRUCTURES": "single,reviewed"}))
+        legacy_course = {"title": "이전 추천 과정", "match": "certain", "url": "https://example.com/legacy"}
+        for signed_in in (False, True):
+            with self.subTest(signed_in=signed_in):
+                at = self.open_screen()
+                if signed_in:
+                    self.authenticate(at, "기존 세션 예시", register=True)
+                at.session_state["chat_history"] = [("이전 질문", "이전 답변", [legacy_course])]
+                at.run()
+                self.assertFalse(at.exception)
+                self.assertEqual(at.chat_message[0].text[0].value, "이전 질문")
+                self.assertEqual(at.chat_message[1].text[0].value, "이전 답변")
+                self.assertEqual(at.get("link_button")[0].proto.url, legacy_course["url"])
+                self.assertFalse(at.get("feedback"))
 
     def test_saving_a_guest_experience_after_login(self):
         at = self.open_screen()

@@ -31,7 +31,7 @@ BEDROCK_MOCK=1 uv run --python 3.11 --with-requirements requirements.txt streaml
 
 상담 화면에는 이 대화에서 사용한 입력·출력 토큰과 합계, 익명 세션 ID가 표시됩니다. 여러 방식을 비교할 때는 방식마다 새 브라우저 탭에서 상담을 열고 같은 순서로 질문한 뒤 세션 ID를 기록하세요. 각 질문의 모델 호출, 재시도, 캐시에 없어서 새로 요청한 임베딩 토큰이 해당 대화의 누계에 포함됩니다. 모의 모드에서는 토큰이 0입니다.
 
-관리자는 역량 대시보드의 `?view=dashboard&admin=<ADMIN_KEY 값>`에서 **운영 현황 → 대화 세션별** 표를 확인할 수 있습니다. 표는 이 서버의 사용량 로그에 기록된 실제 호출을 집계합니다. 기본 경로는 `outputs/usage/usage.jsonl`입니다. 세션 ID가 없는 예전 기록과 배치 호출은 전체 사용량에 포함됩니다. `USAGE_LOG=off`는 파일 기록을 끄며 현재 대화창의 누계는 계속 표시합니다.
+관리자는 `/admin?admin=<ADMIN_KEY 값>`(관리자 화면, `app/admin.py`)의 **토큰·비용 → 대화 세션별** 표를 확인할 수 있습니다. 같은 화면에 비교 실험 결과(모델별 평가·비용과 쓸 모델의 결정 기록, 추천 구조 A/B), 데이터 현황, 과정 커버리지, 평가 결과가 있습니다. 값이 없거나 틀리면 `/admin` 주소는 열리지 않습니다. 표는 이 서버의 사용량 로그에 기록된 실제 호출을 집계합니다. 기본 경로는 `outputs/usage/usage.jsonl`입니다. 세션 ID가 없는 예전 기록과 배치 호출은 전체 사용량에 포함됩니다. `USAGE_LOG=off`는 파일 기록을 끄며 현재 대화창의 누계는 계속 표시합니다.
 
 | 모드 | 필요한 설정 |
 | --- | --- |
@@ -39,5 +39,6 @@ BEDROCK_MOCK=1 uv run --python 3.11 --with-requirements requirements.txt streaml
 | 실제 (`BEDROCK_MOCK=0`) | 기존 모델·수요·과정 검색 설정과 함께 입력 가드레일의 `GUARDRAIL_ID`, `GUARDRAIL_VERSION`을 지정합니다(비어 있으면 예전 이름 `BEDROCK_GUARDRAIL_ID`, `BEDROCK_GUARDRAIL_VERSION` 묶음을 읽고, 두 묶음을 섞지 않습니다). 입력 검사는 상담 에이전트와 같은 `ai/guardrail.py`를 씁니다. 런타임 역할에 해당 가드레일의 `bedrock:ApplyGuardrail` 권한이 필요합니다. 입력 점검에 실패한 메시지는 후속 분석에 전달하지 않습니다. |
 | 실제 프로필 | `DYNAMODB_PROFILE_TABLE`에 문자열 파티션 키 `nickname`만 있는 테이블을 지정하고 런타임 역할에 해당 테이블의 `dynamodb:GetItem`, `dynamodb:UpdateItem`을 허용합니다. [테이블 준비와 이전 프로필 전환](../backend/README.md) |
 | 실제 과정 검색 | `BEDROCK_KB_ID`에 교육과정용 Knowledge Base ID를 지정합니다. 앱의 런타임 역할에는 해당 KB의 `bedrock:Retrieve` 권한이 필요합니다. |
+| 비교 실험 | `EXPERIMENT_MODELS`에 모델 ID를 쉼표로 적으면 메시지마다 무작위로 한 모델을 쓰고 답 아래에서 평가를 받습니다. `AB_STRUCTURES`에 추천 구조 이름(`single,reviewed`)을 적으면 과정 추천을 A/B로 보여 주고 선택을 받습니다. 기록은 `DYNAMODB_FEEDBACK_TABLE`(파티션 키 `session_id`, 정렬 키 `turn_id`)에 남고 런타임 역할에 `dynamodb:UpdateItem`, `dynamodb:Scan` 권한이 필요합니다. 내용은 저장하지 않습니다. 셋 다 비우면 꺼집니다. |
 
 색과 글꼴은 저장소 루트의 `.streamlit/config.toml`에서 정합니다. 차트는 Altair로 그립니다.
