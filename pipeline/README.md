@@ -1,5 +1,27 @@
 공고·NCS·교육과정 수집, 전처리, 별칭 사전, 임베딩 검색. (담당: 종훈)
 
+## 산업별 시장 Gap
+
+저장소 루트에서 다음 명령을 실행하면 산업별 공고 수요와 학습 프로그램 공급을 비교합니다. 전체 결과는 `outputs/learning_program_gap_table.csv`에, 산업별 Gap 상위 3개 기술은 `outputs/learning_program_gap_report.md`에 저장됩니다.
+
+```sh
+uv run --python 3.11 python -m pipeline.market_gap
+```
+
+공고는 `outputs/postings_clean.json`을 우선 사용하고, 이 파일이 없으면 `data/raw/job_postings_raw.json`의 `response.items`를 읽습니다. 둘 다 없으면 `data/raw/rocketpunch-2026-11-17/postings-reviewed/` 아래 `ai/`와 `cloud/`의 검토 공고를 합칩니다. 두 폴더에 있는 공고는 ID당 한 번만 세고, 산업명이 없는 공고는 ‘산업 미기재’로 묶습니다.
+
+공급은 학습 프로그램의 제목·설명·학습 목표에 등장하는 기술을 프로그램당 한 번씩 셉니다. 분모는 전체 (프로그램, 기술) 쌍의 수입니다. 현재 출처는 `data/courses/courses.csv`에 수집한 AWS Skill Builder 과정이며 이 목록의 모든 행을 사용합니다. 같은 디렉터리 구조를 가진 다른 자료를 읽으려면 `--root 경로`를 지정합니다. [AWS Skill Builder 과정 수집 범위](courses/README.md#수집-조건)
+
+다른 공급처를 추가할 때는 프로그램마다 한 행을 두고 `title`, `description`, `objectives` 열을 갖춘 CSV를 준비합니다. `pipeline/market_gap.py`의 `PROGRAM_CATALOGS`에 출처명과 파일 경로를 등록하면 모든 목록을 합쳐 기술별 공급 비중을 계산합니다.
+
+대시보드의 **부족 역량 → 채용 시장 Gap**은 저장된 CSV를 우선 표시하고, CSV가 없으면 원본으로 계산합니다. 공고나 프로그램 목록을 바꾼 뒤에는 위 명령을 다시 실행하면 됩니다. 모의 모드에서 결과와 공고 입력이 모두 없으면 예시 공고 2건을 같은 학습 프로그램 목록과 비교합니다. 아래 명령은 이 예시의 표와 보고서를 `outputs/example/`에 저장합니다.
+
+```sh
+uv run --python 3.11 python -m pipeline.market_gap --example
+```
+
+프로젝트 S3 데이터 버킷의 `skillpath/learning-programs/aws-skill-builder/`에는 과정 목록(`courses.csv`), 세부 능력 연결표(`course_subskill.csv`), 기존 임베딩의 보관 사본(`course_vectors.json`)이 있습니다. 산업별 Gap 표와 상위 3개 기술 보고서의 경로는 `skillpath/market-gap/learning_program_gap_table.csv`와 `skillpath/market-gap/learning_program_gap_report.md`입니다. 위 계산 명령은 로컬 파일을 갱신하며, S3에는 별도로 업로드합니다.
+
 ## 분석에 쓰는 채용공고
 
 분석 입력은 `data/raw/rocketpunch-2026-11-17/postings-reviewed/` 아래 두 폴더다. `cloud/`는 클라우드 엔지니어, `ai/`는 AI 엔지니어 공고다. 분류는 모델이 공고의 근거 문장을 확인한 결과이며, 해당 시점의 수량은 [데이터 출처](../docs/data-sources.md)에 기록한다.
@@ -142,13 +164,31 @@ uv run --python 3.11 --with boto3 python -m unittest ai.test_extract backend.tes
 ## 교육과정 검색 (`search_courses`)
 
 부족한 기술 → AWS 교육과정 후보. 반환은 `[{course_id, subskill_id, match}]`이고 형식은 바뀌지 않았다.
-규칙(별칭 사전 → 세부 능력 → 이름이 제목·학습 목표에 있는 과정)이 먼저이고, 자리가 남으면 키워드 점수와 임베딩 점수를 Reciprocal Rank Fusion으로 합쳐 채운다. 채운 과정은 `match: "uncertain"`이다.
+실제 모드에서는 `BEDROCK_KB_ID`가 가리키는 Bedrock Knowledge Base의 `Retrieve` API로 S3 Vectors를 검색한다. `type=program`이고 추천 조건을 만족하는 문서만 검색하고, 여러 청크가 같은 과정에 속하면 가장 높은 점수를 사용한다. 규칙으로 확인한 과정이 먼저이며, 보충 후보는 규칙·키워드·KB 순위를 결합해 `match: "uncertain"`으로 표시한다. AWS 입문 요청은 사람이 지정한 과정 ID로 KB를 검색한다.
 `search_courses(skill, k, mode)`의 `mode`는 `rules`, `keyword`, `embedding`, `hybrid`, `final`(기본)이다. Reranking은 하지 않는다.
 
-- 벡터를 쓸 수 없으면(가짜 모드, `data/courses/course_vectors.json` 없음, `EMBED_MODEL_ID`가 벡터를 만든 모델과 다름) `final`은 규칙 결과 그대로다.
-- 과정 벡터 만들기(과정 본문을 바꾼 뒤에만): `BEDROCK_MOCK=0 python -X utf8 -m pipeline.build_course_vectors` (`--dry-run`은 호출 없이 건수만). 청크는 제목·학습 목표·설명 필드별이고 추천할 수 있는 과정 122개에서 366개다.
+- 모의 모드(`BEDROCK_MOCK=1`)의 기본 검색은 AWS 호출 없이 규칙을 사용한다. 실제 모드(`BEDROCK_MOCK=0`)의 앱 자격 증명에는 해당 KB의 `bedrock:Retrieve` 권한이 필요하다. KB 서비스 역할이 임베딩 모델과 S3 Vectors에 접근한다.
 - 방식 비교표: `BEDROCK_MOCK=0 python -X utf8 -m pipeline.eval_search --detail final`. 정답은 `ai/eval/search_gold.json`(34개 기술, 초안이며 검토 전)이다.
-- 키워드 기준(`KEYWORD_MIN`)과 의미 기준(`SEM_MIN`)은 그 34개 기술로 정한 값이라 기술이 늘면 다시 본다.
+
+### 교육과정 문서 동기화
+
+[CloudFormation 템플릿](learning-programs-kb.yaml)은 기존 일반 S3 버킷과 벡터 버킷을 받아 KB, 서비스 역할, 1,024차원 코사인 인덱스와 S3 데이터 소스를 만든다. 배포할 때 `DocumentBucket`, `VectorBucket`, `EmbeddingModelId`를 전달한다. 현재 임베딩 모델은 Titan Text Embeddings V2이며 문서는 300토큰 단위로 20% 겹치게 나눈다. 추천에 쓰는 과정 ID와 추천 가능 여부는 과정별 메타데이터에 담는다.
+
+카탈로그 변경 후 아래 명령으로 현재 문서와 메타데이터를 동기화한다. 서울 리전의 프로젝트 AWS 프로필을 사용하고 `PROGRAM_BUCKET`에는 프로젝트 데이터 버킷 이름을 지정한다.
+
+```sh
+export AWS_PROFILE=kosa AWS_DEFAULT_REGION=ap-northeast-2
+stack=skillpath-learning-programs-kb
+program_dir=$(mktemp -d)
+python -m pipeline.build_program_documents --output "$program_dir"
+aws s3 sync "$program_dir/" "s3://${PROGRAM_BUCKET:?}/skillpath/learning-programs/programs/"
+kb=$(aws cloudformation describe-stacks --stack-name "$stack" --query "Stacks[0].Outputs[?OutputKey=='KnowledgeBaseId'].OutputValue | [0]" --output text)
+source_id=$(aws cloudformation describe-stacks --stack-name "$stack" --query "Stacks[0].Outputs[?OutputKey=='DataSourceId'].OutputValue | [0]" --output text)
+job=$(aws bedrock-agent start-ingestion-job --knowledge-base-id "$kb" --data-source-id "$source_id" --query ingestionJob.ingestionJobId --output text)
+aws bedrock-agent get-ingestion-job --knowledge-base-id "$kb" --data-source-id "$source_id" --ingestion-job-id "$job" --query 'ingestionJob.[status,statistics]'
+```
+
+마지막 명령에서 `COMPLETE`와 실패 0건을 확인한다. 카탈로그에서 삭제한 과정은 해당 문서와 메타데이터 객체도 S3에서 제거해야 다음 동기화에 반영된다. 로컬 앱의 `.env`에는 스택 출력 `KnowledgeBaseId`를 `BEDROCK_KB_ID`로 설정한다.
 
 ## 기준 단계 (#90)
 

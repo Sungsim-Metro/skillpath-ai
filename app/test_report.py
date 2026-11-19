@@ -64,7 +64,7 @@ class ReportTest(unittest.TestCase):
         recs = kw.pop("recs", None) or api.get_recommendations("cloud_engineer", [r["skill"] for r in missing])
         args = dict(job_title="클라우드 엔지니어", demand=demand, gap_rows=gap,
                     area_rows=api.get_area_gap("cloud_engineer", owned), recommendations=recs, plan=study_order(recs),
-                    uncovered=uncovered_skills(recs), market_rows=api.get_market_gap("cloud_engineer")["rows"],
+                    uncovered=uncovered_skills(recs), market_rows=api.get_market_gap()["rows"],
                     mock=True, today=date(2026, 11, 19))
         args.update(kw)
         return build_report(**args), demand, gap, missing, recs
@@ -81,7 +81,7 @@ class ReportTest(unittest.TestCase):
         for rec in recs:
             for c in rec["courses"]:
                 self.assertIn(c["url"], md)
-        for heading in ("## 1. 역량 진단", "## 2. AWS 교육과정 추천", "## 3. 수강 순서", "## 4. 과정으로 채우기 어려운 기술"):
+        for heading in ("## 1. 역량 진단", "## 2. 학습 프로그램 추천", "## 3. 수강 순서", "## 4. 과정으로 채우기 어려운 기술"):
             self.assertIn(heading, md)
         self.assertIn("가짜 데이터 모드", md)
         self.assertEqual(file_name(date(2026, 11, 19)), "skillpath-report-20261119.md")
@@ -116,6 +116,23 @@ class ReportTest(unittest.TestCase):
         self.assertTrue([b for b in at.get("download_button") if b.key == "report_btn"])
         at.sidebar.radio(key="view").set_value("chat").run()
         self.assertTrue(at.button(key="open_report"))
+
+    def test_report_uses_the_industry_selected_on_the_dashboard(self):
+        rows = [
+            {"industry": industry, "skill": "Docker", "demand_pct": demand, "supply_pct": 10.0, "gap_pp": demand - 10.0}
+            for industry, demand in [("유통", 60.0), ("금융", 70.0)]
+        ]
+        with mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "검산 자료"}):
+            at = AppTest.from_file(MAIN, default_timeout=60).run()
+            at.session_state["levels"] = {}
+            at.session_state["levels_example"] = False
+            at.selectbox(key="market_industry").select("금융").run()
+            at.button(key="open_report").click().run()
+        self.assertFalse(at.exception)
+        md = next(item.value for item in at.markdown if "산업의 시장 Gap" in item.value)
+        self.assertIn("금융 산업의 시장 Gap", md)
+        self.assertIn("| Docker | 70.0% | 10.0% | +60.0%p |", md)
+        self.assertNotIn("| Docker | 60.0% | 10.0% | +50.0%p |", md)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 실행: 저장소 루트에서 `python -m app.test_app`
 """
+import json
 import os
 import unittest
 from pathlib import Path
@@ -66,6 +67,76 @@ class AppSmokeTest(unittest.TestCase):
         self.at.session_state["levels_example"] = False
         at = self.at.run()
         self.assertFalse(at.exception)
+
+
+def _market_without_personal_demand():
+    from app.common import Ctx
+    from app.tabs.gap import render
+
+    render(Ctx(job="cloud_engineer", demand=None, demand_err="수요 미연결", owned=[], levels={},
+               skill_options=[], gap_rows=None, gap_err="수요 미연결"))
+
+
+class MarketGapScreenTest(unittest.TestCase):
+    def test_market_gap_shows_owned_skills_without_changing_market_values(self):
+        rows = [{"industry": "유통", "skill": "AWS", "demand_pct": 60.0, "supply_pct": 40.0, "gap_pp": 20.0},
+                {"industry": "유통", "skill": "SQL", "demand_pct": 40.0, "supply_pct": 60.0, "gap_pp": -20.0}]
+        with mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1"}), \
+             mock.patch("backend.api.owned_skill_names", return_value=["AWS"]), \
+             mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "검산 자료"}):
+            at = AppTest.from_file(MAIN, default_timeout=60).run()
+        self.assertFalse(at.exception)
+        table = next(frame.value for frame in at.dataframe if "산업" in frame.value.columns)
+        self.assertEqual(table["내 보유"].tolist(), ["보유", "-"])
+        self.assertEqual(table["Gap"].tolist(), [20.0, -20.0])
+
+    def test_empty_job_demand_keeps_industry_analysis_available(self):
+        demand = {"total_postings": 0, "skills": []}
+        rows = [{"industry": "유통", "skill": "AWS", "demand_pct": 100.0, "supply_pct": 100.0, "gap_pp": 0.0}]
+        with mock.patch.dict(os.environ, {"BEDROCK_MOCK": "1"}), \
+             mock.patch("backend.api.get_demand", return_value=demand), \
+             mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "예시 입력"}):
+            at = AppTest.from_file(MAIN, default_timeout=60).run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.selectbox(key="market_industry").value, "유통")
+
+    def test_industry_selection_and_heatmap_without_personal_demand(self):
+        rows = [
+            {"industry": industry, "skill": skill, "demand_pct": demand,
+             "supply_pct": supply, "gap_pp": gap}
+            for industry, skill, demand, supply, gap in [
+                ("유통", "AWS", 60., 80., -20.), ("유통", "SQL", 40., 20., 20.),
+                ("금융", "AWS", 25., 80., -55.), ("금융", "SQL", 75., 20., 55.),
+            ]
+        ]
+        with mock.patch("backend.api.get_market_gap", return_value={"rows": rows, "source": "예시 입력"}) as get_market:
+            at = AppTest.from_function(_market_without_personal_demand).run()
+            self.assertFalse(at.exception)
+            selector = at.selectbox(key="market_industry")
+            self.assertEqual(selector.options, ["유통", "금융"])
+            self.assertTrue(any("학습 프로그램의 기술 공급 비중" in caption.value for caption in at.caption))
+            charts = [json.loads(c.proto.spec) for c in at.get("vega_lite_chart")]
+            self.assertEqual(charts[0]["encoding"]["y"]["sort"], ["AWS", "SQL"])
+            self.assertEqual(charts[1]["encoding"]["y"]["sort"], ["SQL", "AWS"])
+            at = selector.set_value("금융").run()
+            self.assertFalse(at.exception)
+            bar = json.loads(at.get("vega_lite_chart")[0].proto.spec)
+            self.assertEqual(bar["encoding"]["y"]["sort"], ["SQL", "AWS"])
+            self.assertEqual(len(at.dataframe[0].value), len(rows))
+            self.assertTrue(at.get("download_button"))
+            get_market.assert_called_with()
+
+    def test_empty_table_and_missing_files_explain_absence(self):
+        with mock.patch("backend.api.get_market_gap", return_value={"rows": [], "source": "예시 입력"}):
+            at = AppTest.from_function(_market_without_personal_demand).run()
+            self.assertFalse(at.exception)
+            self.assertIn("매칭된 기술", at.info[-1].value)
+            self.assertFalse(at.selectbox)
+        with mock.patch("backend.api.get_market_gap", side_effect=FileNotFoundError):
+            at = AppTest.from_function(_market_without_personal_demand).run()
+            self.assertFalse(at.exception)
+            self.assertIn("data/courses/courses.csv", at.info[-1].value)
+            self.assertIn("outputs/learning_program_gap_table.csv", at.info[-1].value)
 
 
 if __name__ == "__main__":

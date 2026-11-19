@@ -14,10 +14,15 @@ from app.common import (
     Pending,
     empty_metrics,
     load,
+    logger,
+    md_escape,
     notice,
 )
 from app.tabs.radar import render_radar
 from backend import api
+from backend.industry_gap import gap_csv
+from pipeline.market_gap import CLEAN, PROGRAM_CATALOGS, RAW, REVIEWED, TABLE
+
 
 def render_area_gap(ctx: Ctx):
     """능력 범주별 Gap: 영역마다 공고 수요(옅은 막대) 위에 내가 가진 몫(진한 막대)을 겹친다."""
@@ -26,6 +31,9 @@ def render_area_gap(ctx: Ctx):
         notice("능력 범주별 Gap", err)
         return
     shown = [r for r in rows if r["demand"] > 0]
+    if not shown:
+        st.info("이 직무의 공고에서 수요가 확인된 능력 범주가 없습니다.")
+        return
     empty = [r["area"] for r in rows if r["demand"] == 0 and r["area_id"] != "UNCLASSIFIED"]
     df = pd.DataFrame([
         {
@@ -57,65 +65,85 @@ def render_area_gap(ctx: Ctx):
     )
 
 
-def render_market_gap(ctx: Ctx):
-    """채용 시장 Gap: 차트 ① 수요 vs 공급 비중, 차트 ② 기술별 Gap(%p). 계산은 backend 가 한다."""
-    market, err = load(api.get_market_gap, ctx.job)
-    if err:
-        notice("채용 시장 Gap", err, "공고가 원하는 기술과 교육이 다루는 기술의 차이가 여기에 나옵니다.")
+def render_market_gap(ctx: Ctx) -> None:
+    """채용 시장 Gap: 선택 산업의 수요·공급 비중과 산업별 Gap(%p)을 보여준다. 계산은 backend가 한다."""
+    try:
+        market = api.get_market_gap()
+    except FileNotFoundError:
+        catalogs = ", ".join(f"{name} (`{path.as_posix()}`)" for name, path in PROGRAM_CATALOGS.items())
+        st.info(
+            f"시장 Gap의 공고는 `{CLEAN.as_posix()}`, `{RAW.as_posix()}`, 검토본 폴더 `{REVIEWED.as_posix()}` 순으로 찾습니다. "
+            f"현재 학습 프로그램 출처는 {catalogs}입니다. "
+            f"저장된 결과는 `{TABLE.as_posix()}`에서 읽습니다."
+        )
         return
-    rows = market["rows"]
-    if len(rows) > MARKET_ROWS:  # Gap 이 큰 쪽과 작은 쪽을 함께 보여준다
-        rows = rows[: MARKET_ROWS - 4] + rows[-4:]
-    df = pd.DataFrame([
-        {"기술": r["skill"], "수요(공고)": r["demand_pct"], "공급(교과목)": r["supply_pct"], "Gap": r["gap_pp"],
-         "표시": f"{r['gap_pp']:+.1f}", "내 보유": "보유" if r["skill"] in ctx.owned else "-"}
-        for r in rows
-    ])
-    order = list(df["기술"])
+    except (OSError, ValueError) as exc:
+        logger.exception("시장 Gap 입력 읽기 실패")
+        st.error(f"시장 Gap 자료를 읽을 수 없습니다({type(exc).__name__}). 입력 파일 형식과 실행 로그를 확인하세요.")
+        return
+
+    st.caption(f"자료 · {md_escape(market['source'])}")
+    if not market["rows"]:
+        st.info("표시할 산업이 없습니다. 공고 본문에 기술 사전과 매칭된 기술이 있는지 확인하세요.")
+        return
+
+    df = pd.DataFrame(market["rows"]).rename(columns={
+        "industry": "산업", "skill": "기술", "demand_pct": "수요 비중", "supply_pct": "공급 비중", "gap_pp": "Gap",
+    })
+    df["내 보유"] = df["기술"].isin(ctx.owned).map({True: "보유", False: "-"})
+    industries = df["산업"].drop_duplicates().tolist()
+    industry = st.selectbox("분석할 산업", industries, key="market_industry")
+    st.caption(
+        "Gap은 산업별 기술 수요 비중에서 학습 프로그램의 기술 공급 비중을 뺀 값입니다. "
+        "공고 한 건에서 기술마다 가장 높은 구역 가중치(자격요건 1.0, 주요업무 0.7, 우대사항·기타 0.5)를 적용합니다. "
+        "프로그램 제목·설명·학습 목표에 같은 기술이 여러 번 나와도 프로그램당 한 번만 셉니다. "
+        "양수이면 채용 수요 비중이 더 크고, 음수이면 프로그램의 공급 비중이 더 큽니다."
+    )
+
     left, right = st.columns(2)
     with left:
-        st.markdown("**① 수요 vs 공급 비중 (%)**")
-        long = df.melt(id_vars="기술", value_vars=["수요(공고)", "공급(교과목)"], var_name="구분", value_name="비중")
-        st.altair_chart(alt.Chart(long).mark_bar().encode(
-            y=alt.Y("기술:N", sort=order, title=None),
-            x=alt.X("비중:Q", title="비중 (%)"),
-            yOffset=alt.YOffset("구분:N", sort=["수요(공고)", "공급(교과목)"]),
-            color=alt.Color("구분:N", scale=alt.Scale(domain=["수요(공고)", "공급(교과목)"],
-                                                      range=[MARKET_DEMAND, MARKET_SUPPLY]),
-                            legend=alt.Legend(orient="bottom", title=None)),
-            tooltip=["기술", "구분", "비중"]).properties(height=30 * len(df) + 70), width="stretch")
-    with right:
-        st.markdown("**② 기술별 Gap (%p)**")
-        base = alt.Chart(df).encode(y=alt.Y("기술:N", sort=order, title=None))
-        pad = max(abs(df["Gap"].min()), abs(df["Gap"].max())) * 1.25
-        bars = base.mark_bar().encode(
-            x=alt.X("Gap:Q", title="Gap (%p) = 수요 비중 − 공급 비중", scale=alt.Scale(domain=[-pad, pad])),
-            color=alt.condition("datum.Gap >= 0", alt.value(MARKET_DEMAND), alt.value(MARKET_SUPPLY)),
-            tooltip=["기술", "수요(공고)", "공급(교과목)", "Gap", "내 보유"])
-        plus = base.transform_filter("datum.Gap >= 0").mark_text(align="left", dx=4, color="#566070").encode(
-            x="Gap:Q", text="표시:N")
-        minus = base.transform_filter("datum.Gap < 0").mark_text(align="right", dx=-4, color="#566070").encode(
-            x="Gap:Q", text="표시:N")
-        st.altair_chart((bars + plus + minus).properties(height=30 * len(df) + 70), width="stretch")
-    by_section, by_type, sup = market["weights"]["section"], market["weights"]["type"], market["supply"]
-    st.caption(
-        "+면 시장은 원하는데 교육이 덜 다루는 기술, −면 교육이 상대적으로 많이 다루는 기술입니다. "
-        f"수요 가중치의 팀 기준은 자격요건 {by_section['qualification']}, 주요업무 {by_section['duty']}, "
-        f"우대사항 {by_section['preference']}입니다. 지금 집계에는 칸별 건수가 없어 "
-        f"필수 {by_type['required']}, 우대 {by_type['preferred']}로 계산했습니다. "
-        f"공급은 교과목 {sup['total_courses']}개(출처 {sup['source']}) 기준입니다."
-        + (f" {sup['note']}" if sup.get("note") else "")
-    )
-    with st.expander("전체 표 보기"):
-        st.dataframe(
-            pd.DataFrame([
-                {"기술": r["skill"], "수요 비중(%)": r["demand_pct"], "공급 비중(%)": r["supply_pct"],
-                 "Gap(%p)": r["gap_pp"], "내 보유": "보유" if r["skill"] in ctx.owned else "-"}
-                for r in market["rows"]
-            ]),
-            hide_index=True,
-            width="stretch",
+        st.markdown("**선택 산업의 수요·공급 비중 (%)**")
+        selected = df.loc[df["산업"] == industry].nlargest(MARKET_ROWS, "수요 비중")
+        long = selected.melt(
+            id_vars=["산업", "기술"], value_vars=["수요 비중", "공급 비중"], var_name="구분", value_name="비중",
         )
+        bars = alt.Chart(long).mark_bar().encode(
+            y=alt.Y("기술:N", sort=selected["기술"].tolist(), title=None),
+            x=alt.X("비중:Q", title="비중 (%)"),
+            yOffset=alt.YOffset("구분:N", sort=["수요 비중", "공급 비중"]),
+            color=alt.Color("구분:N", scale=alt.Scale(domain=["수요 비중", "공급 비중"],
+                                                    range=[MARKET_DEMAND, MARKET_SUPPLY]),
+                            legend=alt.Legend(orient="bottom", title=None)),
+            tooltip=["산업:N", "기술:N", "구분:N", alt.Tooltip("비중:Q", title="비중 (%)", format=".1f")],
+        ).properties(height=30 * len(selected))
+        st.altair_chart(bars, width="stretch")
+
+    with right:
+        st.markdown("**산업별 기술 Gap (%p)**")
+        skills = df.groupby("기술")["Gap"].max().nlargest(MARKET_ROWS).index.tolist()
+        cells = df[df["기술"].isin(skills)]
+        limit = float(cells["Gap"].abs().max()) or 1.0
+        heatmap = alt.Chart(cells).mark_rect().encode(
+            x=alt.X("산업:N", sort=industries, title=None),
+            y=alt.Y("기술:N", sort=skills, title=None),
+            color=alt.Color("Gap:Q", title="Gap (%p)", scale=alt.Scale(
+                domain=[-limit, 0, limit], range=[MARKET_SUPPLY, "#F6F6F6", MARKET_DEMAND],
+            )),
+            tooltip=["산업:N", "기술:N", alt.Tooltip("수요 비중:Q", title="수요 (%)", format=".1f"),
+                     alt.Tooltip("공급 비중:Q", title="공급 (%)", format=".1f"),
+                     alt.Tooltip("Gap:Q", title="Gap (%p)", format="+.1f"), "내 보유:N"],
+        ).properties(height=30 * len(skills))
+        st.altair_chart(heatmap, width="stretch")
+        st.caption(f"기술마다 산업별 Gap 중 최댓값을 비교해 높은 순으로 최대 {MARKET_ROWS}개를 표시합니다.")
+
+    with st.expander("전체 산업·기술 표"):
+        st.dataframe(df, hide_index=True, width="stretch", column_config={
+            "수요 비중": st.column_config.NumberColumn("수요 비중 (%)", format="%.1f"),
+            "공급 비중": st.column_config.NumberColumn("공급 비중 (%)", format="%.1f"),
+            "Gap": st.column_config.NumberColumn("Gap (%p)", format="%.1f"),
+        })
+        st.download_button("전체 산업 CSV 내려받기", data=gap_csv(market["rows"]), file_name=TABLE.name,
+                           mime="text/csv", key="market_gap_csv", on_click="ignore")
 
 
 def _render_gap(ctx: Ctx):
@@ -144,11 +172,9 @@ def _render_gap(ctx: Ctx):
         render_radar(ctx)
 
     with st.container(border=True):
-        st.subheader("채용 시장 Gap")
-        render_market_gap(ctx)
-
-    with st.container(border=True):
-        if not missing:
+        if not gap_rows:
+            st.info("이 직무에서 보유 수준과 비교할 주요 요구 기술이 없습니다.")
+        elif not missing:
             st.success("주요 요구 기술을 모두 보유했습니다.")
         else:
             st.subheader(f"부족한 기술 {len(missing)}개 (수요 높은 순)")
@@ -184,17 +210,18 @@ def _render_gap(ctx: Ctx):
                 r["skill"] + (" (불확실)" if r["required_level_confidence"] == "uncertain" else "") for r in have))
 
 
-
-
 def render(ctx: Ctx):
     gap_err = ctx.gap_err
     if gap_err:
         if isinstance(gap_err, Pending):
             empty_metrics(["분석한 공고", "주요 요구 기술", "그중 보유", "부족"])
             notice("능력 범주별 Gap", gap_err, "영역마다 공고 수요와 내가 가진 몫이 여기에 나옵니다.")
-            notice("채용 시장 Gap", gap_err, "공고가 원하는 기술과 교육이 다루는 기술의 차이가 여기에 나옵니다.")
             notice("부족한 기술", gap_err, "보유 기술과 비교해 부족한 기술이 수요 높은 순으로 여기에 나옵니다.")
         else:
             notice("부족 역량", gap_err)
     else:
         _render_gap(ctx)
+
+    with st.container(border=True):
+        st.subheader("채용 시장 Gap")
+        render_market_gap(ctx)

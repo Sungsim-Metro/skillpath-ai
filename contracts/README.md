@@ -10,11 +10,11 @@
 | ③ 추천 | `data/sample/recommendation.json` | 형식 예시 (1건) |
 | ③ 추천 목록 | `data/sample/recommendations.json` | 가짜 모드에서 화면이 읽는 파일 |
 | ④ 수요 집계 | `data/sample/demand.json` | 가짜 모드에서 화면이 읽는 파일 |
-| ⑤ 교육 공급 | `data/sample/supply.json` | 가짜 모드에서 시장 Gap 계산이 읽는 파일 |
+| ⑤ 산업별 시장 Gap | `data/sample/market_postings.json`, `data/courses/courses.csv` | 예시 공고와 학습 프로그램 목록 |
 | ⑥ 상담 발화 해석 | `data/sample/chat_turn.json` | 상담에서 갱신할 사실과 이번에 요청한 작업 |
 | ⑦ 보유 수준 | `data/skill_levels.json`, `data/required_levels.json` | 세부 능력별 단계 예시, 기술별 기준 단계 |
 
-예시 파일의 숫자는 서로 맞춰 둡니다(공고 40건 기준).
+개인 진단의 직무 수요 예시는 공고 40건 기준입니다. 산업별 시장 Gap의 예시는 공고 2건과 저장된 학습 프로그램 전체로 계산합니다.
 
 ## ① 공고 (`posting`) — pipeline → ai
 
@@ -103,18 +103,20 @@ AWS 운영 경험 우대
 
 화면은 `url`이 있으면 근거 문장 옆에 "공고 원문 열기" 링크를 붙입니다(2026-11-15 추가).
 
-## ⑤ 교육 공급 (`supply`) — pipeline → backend  · 11/15 추가, 회의 확인 대기
+## ⑤ 산업별 시장 Gap
 
-시장 Gap(공고는 원하는데 교육이 덜 다루는 기술)을 계산할 때 쓰는 공급 쪽 집계입니다. 예시는 `data/sample/supply.json`.
-계산식은 `backend/api.py`의 `get_market_gap` 설명에 있습니다.
+정제 공고 배열의 `industry`와 `text`를 읽고, 공고마다 기술별로 가장 높은 구역 가중치를 적용합니다. 공급의 집계 단위는 학습 프로그램 한 개입니다. 프로그램의 제목(`title`), 설명(`description`), 학습 목표(`objectives`)에 같은 기술이 여러 번 등장해도 한 번만 셉니다. 현재 프로그램 출처는 `data/courses/courses.csv`에 저장된 AWS Skill Builder 과정입니다. 목록 전체를 집계해 모든 산업에 같은 공급 비중을 적용합니다.
 
-| 필드 | 타입 | 설명 |
-| --- | --- | --- |
-| `source` | string | 교과목 데이터 출처 |
-| `total_courses` | number | 전체 교과목 수 |
-| `note` | string | 화면에 함께 보여줄 안내(한계 등). 없으면 생략 |
-| `skills[].skill` | string | 표준 기술 이름 |
-| `skills[].courses` | number | 이 기술을 다루는 교과목 수 (코드로 계산) |
+`backend.api.get_market_gap()`은 전체 산업의 `rows` 배열과 자료 출처를 표시하는 `source` 문자열을 반환합니다. CSV 열과 각 행의 필드는 다음과 같습니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `industry`, `skill` | 산업명과 대표 기술명 |
+| `demand_pct` | 해당 산업 안에서 기술이 차지하는 가중 수요 비중 (%) |
+| `supply_pct` | 해당 기술이 검출된 학습 프로그램 수 ÷ 전체 (프로그램, 기술) 쌍 수 × 100 |
+| `gap_pp` | 반올림 전 두 비중을 뺀 값 (%p). 세 수치는 각각 소수 첫째 자리로 반올림합니다. |
+
+예시 공고에서 Docker의 수요 비중은 43.6%입니다. 공급 비중과 Gap은 계산에 사용한 학습 프로그램 목록에 따라 달라집니다. [입력 경로와 갱신 방법](../pipeline/README.md#산업별-시장-gap)
 
 ## ⑦ 보유 수준 — app → backend · 2026-11-19 추가(#90)
 
