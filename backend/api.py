@@ -28,7 +28,8 @@ from threading import Lock
 from time import monotonic
 
 from backend.dynamodb import DynamoDBStore, json_numbers
-from backend.levels import course_level_first, required_level, satisfaction, skill_levels, whole
+from backend.levels import (course_level_first, level_after_courses, required_level, satisfaction, skill_levels,
+                            whole)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SAMPLE_DIR = DATA_DIR / "sample"
@@ -151,7 +152,11 @@ def get_area_gap(job_category: str, owned_skills) -> list[dict]:
     영역 순서는 data/skill_areas.json 의 순서이고, 사전에 없는 기술은 마지막의 미분류에 모은다.
     """
     demand = get_demand(job_category)
-    mine = skill_levels(owned_skills, [s["skill"] for s in demand["skills"]])
+    return _area_rows(demand, skill_levels(owned_skills, [s["skill"] for s in demand["skills"]]))
+
+
+def _area_rows(demand: dict, mine: dict[str, float]) -> list[dict]:
+    """get_area_gap 의 계산. mine 은 {기술: 내 단계}."""
     rows = {
         area_id: {"area_id": area_id, "area": name, "demand": 0, "owned": 0.0, "skills": [], "missing_skills": []}
         for area_id, name in [*_skill_areas()["areas"].items(), ("UNCLASSIFIED", UNCLASSIFIED)]
@@ -171,23 +176,27 @@ def get_area_gap(job_category: str, owned_skills) -> list[dict]:
     return list(rows.values())
 
 
-def get_area_gap_after(job_category: str, owned_skills, covered_skills: list[str]) -> list[dict]:
-    """추천 과정을 모두 마쳤다고 볼 때의 영역별 Gap(예상). 형식은 get_area_gap 과 같다. 계산은 전부 코드로 한다.
+def get_area_gap_after(job_category: str, owned_skills, recommendations: list[dict]) -> list[dict]:
+    """추천 과정을 모두 마쳤다고 볼 때의 영역별 Gap(예상, #91). 계산은 전부 코드로 한다.
 
-    covered_skills 는 추천 과정이 붙은 부족 기술이다. 과정을 마치면 그 기술을 "배워봄"으로 본다.
-    - 보유 수준 기능(backend/levels.py)이 있으면 배워봄 값(0.5)으로 친다. 이미 써봄인 기술은 그대로 둔다.
-    - 그 기능이 없으면(있다/없다만 받는 동안) 보유로 친다.
-    과정을 마친다고 그 기술을 다룰 수 있게 된다는 보장은 없다. 화면에는 "예상"이라고 적는다.
+    recommendations 는 get_recommendations 결과다. "확실"한 과정만 마친 것으로 친다("불확실"은 넣지 않는다, 원칙 4).
+    마친 기술의 예상 단계는 과정 난이도로 정한다(backend.levels.level_after_courses: 기초 2단계, 중급 3단계).
+    지금 단계가 더 높으면 그대로 둔다. 형식은 get_area_gap 과 같고, 영역마다 raised 가 더 붙는다:
+    [{"skill", "from", "to"}] 단계가 오르는 기술. 과정을 마친다고 그 단계가 된다는 보장은 없다. 화면에는 "예상"이라고 적는다.
     """
-    try:
-        from backend.levels import LEARNED, normalize_owned
-    except ImportError:
-        names = list(owned_skills)
-        return get_area_gap(job_category, [*names, *[s for s in covered_skills if s not in names]])
-    levels = normalize_owned(owned_skills)
-    for skill in covered_skills:
-        levels.setdefault(skill.lower(), LEARNED)
-    return get_area_gap(job_category, levels)
+    demand = get_demand(job_category)
+    skills = [s["skill"] for s in demand["skills"]]
+    now = skill_levels(owned_skills, skills)
+    after = dict(now)
+    for rec in recommendations:
+        if rec["gap_skill"] not in after:
+            continue
+        done = [c.get("level", "") for c in rec["courses"] if c.get("match") == "certain"]
+        after[rec["gap_skill"]] = level_after_courses(now[rec["gap_skill"]], done)
+    rows = _area_rows(demand, after)
+    for row in rows:
+        row["raised"] = [{"skill": s, "from": whole(now[s]), "to": whole(after[s])} for s in row["skills"] if after[s] > now[s]]
+    return rows
 
 
 def _get_supply() -> dict:

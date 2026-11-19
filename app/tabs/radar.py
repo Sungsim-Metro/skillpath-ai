@@ -24,18 +24,20 @@ def _xy(i: int, n: int, r: float) -> tuple[float, float]:
 
 
 def render_radar(ctx: Ctx):
-    owned = getattr(ctx, "levels", None) or ctx.owned  # 보유 수준 기능이 있으면 수준까지 넘긴다
-    now, err = load(api.get_area_gap, ctx.job, owned)
+    now, err = load(api.get_area_gap, ctx.job, ctx.levels)
     if err:
         notice("영역 레이더", err)
         return
-    recs, rec_err = load(api.get_recommendations, ctx.job, [r["skill"] for r in ctx.missing]) if ctx.missing else ([], None)
-    # "확실"한 과정이 붙은 기술만 배운 것으로 친다. 관련 기초 과정("불확실")만 붙은 기술까지 넣으면 충족률이 부풀려진다(원칙 4)
-    covered = [r["gap_skill"] for r in recs or [] if any(c["match"] == "certain" for c in r["courses"])]
-    only_uncertain = [r["gap_skill"] for r in recs or [] if r["courses"] and r["gap_skill"] not in covered]
-    # 이미 배워봄·써봄으로 고른 기술은 과정을 마쳐도 값이 그대로다. "늘어나는 기술"에서 뺀다
-    already = {s.lower() for s in owned}
-    after, err = load(api.get_area_gap_after, ctx.job, owned, covered)
+    # 학습 추천 탭과 같은 인자로 부른다(같은 과정·같은 순서, 실제 모드는 캐시를 돌려준다)
+    level_of = {r["skill"]: r["user_level"] for r in ctx.missing}
+    recs, rec_err = (load(api.get_recommendations, ctx.job, [r["skill"] for r in ctx.missing], levels=level_of)
+                     if ctx.missing else ([], None))
+    recs = recs or []
+    # "확실"한 과정이 없는 기술은 "마친 뒤"에 넣지 않는다. 관련 기초 과정("불확실")만으로 충족률을 부풀리지 않는다(원칙 4)
+    certain = [r for r in recs if any(c.get("match") == "certain" for c in r["courses"])]
+    only_uncertain = [r["gap_skill"] for r in recs if r["courses"] and r not in certain]
+    covered = len(certain)
+    after, err = load(api.get_area_gap_after, ctx.job, ctx.levels, recs)
     if err:
         notice("영역 레이더", err)
         return
@@ -108,7 +110,7 @@ def render_radar(ctx: Ctx):
     st.dataframe(
         pd.DataFrame([
             {"영역": r["area"], "지금": r["coverage"], "마친 뒤(예상)": after_by[r["area_id"]]["coverage"],
-             "늘어나는 기술": ", ".join(s for s in covered if s in r["skills"] and s.lower() not in already) or "-"}
+             "오르는 기술(단계)": ", ".join(f"{x['skill']} {x['from']}→{x['to']}" for x in after_by[r["area_id"]]["raised"]) or "-"}
             for r in areas
         ]),
         hide_index=True, width="stretch",
@@ -117,12 +119,13 @@ def render_radar(ctx: Ctx):
     )
     note = (
         "바깥 점선은 공고 수요(100%), 안쪽은 그 수요 가운데 내가 가진 몫(충족률)입니다. "
-        "'마친 뒤'는 학습 추천 탭의 과정이 붙은 기술을 배운 것으로 쳤을 때의 예상이며, 과정을 마쳤다고 그 기술을 다룰 수 있다는 보장은 아닙니다."
+        "'마친 뒤'는 학습 추천 탭의 확실한 과정을 마쳤을 때의 예상입니다. 기초 과정은 2단계, 중급 과정은 3단계로 보고, "
+        "지금 단계가 더 높으면 그대로 둡니다(팀이 정한 값). 과정을 마쳤다고 그 단계가 된다는 보장은 아닙니다."
     )
     if rec_err:
         note += " 추천을 불러오지 못해 '마친 뒤'가 지금과 같게 나옵니다."
-    elif len(covered) < len(ctx.missing):
-        note += f" 부족 기술 {len(ctx.missing)}개 중 이 기술을 직접 다루는 과정이 붙은 {len(covered)}개만 반영했습니다."
+    elif covered < len(ctx.missing):
+        note += f" 부족 기술 {len(ctx.missing)}개 중 이 기술을 직접 다루는 과정이 붙은 {covered}개만 반영했습니다."
         if only_uncertain:
             note += f" 관련 과정만 붙은 기술({', '.join(only_uncertain)})은 넣지 않았습니다."
     st.caption(note)
