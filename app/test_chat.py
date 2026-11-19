@@ -12,7 +12,7 @@ from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 
 from ai.chat import Turn
-from backend import api, chat_profiles
+from backend import api, chat_history, chat_profiles
 from backend.jobs import JOBS
 
 MAIN = str(Path(__file__).with_name("main.py"))
@@ -23,9 +23,11 @@ class ChatScreenTest(unittest.TestCase):
 
     def setUp(self):
         self.profile_db = Path(self.enterContext(TemporaryDirectory())) / "profiles.sqlite3"
+        self.history_db = Path(self.enterContext(TemporaryDirectory())) / "chat-history.sqlite3"
         self.enterContext(patch.dict(os.environ, {
             "BEDROCK_MOCK": "1", "PYTHON_DOTENV_DISABLED": "1", "USAGE_LOG": "off",
             "SKILLPATH_MOCK_PROFILE_DB": str(self.profile_db),
+            "SKILLPATH_MOCK_CHAT_DB": str(self.history_db),
         }))
 
     def open_screen(self, view="chat"):
@@ -40,6 +42,45 @@ class ChatScreenTest(unittest.TestCase):
         at.text_input(key="auth_password").set_value(self.password if password is None else password)
         at.button(key="auth_register" if register else "auth_login").click().run()
         self.assertFalse(at.exception)
+
+    def test_guest_chat_is_not_saved_and_is_told_so(self):
+        at = self.open_screen()
+        self.assertTrue(any("저장되지 않습니다" in c.value for c in at.caption))
+        self.assertTrue(any("로그인하면 대화 기록이 저장됩니다" in c.value for c in at.caption))
+        first = at.session_state["chat_conversation"].usage.session_id
+        at.button(key="chat_new").click().run()  # 비회원도 새 채팅을 시작할 수 있다
+        self.assertNotEqual(at.session_state["chat_conversation"].usage.session_id, first)
+        at.button(key="history_toggle").click().run()  # 패널을 접으면 새 채팅 버튼도 같이 접힌다
+        self.assertEqual([b for b in at.button if b.key == "chat_new"], [])
+        at.button(key="history_toggle").click().run()
+        self.assertEqual(len([b for b in at.button if b.key == "chat_new"]), 1)
+        at.chat_input[0].set_value("제가 Docker로 API를 배포했어요. 연락처 010-1234-5678").run()
+        self.assertFalse(at.exception)
+        self.assertFalse(self.history_db.exists())
+
+    def test_member_chat_is_saved_listed_and_opened_read_only(self):
+        at = self.open_screen()
+        self.authenticate(at, "기록 회원", register=True)
+        self.assertTrue(any("대화는 저장되고" in c.value for c in at.caption))
+        at.chat_input[0].set_value("제가 Docker로 API를 배포했어요. 연락처 010-1234-5678").run()
+        first = at.session_state["chat_conversation"].usage.session_id
+        saved = chat_history.load_session("기록 회원", first)
+        self.assertEqual(saved[0][0], "제가 Docker로 API를 배포했어요. 연락처 [전화번호]")  # 가려서 저장
+        self.assertEqual(chat_history.load_session("다른 회원", first), [])  # 다른 회원의 대화는 열리지 않는다
+        self.assertFalse(at.exception)
+        self.assertIn(f"history_{first}", [b.key for b in at.button])  # 첫 대화부터 목록에 뜬다
+
+        at.chat_input[0].set_value("그다음은 Kubernetes 얘기예요").run()
+        self.assertEqual([b.key for b in at.button].count(f"history_{first}"), 1)  # 같은 대화는 한 줄
+        at.button(key=f"history_{first}").click().run()  # 지금 하던 대화를 누르면 그대로 돌아온다
+        self.assertEqual(len(at.info), 0)
+
+        at.button(key="chat_new").click().run()  # 새 채팅은 새 세션 ID 로 시작한다
+        self.assertNotEqual(at.session_state["chat_conversation"].usage.session_id, first)
+        at.button(key=f"history_{first}").click().run()  # 지난 대화는 읽기 전용으로 열린다
+        self.assertTrue(any("지난 대화를 보고 있습니다" in i.value for i in at.info))
+        self.assertTrue(any("[전화번호]" in t.value for t in at.text))
+        self.assertTrue(any("Kubernetes" in t.value for t in at.text))
 
     def test_token_usage_counts_retries_and_failed_turns_only_for_this_chat(self):
         log = Path(self.enterContext(TemporaryDirectory())) / "usage.jsonl"

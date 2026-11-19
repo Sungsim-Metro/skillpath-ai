@@ -77,7 +77,8 @@ class DynamoHistoryTest(unittest.TestCase):
         self.assertIsInstance(turn["expires_at"], int)
         update = self.table.update_item.call_args.kwargs
         self.assertEqual(update["Key"], {"nickname": "kim", "sk": f"S#{S1}"})
-        self.assertIn("if_not_exists(title", update["UpdateExpression"])
+        self.assertIn("if_not_exists(#title", update["UpdateExpression"])
+        self.assertEqual(set(update["ExpressionAttributeNames"].values()), {"title", "updated_at", "expires_at"})
 
     def test_list_and_load_read_back_what_was_written(self) -> None:
         self.table.query.side_effect = [

@@ -22,7 +22,7 @@ uv run --python 3.11 --with-requirements requirements.txt python -m backend.prof
 
 ## 회원 대화 기록 테이블 (`DYNAMODB_CHAT_TABLE`)
 
-`backend/chat_history.py`가 로그인한 회원의 상담 대화를 세션별로 저장한다. 비회원은 저장하지 않는다. 저장 전에 이메일·전화번호·주민등록번호 모양은 가린다.
+`backend/chat_history.py`가 로그인한 회원의 상담 대화를 DynamoDB 테이블 `skillpath-chat-history`에 세션별로 저장한다(`DYNAMODB_CHAT_TABLE`에 이 이름을 넣는다). 비회원은 저장하지 않는다. 저장 전에 이메일·전화번호·주민등록번호 모양은 가린다.
 
 | 항목 | 값 |
 | --- | --- |
@@ -35,3 +35,12 @@ uv run --python 3.11 --with-requirements requirements.txt python -m backend.prof
 - 세션 줄 `sk = S#<세션ID>`: `title`(첫 질문 앞 30자), `updated_at`. 세션 목록은 `begins_with("S#")`로 조회한다.
 - 턴 줄 `sk = T#<세션ID>#<UTC 시각>`: `prompt`, `answer`, `courses`(JSON 문자열). 한 세션의 대화는 `begins_with("T#<세션ID>#")`로 조회한다.
 - 모의 모드(`BEDROCK_MOCK=1`)는 로컬 SQLite(`SKILLPATH_MOCK_CHAT_DB`)를 쓴다.
+
+`DYNAMODB_CHAT_TABLE`과 `AWS_REGION`을 앱과 같은 값으로 설정한 뒤 아래 명령으로 테이블을 준비한다. 테이블이 없으면 만들고(온디맨드), 있으면 키와 요금 모드를 확인한다. `expires_at` TTL도 켠다(이미 켜져 있으면 속성 이름만 확인).
+다른 테이블(공고·수요·프로필)과 같은 이름이면 거절한다.
+
+```bash
+uv run --python 3.11 --with boto3 python -m backend.dynamodb create-chat-table
+```
+
+한 턴 저장은 턴 줄 → 세션 줄 순서로 쓴다. 둘 사이에서 실패하면 그 턴은 남고 세션 줄만 늦게 생기며, 같은 세션의 다음 턴이 세션 줄을 만들어 목록이 복구된다.

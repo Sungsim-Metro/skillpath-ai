@@ -130,11 +130,14 @@ def append_turn(nickname: str | None, session_id: str, prompt: str, answer: str,
             table = _table()
             days = int(os.getenv("CHAT_HISTORY_TTL_DAYS") or DEFAULT_TTL_DAYS)
             expires = int(time.time()) + days * 86400  # DynamoDB TTL 은 테이블에서 expires_at 으로 켠다
+            # 턴을 먼저 쓰고 세션 줄을 나중에 쓴다. 둘 사이에서 실패해도 다음 턴이 세션 줄을 만들어 목록이 복구된다.
             table.put_item(Item={"nickname": member, "sk": f"T#{session_id}#{now}", "prompt": prompt,
                                  "answer": answer, "courses": packed, "expires_at": expires})
             table.update_item(
                 Key={"nickname": member, "sk": f"S#{session_id}"},
-                UpdateExpression="SET title = if_not_exists(title, :title), updated_at = :now, expires_at = :expires",
+                # 속성 이름은 별칭으로 쓴다(DynamoDB 예약어와 겹쳐도 요청이 거절되지 않는다)
+                UpdateExpression="SET #title = if_not_exists(#title, :title), #updated = :now, #expires = :expires",
+                ExpressionAttributeNames={"#title": "title", "#updated": "updated_at", "#expires": "expires_at"},
                 ExpressionAttributeValues={":title": _title(prompt), ":now": now, ":expires": expires})
         return True
     except Exception as exc:  # 대화·닉네임이 예외 문구에 섞일 수 있어 종류만 남긴다
