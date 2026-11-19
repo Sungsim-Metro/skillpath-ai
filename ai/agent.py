@@ -7,7 +7,9 @@
 - get_gap(user_skills): 보유 기술 → 부족 기술 상위 TOP_GAP 개와 공고 수. backend.api.get_gap 을 감싼다.
   표기는 pipeline.aliases.normalize_skill 로만 맞춘다. 사전에 없는 표기는 unrecognized 로 돌려주고 자동으로 바꾸지 않는다.
 - get_skill_demand(skill): 공고 n건 중 m건, 그중 필수 비율(%).
-- search_courses(skill): ai.recommend.candidate_courses(= pipeline.search.search_courses) 의 과정과 match.
+- recommend_courses(skills): 부족 기술(최대 MAX_RECOMMEND 개)마다 검증한 과정 추천. 화면 상담과 같은
+  backend.api.get_recommendations(..., review=True)(작성 → 독립 검토 → 한 번 수정 → 코드 근거 검사)를 부른다.
+  과정마다 제목·난이도·match·reason(검사를 통과한 이유, uncertain 이면 코드가 붙인 안내 문장 포함). 11/20 search_courses 를 대신함
 
 코드가 하는 검사
 - 답의 숫자는 이번 대화의 도구 결과와 사용자 메시지(이전 대화 포함)에 있는 것만 허용한다(ai.recommend 의 숫자 검사 방식).
@@ -45,14 +47,14 @@ from typing import Optional
 from ai.bedrock import BedrockJSONError, SAMPLE_DIR, USAGE_KEYS, add_usage, converse_tools, is_mock, parse_json_object
 from ai import guardrail
 from ai.prompts import agent_v1 as prompt
-from ai.recommend import candidate_courses, uncertain_note
 from ai.recommend import extract_numbers as _numbers
 from backend import api
 from pipeline.aliases import _index, _key, normalize_skill, normalize_skills
 
 JOB = "cloud_engineer"
 TOP_GAP = 3          # get_gap 이 돌려주는 부족 기술 수 (도구 결과가 대화에 쌓여 토큰이 늘어 5 → 3, 11/17)
-TOP_COURSES = 3      # search_courses 가 돌려주는 과정 수
+TOP_COURSES = 3      # recommend_courses 가 기술마다 돌려주는 과정 수
+MAX_RECOMMEND = 3    # recommend_courses 한 번에 추천하는 기술 수(기술마다 모델 호출 2~3번)
 MAX_TURNS = 4        # 도구 호출 반복 한도(모델 호출 수)
 MAX_SKILLS = 30      # get_gap 입력 기술 수 한도
 CLOSE_MIN = 0.5      # 문자열 비교 후보의 최소 비슷도 (도카↔도커 0.5, 파이선↔파이썬 0.67)
@@ -161,23 +163,43 @@ def tool_get_skill_demand(skill: str) -> dict:
             "required_pct": pct, "summary": demand_summary(total, s["postings"], pct)}
 
 
-def tool_search_courses(skill: str) -> dict:
-    canon = normalize_skill(skill) or skill
-    courses = candidate_courses(canon)[:TOP_COURSES]
+def tool_recommend_courses(skills: list) -> dict:
+    """부족 기술마다 검증한 과정 추천(화면 상담과 같은 api.get_recommendations(review=True)).
+
+    표기는 별칭 사전으로만 맞추고, 수요 집계에 없는 기술은 not_found 로 돌려준다(추천하지 않음).
+    수요 숫자와 summary 는 get_gap 과 같은 방식(_pct)으로 코드가 만든다. reason 은 검사를 통과한 문장이다.
+    """
+    if not isinstance(skills, list):
+        raise ValueError("skills 는 목록이어야 합니다")
+    demand = api.get_demand(JOB)
+    total = demand["total_postings"]
+    raw = {s["skill"].lower(): s for s in demand["skills"]}
+    picked, not_found = [], []
+    for name in [str(x).strip() for x in skills if str(x).strip()]:
+        canon = normalize_skill(name) or name
+        row = raw.get(canon.lower())
+        if row is None:
+            not_found.append(canon)
+        elif row["skill"] not in picked:
+            picked.append(row["skill"])
+    picked = picked[:MAX_RECOMMEND]
+    recs = api.get_recommendations(JOB, picked, review=True) if picked else []
     out = []
-    for c in courses:  # 선수지식(prerequisites)은 길어서 뺀다. 화면의 추천 탭이 보여준다
-        row = {k: c[k] for k in ("title", "level", "match")}
-        note = uncertain_note(canon, c)  # match 가 uncertain 이면 코드가 정한 안내 문장(#24)
-        if note:
-            row["note"] = note
-        out.append(row)
-    return {"skill": canon, "courses": out}
+    for rec in recs:
+        s = raw[rec["gap_skill"].lower()]
+        pct = _pct(s["required"], s["postings"])
+        out.append({
+            "skill": rec["gap_skill"], "postings": s["postings"], "required_pct": pct,
+            "summary": demand_summary(total, s["postings"], pct),
+            "courses": [{k: c[k] for k in ("title", "level", "match", "reason")} for c in rec["courses"][:TOP_COURSES]],
+        })
+    return {"of": total, "recommendations": out, "not_found": not_found}
 
 
 TOOL_FUNCS = {
     "get_gap": lambda inp: tool_get_gap(inp.get("user_skills", [])),
     "get_skill_demand": lambda inp: tool_get_skill_demand(str(inp.get("skill", ""))),
-    "search_courses": lambda inp: tool_search_courses(str(inp.get("skill", ""))),
+    "recommend_courses": lambda inp: tool_recommend_courses(inp.get("skills", [])),
 }
 
 
@@ -257,6 +279,8 @@ def demand_facts(outputs: list[dict], texts: list[str]) -> dict:
             add(out["of"], row["postings"], row.get("required_pct"))
         if out.get("found"):
             add(out["of"], out["postings"], out.get("required_pct"))
+        for row in out.get("recommendations", []):
+            add(out["of"], row["postings"], row.get("required_pct"))
     for text in texts:
         for n, m, k in _PAIR.findall(text):
             add(n, m, k or None)

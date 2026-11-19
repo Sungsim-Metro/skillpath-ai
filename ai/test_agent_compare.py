@@ -73,6 +73,54 @@ def test_screen_intent_mapping():
     assert ac.screen_intent(p) == "courses"
 
 
+def test_ask_back_not_applicable_for_structure_0():
+    # 구조 0 에는 기술 표기 되묻기 기능이 없어 표기 애매 문항의 되묻기를 "해당 없음"으로 뺀다. A·B 는 센다
+    cases = [{"id": "t1", "category": "표기 애매", "expect_intent": "gap", "expect_ask_back": True},
+             {"id": "t2", "category": "표기 애매", "expect_intent": "gap", "expect_ask_back": True}]
+    rows = {"t1": _row("gap", ask_back=False), "t2": _row("gap", ask_back=True)}
+    s0 = ac.summarize(cases, rows, "0")
+    assert (s0["ask_back_correct"], s0["ask_back_total"], s0["ask_back_not_applicable"]) == (0, 0, 2)
+    assert s0["intent_total"] == 2  # 의도는 그대로 센다
+    sa = ac.summarize(cases, rows, "A")
+    assert (sa["ask_back_correct"], sa["ask_back_total"], sa["ask_back_not_applicable"]) == (1, 2, 0)
+
+
+def test_agent_intent_mapping():
+    p = ac.Probe()
+    p.guard = guardrail.PASS
+
+    def res(names, reason=None):
+        return {"tool_calls": [{"name": n} for n in names], "uncertain_reason": reason}
+
+    assert ac.agent_intent(p, res(["get_gap", "recommend_courses"])) == "courses"
+    assert ac.agent_intent(p, res(["get_gap"])) == "gap"
+    assert ac.agent_intent(p, res(["get_skill_demand"])) == "demand"
+    assert ac.agent_intent(p, res([], "no_tool")) == "no_tool"      # 범위 안 질문인데 도구를 안 부름
+    assert ac.agent_intent(p, res([])) == "out_of_scope"
+    p.guard = guardrail.GuardResult(True, "guardrails", guardrail.FAILED, "RuntimeError")
+    assert ac.agent_intent(p, res([])) == "check_failed"
+
+
+def test_probe_counts_real_calls_only():
+    # 가짜 모드의 대본 차례는 mock_turns 로, 실제 모델 호출과 토큰은 응답의 usage 로 센다
+    old_mock = os.environ.get("BEDROCK_MOCK")
+    saved = bedrock._call
+    try:
+        bedrock._call = lambda *a, **k: ("{}", "end_turn", {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10})
+        os.environ["BEDROCK_MOCK"] = "0"
+        with ac.Probe() as p:
+            bedrock._call("s", [], 10, 0.0, "", "k", 1)
+            bedrock._call("s", [], 10, 0.0, "", "k", 2)
+        assert (p.model_calls, p.tokens, p.mock_turns) == (2, 20, 0)
+        os.environ["BEDROCK_MOCK"] = "1"
+        with ac.Probe() as p:
+            bedrock._call("s", [], 10, 0.0, "", "k", 1)
+        assert (p.model_calls, p.tokens, p.mock_turns) == (0, 0, 1)
+    finally:
+        bedrock._call = saved
+        os.environ["BEDROCK_MOCK"] = old_mock or "1"
+
+
 def test_probe_restores_patches():
     saved = (guardrail.check_input, intake.interpret, bedrock._call, bedrock._call_tools)
     with ac.Probe():
@@ -92,12 +140,19 @@ def test_mock_run_on_dev_cases():
     cases = json.loads(ac.CASES.read_text(encoding="utf-8"))["cases"]
     assert sum(1 for c in cases if not c.get("reference")) == 12  # 개선용 12문항(+ 참고 문항)
     assert all(c["job"] == "cloud_engineer" for c in cases if not c.get("reference"))
-    r = ac.evaluate(cases, ["0"])["0"]
+    both = ac.evaluate(cases, ["0", "A"])
+    a = both["A"]
+    assert set(a["rows"]) == {c["id"] for c in cases if not c.get("reference")}  # 참고 문항(AI 엔지니어)은 구조 0 만
+    assert a["summary"]["model_calls"] == 0 and a["summary"]["intent_not_applicable"] == 0  # A 는 해당 없음이 없다
+    assert a["rows"]["G1"]["guard"] == a["rows"]["G2"]["guard"] == "blocked"  # 같은 입력 검사
+    r = both["0"]
     assert set(r["rows"]) == {c["id"] for c in cases}
     s = r["summary"]
     assert s["model_calls"] == 0 and s["guard_check_failed"] == 0  # 가짜 모드: 모델·Guardrails 를 부르지 않음
     assert s["guard_blocked"] == s["guard_total"] == 2  # 가드레일 회귀 문항은 코드 검사로 막힌다
     assert (s["intent_total"], s["intent_not_applicable"]) == (8, 2)  # 구조 0: D1·D2 는 해당 없음
+    assert (s["ask_back_total"], s["ask_back_not_applicable"]) == (0, 2)  # 구조 0: T1·T2 되묻기는 해당 없음
+    assert (a["summary"]["ask_back_total"], a["summary"]["ask_back_not_applicable"]) == (2, 0)
 
 
 def test_holdout_placeholder_is_empty_schema():
