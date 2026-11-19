@@ -13,7 +13,7 @@ from backend.jobs import JOBS
 def _community_line(c: dict, areas: list[str] | None = None) -> str:
     why = f" · 부족 영역: {', '.join(areas)}" if areas else ""
     note = f" · {c['note']}" if c.get("note") else ""
-    return f"- **{md_escape(c['name'])}** · {c['place']}{why}  \n  :gray[최근 확인: {c['last_seen']}{md_escape(note)}]"
+    return f"- **{md_escape(c['name'])}** · {c['place']}{why}  \n  :gray[확인한 일정·활동: {c['last_seen']}{md_escape(note)}]"
 
 
 def render_connect(ctx: Ctx):
