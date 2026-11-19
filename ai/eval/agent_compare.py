@@ -67,6 +67,18 @@ RESULT_NOTES = [
 ]
 ROW_MARK = "AGENT_COMPARE_ROW "  # 하위 프로세스가 결과 한 줄 앞에 붙이는 표시(다른 출력과 섞이지 않게)
 CHILD_TIMEOUT = 600                # 문항 하나의 하위 프로세스 시간 한도(초)
+# 호출 한도: 부모가 남은 한도를 하위 프로세스에 환경 변수로 넘기고, 하위 프로세스는 호출 직전에 한도를 넘으면 멈춘다
+MODEL_BUDGET_ENV = "AGENT_COMPARE_MODEL_BUDGET"
+GUARDRAIL_BUDGET_ENV = "AGENT_COMPARE_GUARDRAIL_BUDGET"
+LIMIT_EXIT = 3                     # 한도에 걸려 멈춘 하위 프로세스의 종료 코드
+
+
+class BudgetExceeded(BaseException):
+    """호출 한도를 넘기 직전. BaseException 이라 상담 코드의 except Exception 이 삼키지 않고 바로 멈춘다."""
+
+
+class LimitReached(RuntimeError):
+    """부모: 호출 한도에 걸려 측정을 멈춤(그때까지의 결과만 저장)."""
 # 답에 되묻기가 있는지(표기 애매 문항). 상담 에이전트의 보충 문장 "OO는 XX를 말씀하신 건가요?" 와 같은 꼴
 ASK_BACK = re.compile(r"말씀하신\s*건가요|무엇을\s*말씀|어떤\s*기술을\s*말씀|맞나요\?")
 
@@ -81,12 +93,26 @@ class Probe:
         self.mock_turns = 0    # 가짜 대본 차례
         self.tokens = 0
         self.recommendations = []  # 상담 에이전트 recommend_courses 결과
+        self.guardrail_calls = 0   # 실제 ApplyGuardrail 호출(모델 호출 수와 따로 셈)
         self._saved = None
 
+    @staticmethod
+    def _budget(name: str):
+        value = os.getenv(name, "").strip()
+        return int(value) if value else None
+
     def __enter__(self):
-        check, interpret, call, call_tools = (guardrail.check_input, intake.interpret,
-                                             bedrock._call, bedrock._call_tools)
-        self._saved = (check, interpret, call, call_tools)
+        check, interpret, call, call_tools, assess = (guardrail.check_input, intake.interpret,
+                                                     bedrock._call, bedrock._call_tools, guardrail.bedrock_assess)
+        self._saved = (check, interpret, call, call_tools, assess)
+        model_budget, guard_budget = self._budget(MODEL_BUDGET_ENV), self._budget(GUARDRAIL_BUDGET_ENV)
+
+        def watched_assess(text, source):
+            if not bedrock.is_mock() and guardrail._guardrails_enabled(source):
+                if guard_budget is not None and self.guardrail_calls >= guard_budget:
+                    raise BudgetExceeded("ApplyGuardrail 호출 한도")
+                self.guardrail_calls += 1
+            return assess(text, source)
 
         def watched_check(text):
             self.guard = check(text)
@@ -98,6 +124,8 @@ class Probe:
 
         def counted(fn):
             def wrapper(*a, **k):
+                if not bedrock.is_mock() and model_budget is not None and self.model_calls >= model_budget:
+                    raise BudgetExceeded("모델 호출 한도")  # 호출하기 전에 멈춘다
                 result = fn(*a, **k)
                 if bedrock.is_mock():
                     self.mock_turns += 1
@@ -111,10 +139,12 @@ class Probe:
         guardrail.check_input = watched_check
         intake.interpret = watched_interpret
         bedrock._call, bedrock._call_tools = counted(call), counted(call_tools)
+        guardrail.bedrock_assess = watched_assess
         return self
 
     def __exit__(self, *exc):
-        guardrail.check_input, intake.interpret, bedrock._call, bedrock._call_tools = self._saved
+        (guardrail.check_input, intake.interpret, bedrock._call, bedrock._call_tools,
+         guardrail.bedrock_assess) = self._saved
         return False
 
 
@@ -157,6 +187,7 @@ def run_screen(case: dict) -> dict:
         "uncertain_courses": sum(1 for c in courses if c.get("match") == "uncertain"),
         "model_calls": probe.model_calls,
         "mock_turns": probe.mock_turns,
+        "guardrail_calls": probe.guardrail_calls,
         "tokens": probe.tokens,
         "seconds": round(seconds, 3),
         "answer_chars": len(reply.text),
@@ -208,6 +239,7 @@ def run_agent(case: dict) -> dict:
         "uncertain_courses": sum(1 for c in courses if c["match"] == "uncertain"),
         "model_calls": probe.model_calls,
         "mock_turns": probe.mock_turns,
+        "guardrail_calls": probe.guardrail_calls,
         "tokens": probe.tokens,
         "seconds": round(seconds, 3),
         "answer_chars": len(result["answer"]),
@@ -247,36 +279,53 @@ def summarize(cases: list[dict], rows: dict[str, dict], structure: str = "") -> 
         "uncertain_ratio": round(sum(rows[c["id"]]["uncertain_courses"] for c in cases) / shown, 3) if shown else None,
         "courses_shown": shown,
         "model_calls": sum(rows[c["id"]]["model_calls"] for c in cases),
+        "guardrail_calls": sum(rows[c["id"]].get("guardrail_calls", 0) for c in cases),
         "tokens": sum(rows[c["id"]]["tokens"] for c in cases),
         "seconds_median": round(statistics.median(seconds), 3) if seconds else None,
         "seconds_max": max(seconds) if seconds else None,
     }
 
 
-def run_isolated(structure: str, case_set: str, case_id: str) -> dict:
+def run_isolated(structure: str, case_set: str, case_id: str, budgets: dict | None = None) -> dict:
     """(구조, 문항) 하나를 새 프로세스로 돌려 결과 행을 받는다. 메모리 캐시가 늘 비어 있다.
 
     하위 프로세스는 같은 환경 변수(BEDROCK_MOCK 등)를 물려받는다. 실패하면 멈춘다(통과로 세지 않음).
     오류 원문은 문항 내용이 섞일 수 있어 출력하지 않고 종료 코드만 알린다.
     """
     cmd = [sys.executable, "-m", "ai.eval.agent_compare", "--one", structure, case_id, "--set", case_set]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-                          env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=CHILD_TIMEOUT)
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", **{k: str(v) for k, v in (budgets or {}).items() if v is not None}}
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", env=env, timeout=CHILD_TIMEOUT)
+    if proc.returncode == LIMIT_EXIT:
+        raise LimitReached(f"구조 {structure} 문항 {case_id} 에서 호출 한도에 걸려 멈췄습니다")
     rows = [line[len(ROW_MARK):] for line in proc.stdout.splitlines() if line.startswith(ROW_MARK)]
     if proc.returncode != 0 or len(rows) != 1:
         raise RuntimeError(f"구조 {structure} 문항 {case_id} 하위 프로세스 실패(종료 코드 {proc.returncode}). 멈춥니다")
     return json.loads(rows[0])
 
 
-def evaluate(cases: list[dict], structures: list[str], isolate: bool = False, case_set: str = "dev") -> dict:
-    """구조마다 문항을 돌려 지표를 낸다. isolate=True 면 (구조, 문항)마다 새 프로세스(실행 명령의 기본)."""
+def evaluate(cases: list[dict], structures: list[str], isolate: bool = False, case_set: str = "dev",
+             max_model_calls: int | None = None, max_guardrail_calls: int | None = None,
+             partial: dict | None = None) -> dict:
+    """구조마다 문항을 돌려 지표를 낸다. isolate=True 면 (구조, 문항)마다 새 프로세스(실행 명령의 기본).
+
+    max_* 는 이번 실행 전체의 호출 한도(구조·문항 합계)다. 남은 한도를 하위 프로세스에 넘기고, 넘기 직전에 멈춘다(LimitReached).
+    partial 을 주면 멈출 때까지 끝난 행을 거기에 담는다(구조 → {문항 id → 행}).
+    """
     out = {}
+    used = {"model": 0, "guardrail": 0}
+    partial = {} if partial is None else partial
     for name in structures:
         mine = [c for c in cases if not c.get("reference") or name == "0"]  # 참고 문항(AI 엔지니어)은 구조 0 만
-        if isolate:
-            rows = {c["id"]: run_isolated(name, case_set, c["id"]) for c in mine}
-        else:
-            rows = {c["id"]: STRUCTURES[name](c) for c in mine}
+        rows = partial.setdefault(name, {})
+        for c in mine:
+            if isolate:
+                budgets = {MODEL_BUDGET_ENV: None if max_model_calls is None else max_model_calls - used["model"],
+                           GUARDRAIL_BUDGET_ENV: None if max_guardrail_calls is None else max_guardrail_calls - used["guardrail"]}
+                rows[c["id"]] = run_isolated(name, case_set, c["id"], budgets)
+            else:
+                rows[c["id"]] = STRUCTURES[name](c)
+            used["model"] += rows[c["id"]]["model_calls"]
+            used["guardrail"] += rows[c["id"]].get("guardrail_calls", 0)
         out[name] = {"summary": summarize(mine, rows, name), "rows": rows}
     return out
 
@@ -287,7 +336,12 @@ def run_one(structure: str, case_set: str, case_id: str) -> int:
     case = next((c for c in json.loads(path.read_text(encoding="utf-8"))["cases"] if c["id"] == case_id), None)
     if case is None or structure not in STRUCTURES:
         return 2
-    print(ROW_MARK + json.dumps(STRUCTURES[structure](case), ensure_ascii=False))
+    try:
+        row = STRUCTURES[structure](case)
+    except BudgetExceeded as e:
+        print(f"호출 한도에 걸려 멈춥니다: {e}")
+        return LIMIT_EXIT
+    print(ROW_MARK + json.dumps(row, ensure_ascii=False))
     return 0
 
 
@@ -297,6 +351,8 @@ def main() -> int:
     ap.add_argument("--structures", nargs="+", default=["0"], help="비교할 구조(0, A)")
     ap.add_argument("--set", choices=("dev", "holdout"), default="dev")
     ap.add_argument("--bedrock", action="store_true", help="실제 모드(BEDROCK_MOCK=0 이어야 함)")
+    ap.add_argument("--max-model-calls", type=int, help="이번 실행 전체의 모델 호출 한도(넘기 직전에 멈춤)")
+    ap.add_argument("--max-guardrail-calls", type=int, help="이번 실행 전체의 ApplyGuardrail 호출 한도(넘기 직전에 멈춤)")
     ap.add_argument("--one", nargs=2, metavar=("STRUCTURE", "CASE_ID"), help=argparse.SUPPRESS)  # 하위 프로세스용
     args = ap.parse_args()
     if args.one:
@@ -318,12 +374,30 @@ def main() -> int:
         return 0
     if not structures:
         return 1
-    result = evaluate(cases, structures, isolate=True, case_set=args.set)
+    if args.bedrock and (args.max_model_calls is None or args.max_guardrail_calls is None):
+        print("실제 모드는 --max-model-calls 와 --max-guardrail-calls 를 함께 줘야 합니다. 멈춥니다.")
+        return 1
+    partial: dict = {}
+    try:
+        result = evaluate(cases, structures, isolate=True, case_set=args.set, max_model_calls=args.max_model_calls,
+                          max_guardrail_calls=args.max_guardrail_calls, partial=partial)
+    except LimitReached as e:
+        done = {k: len(v) for k, v in partial.items()}
+        used_m = sum(r["model_calls"] for v in partial.values() for r in v.values())
+        used_g = sum(r.get("guardrail_calls", 0) for v in partial.values() for r in v.values())
+        print(f"{e}. 끝난 문항 {done}, 쓴 호출: 모델 {used_m}번, ApplyGuardrail {used_g}번")
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        out = OUT_DIR / f"agent_compare_{args.set}_stopped_{time.strftime('%Y%m%d-%H%M%S')}.json"
+        kept = partial if args.set == "dev" else {k: len(v) for k, v in partial.items()}  # 보지 않은 문항은 개수만
+        out.write_text(json.dumps({"cases": path.name, "notes": RESULT_NOTES, "stopped": str(e), "partial": kept},
+                                  ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"멈출 때까지의 결과: {out.relative_to(ROOT).as_posix()}")
+        return LIMIT_EXIT
     for name, r in result.items():
         s = r["summary"]
         print(f"\n[구조 {name}] 의도 {s['intent_correct']}/{s['intent_total']}(해당 없음 {s['intent_not_applicable']})  되묻기 {s['ask_back_correct']}/{s['ask_back_total']}(해당 없음 {s['ask_back_not_applicable']})"
               f"  가드레일 차단 {s['guard_blocked']}/{s['guard_total']}(검사 실패 {s['guard_check_failed']})"
-              f"  불확실 {s['uncertain_ratio']}  모델 {s['model_calls']}번  토큰 {s['tokens']}"
+              f"  불확실 {s['uncertain_ratio']}  모델 {s['model_calls']}번  ApplyGuardrail {s['guardrail_calls']}번  토큰 {s['tokens']}"
               f"  시간 중앙값 {s['seconds_median']}초 최대 {s['seconds_max']}초")
         if args.set == "dev":  # 보지 않은 문항은 숫자만
             print(f"  의도가 다른 문항: {', '.join(s['intent_wrong_ids']) or '없음'}"

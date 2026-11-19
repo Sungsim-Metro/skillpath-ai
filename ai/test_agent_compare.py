@@ -155,6 +155,48 @@ def test_mock_run_on_dev_cases():
     assert (a["summary"]["ask_back_total"], a["summary"]["ask_back_not_applicable"]) == (2, 0)
 
 
+def test_budget_stops_before_call():
+    # 한도를 넘기 직전에 멈춘다(호출하지 않음). BaseException 이라 except Exception 이 삼키지 않는다
+    old_mock, saved = os.environ.get("BEDROCK_MOCK"), bedrock._call
+    calls = []
+    try:
+        bedrock._call = lambda *a, **k: calls.append(1) or ("{}", "end_turn", {"totalTokens": 1})
+        os.environ.update({"BEDROCK_MOCK": "0", ac.MODEL_BUDGET_ENV: "2"})
+        with ac.Probe():
+            bedrock._call("s", [], 10, 0.0, "", "k", 1)
+            bedrock._call("s", [], 10, 0.0, "", "k", 2)
+            try:
+                try:
+                    bedrock._call("s", [], 10, 0.0, "", "k", 3)
+                except Exception:  # 상담 코드처럼 except Exception 으로 감싸도
+                    raise AssertionError("한도 초과가 except Exception 에 잡힘")
+            except ac.BudgetExceeded:
+                pass
+            else:
+                raise AssertionError("한도를 넘었는데 멈추지 않음")
+        assert len(calls) == 2  # 세 번째는 호출하지 않았다
+    finally:
+        bedrock._call = saved
+        os.environ.pop(ac.MODEL_BUDGET_ENV, None)
+        os.environ["BEDROCK_MOCK"] = old_mock or "1"
+    assert issubclass(ac.BudgetExceeded, BaseException) and not issubclass(ac.BudgetExceeded, Exception)
+
+
+def test_limit_exit_stops_parent():
+    # 하위 프로세스가 한도 종료 코드로 끝나면 부모는 LimitReached 로 멈춘다
+    old = ac.subprocess.run
+    try:
+        ac.subprocess.run = lambda *a, **k: type("P", (), {"returncode": ac.LIMIT_EXIT, "stdout": ""})()
+        try:
+            ac.run_isolated("A", "dev", "C1", {ac.MODEL_BUDGET_ENV: 0})
+        except ac.LimitReached as e:
+            assert "C1" in str(e)
+        else:
+            raise AssertionError("한도 종료인데 멈추지 않음")
+    finally:
+        ac.subprocess.run = old
+
+
 def test_isolated_run_matches_in_process():
     # (구조, 문항)마다 새 프로세스로 돌린 결과 행이 같은 프로세스에서 돌린 것과 같다(시간 제외). 캐시가 늘 비어 있다
     if not ac.CASES.exists():
