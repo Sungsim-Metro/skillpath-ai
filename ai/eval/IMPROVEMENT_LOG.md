@@ -430,6 +430,17 @@
 - **조건**: `python -m ai.eval.agent_compare`(가짜 모드), 11/19
 - **한계**: 되묻기는 답 문장의 표현(정규식)으로 판정한다. 구조 0 에는 "기술 하나 수요" 의도가 따로 없어(gap·courses·note), 그 문항(D1·D2)은 구조 0 의 의도 정확도에서 "해당 없음"으로 따로 세고 분모에서 뺀다(A·B 는 그대로 센다). 그래서 구조 0 과 A·B 의 의도 정확도는 분모가 다르다. 실제 모드 측정은 아직 없다
 
+### 26. 채점 일치율 도구: 형섭 feat/eval-judge 의 함수를 1~5 점으로 일반화 (11/19)
+- **영역**: 평가
+- **문제와 근거**: #94 상담 답 LLM 채점은 사람 채점과의 일치를 봐야 결과를 믿을 수 있다. 형섭의 feat/eval-judge 에 일치율·분포·잡음·사람 양식 코드가 있었지만 추천 이유 0·1·2 점에 맞춰져 있었다
+- **조치**
+  - **[형섭 작업]** feat/eval-judge(`ai/eval/judge.py`)의 `agreement`, `distribution`, `paired_change`, `validate_scores`, `write_human_sheet`, `read_human_sheet`, `_decode` 를 `ai/eval/agreement.py` 로 옮겼다(형섭 동의). 함수마다 출처 주석
+  - 기준 이름·점수 범위를 인자로 받게 일반화(상담 답은 1~5 점). `paired_change` 는 두 라벨(같은 답 두 번 채점 = 잡음, 구조 A·B = 효과)로
+  - 일치율을 셋으로 같이 낸다: 정확 일치율, ±1 일치율, 이차 가중 Cohen's kappa(결과에 가중치 종류를 적음). 문항이 적으면 kappa 가 크게 흔들리기 때문이다. 한쪽 채점자가 모든 항목에 같은 점수를 주면 kappa 는 0 이 되므로 `single_valued` 로 따로 알린다
+  - `write_human_sheet` 는 이미 고른 항목을 받는다(고르는 규칙은 상담 답 채점 기준과 함께 정함). 채점 대상 만들기·채점용 정답지 세기(`cases`·`count_cases`)는 옮기지 않았다
+- **숫자**: 없음(도구). 손으로 계산한 예와 맞춘 테스트(`ai/test_agreement.py`)
+- **한계**: 상담 답 채점 기준표·지시문(`judge_answer_v1`)과 사람이 볼 항목 고르기 규칙은 아직 없다. kappa 는 문항이 적으면(예: 12개) 신뢰구간이 넓다
+
 ## 새 항목 양식
 
 ```markdown
