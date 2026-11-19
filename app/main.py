@@ -105,7 +105,9 @@ if view == "chat":
     st.stop()
 
 ctx = build_ctx(job, levels, need)  # 화면에 필요한 데이터만 불러온다(상담은 수요를 부르지 않는다)
-if st.session_state.get("from_chat"):  # 상담 답 아래의 버튼으로 넘어왔으면 돌아가는 길을 둔다
+if st.session_state.get("from_chat") != view:  # 메뉴로 다른 화면에 갔으면 표시를 지운다
+    st.session_state.pop("from_chat", None)
+else:  # 상담 답 아래의 버튼으로 넘어온 화면에만 돌아가는 길을 둔다
     st.button("상담으로 돌아가기", key="back_to_chat", on_click=chat_screen.back_to_chat, icon=":material/arrow_back:")
 st.title(label)
 if need:

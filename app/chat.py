@@ -136,7 +136,10 @@ def _go(view: str) -> None:
     상담에서 넘어갔다는 표시를 남겨, 넘어간 화면에 상담으로 돌아가는 버튼을 보여 준다(app/main.py).
     """
     st.session_state.view = view
-    st.session_state.from_chat = view != "chat"
+    if view == "chat":
+        st.session_state.pop("from_chat", None)
+    else:
+        st.session_state.from_chat = view  # 넘어간 그 화면에서만 돌아가기 버튼을 보여 준다
 
 
 def back_to_chat() -> None:
@@ -173,23 +176,25 @@ def _reset_chat() -> None:
     levels_screen.clear_chat_level_drafts()
 
 
-def _save(entry: dict, **fields) -> None:
-    """평가 한 건을 기록한다. 기록 실패는 상담을 막지 않고 한 줄로만 알린다."""
+def _save(entry: dict, **fields) -> bool:
+    """평가 한 건을 기록하고 성공했는지 돌려준다. 기록 실패는 상담을 막지 않고 한 줄로만 알린다."""
     from backend import experiments
 
     try:
         experiments.save_feedback(entry["session_id"], entry["turn_id"], job=entry["job"],
                                   action=entry["action"] or None, model=entry["model"] or None, **fields)
     except Exception:
-        st.toast("평가를 저장하지 못했습니다. 상담은 계속할 수 있습니다.")
+        st.toast("평가를 저장하지 못했습니다. 다시 눌러 주세요. 상담은 계속할 수 있습니다.")
+        return False
+    return True
 
 
 def _on_rating(entry: dict) -> None:
     value = st.session_state.get(f"fb_{entry['turn_id']}")
     if value is not None:  # 썸 업 1, 썸 다운 0
-        _save(entry, rating="up" if value == 1 else "down")
-        entry["rated"] = True  # 한 번 고르면 평가 위젯을 숨긴다
-        st.toast(THANKS)
+        if _save(entry, rating="up" if value == 1 else "down"):  # 저장하지 못했으면 다시 누를 수 있게 남겨 둔다
+            entry["rated"] = True  # 한 번 고르면 평가 위젯을 숨긴다
+            st.toast(THANKS)
 
 
 def _on_pick(entry: dict, choice: str) -> None:
@@ -198,10 +203,9 @@ def _on_pick(entry: dict, choice: str) -> None:
 
     left, right = entry["alternatives"]
     picked = {"A": left["structure"], "B": right["structure"], "tie": experiments.TIE}.get(choice)
-    if picked:
-        _save(entry, left=left["structure"], right=right["structure"], picked=picked,
-              tokens={side["structure"]: side["tokens"] for side in (left, right)})
-        entry["picked"] = choice  # 한 번 고르면 선택 버튼을 숨긴다
+    if picked and _save(entry, left=left["structure"], right=right["structure"], picked=picked,
+                        tokens={side["structure"]: side["tokens"] for side in (left, right)}):
+        entry["picked"] = choice  # 한 번 고르면 선택 버튼을 숨긴다(저장하지 못했으면 남겨 둔다)
         st.toast(THANKS)
 
 

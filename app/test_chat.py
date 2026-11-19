@@ -194,6 +194,11 @@ class ChatScreenTest(unittest.TestCase):
                      patch.object(chat_screen.st, "toast") as toast:
                     chat_screen._on_rating(entry)
                 toast.assert_called_once_with("의견 주셔서 감사합니다!")
+                failed = at.session_state["chat_history"][1]
+                with patch.object(chat_screen.st, "session_state", {f"fb_{failed['turn_id']}": 0}),                      patch.object(chat_screen.st, "toast") as toast,                      patch.object(experiments, "save_feedback", side_effect=RuntimeError("down")):
+                    chat_screen._on_rating(failed)
+                self.assertNotIn("rated", failed)                   # 저장하지 못한 평가는 숨기지 않고 감사 인사도 하지 않는다
+                self.assertNotIn("감사", toast.call_args.args[0])
                 at.run()
                 self.assertEqual(len(at.get("feedback")), 1)        # 평가한 답의 위젯은 숨긴다
                 rows = experiments.load_feedback()
@@ -501,6 +506,12 @@ class ChatScreenTest(unittest.TestCase):
         self.assertEqual(len(at.chat_message), 2)
         at.radio(key="view").set_value("gap").run()
         self.assertFalse([b for b in at.button if b.key == "back_to_chat"])  # 메뉴로 직접 가면 돌아가기 버튼이 없다
+        at.radio(key="view").set_value("chat").run()
+        next(b for b in at.button if b.key and b.key.startswith("go_")).click().run()
+        at.radio(key="view").set_value("demand").run()  # 바로가기로 간 뒤 메뉴로 다른 화면에 가면 버튼이 남지 않는다
+        self.assertFalse([b for b in at.button if b.key == "back_to_chat"])
+        at.radio(key="view").set_value("gap").run()
+        self.assertFalse([b for b in at.button if b.key == "back_to_chat"])
         at.radio(key="view").set_value("chat").run()
 
         self.diagnose(at, {"C1-4": 3})
