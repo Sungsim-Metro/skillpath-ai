@@ -145,6 +145,7 @@ def test_mock_run_on_dev_cases():
     assert set(a["rows"]) == {c["id"] for c in cases if not c.get("reference")}  # 참고 문항(AI 엔지니어)은 구조 0 만
     assert a["summary"]["model_calls"] == 0 and a["summary"]["intent_not_applicable"] == 0  # A 는 해당 없음이 없다
     assert a["rows"]["G1"]["guard"] == a["rows"]["G2"]["guard"] == "blocked"  # 같은 입력 검사
+    assert all("not_found" in row for row in a["rows"].values())  # 수요 집계에 없어 추천하지 않은 기술을 남긴다
     r = both["0"]
     assert set(r["rows"]) == {c["id"] for c in cases}
     s = r["summary"]
@@ -233,7 +234,7 @@ def test_isolated_run_matches_in_process():
         assert "없는문항" in str(e) and "멈춥니다" in str(e)
     else:
         raise AssertionError("없는 문항인데 멈추지 않음")
-    assert len(ac.RESULT_NOTES) == 3 and "새 프로세스" in ac.RESULT_NOTES[1]
+    assert len(ac.RESULT_NOTES) == 4 and "새 프로세스" in ac.RESULT_NOTES[1] and "_analyze" in ac.RESULT_NOTES[3]
 
 
 def test_holdout_placeholder_is_empty_schema():

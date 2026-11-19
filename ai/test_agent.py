@@ -61,7 +61,7 @@ def test_tool_results_are_short():
     assert set(rec) == {"of", "recommendations", "not_found"}
     # 선수지식은 뺀다. 과정마다 제목·난이도·match·검사를 통과한 reason
     for row in rec["recommendations"]:
-        assert set(row) == {"skill", "postings", "required_pct", "summary", "courses"}
+        assert set(row) == {"skill", "demand_known", "postings", "required_pct", "summary", "courses"} and row["demand_known"]
         assert all(set(c) == {"title", "level", "match", "reason"} for c in row["courses"])
 
 
@@ -93,6 +93,30 @@ def test_recommend_courses_tool():
     row = out["recommendations"][0]
     assert (out["of"], row["postings"]) in facts["pairs"] and (out["of"], row["postings"], row["required_pct"]) in facts["triples"]
     assert agent.tool_recommend_courses([]) == {"of": out["of"], "recommendations": [], "not_found": []}
+
+
+def test_recommend_named_skill_without_demand():
+    # 사용자가 이름을 댄 기술은 수요 집계에 없어도 추천한다(수요 "정보 없음"). 이름을 대지 않았으면 not_found(11/20 결정 ⓐ)
+    token = agent._MESSAGE.set("EC2랑 VPC를 배울 수 있는 AWS 강의 추천해 주세요")
+    try:
+        out = agent.tool_recommend_courses(["EC2", "VPC", "Terraform", "없는기술"])
+    finally:
+        agent._MESSAGE.reset(token)
+    rows = {r["skill"]: r for r in out["recommendations"]}
+    assert set(rows) == {"EC2", "VPC", "Terraform"} and out["not_found"] == ["없는기술"]
+    for skill in ("EC2", "VPC"):
+        r = rows[skill]
+        assert r["demand_known"] is False and r["summary"] == agent.NO_DEMAND_SUMMARY and "postings" not in r
+        for c in r["courses"]:  # "공고 n건 중 0건" 같은 문장은 빠지고 안내 문장이 앞에 붙는다
+            assert c["reason"].startswith(agent.NO_DEMAND_REASON) and not agent._PAIR.search(c["reason"]), c["reason"]
+    assert rows["Terraform"]["demand_known"] is True and "postings" in rows["Terraform"]
+    facts = agent.demand_facts([out], [])  # 수요 정보가 없는 기술은 맞는 짝에 넣지 않는다
+    assert all(m != 0 for _, m in facts["pairs"])
+    # 메시지에 이름이 없으면 수요에 없는 기술은 추천하지 않는다
+    assert agent.tool_recommend_courses(["EC2"])["not_found"] == ["EC2"]
+    # chat() 이 끝나면 메시지 기억을 지운다
+    agent.chat(QUESTION)
+    assert agent._MESSAGE.get() == ""
 
 
 def test_suggest_is_limited_per_call():

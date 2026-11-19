@@ -65,6 +65,7 @@ RESULT_NOTES = [
     "모델 호출 수에 Guardrails(ApplyGuardrail) 호출은 포함하지 않음",
     "구조·문항마다 새 프로세스로 실행해 캐시가 비어 있음, DynamoDB 수요 조회가 문항마다 한 번씩 더 일어남",
     "KB Retrieve(과정 검색)·임베딩 호출은 상한 없이 개수만 기록함(kb_retrieve_calls, embedding_calls)",
+    "구조 0은 이름 댄 기술 대신 상위 부족 기술을 추천함(backend/chat.py _analyze). 구조 A 는 이름 댄 기술을 먼저 추천함(수요에 없으면 공고 수 정보 없음)",
 ]
 ROW_MARK = "AGENT_COMPARE_ROW "  # 하위 프로세스가 결과 한 줄 앞에 붙이는 표시(다른 출력과 섞이지 않게)
 CHILD_TIMEOUT = 600                # 문항 하나의 하위 프로세스 시간 한도(초)
@@ -266,6 +267,7 @@ def run_agent(case: dict) -> dict:
         "seconds": round(seconds, 3),
         "answer_chars": len(result["answer"]),
         "tools": [c["name"] for c in result["tool_calls"]],
+        "not_found": [s for out in probe.recommendations for s in out.get("not_found", [])],  # 수요 집계에 없어 추천하지 않은 기술
         "uncertain_reason": result.get("uncertain_reason"),
     }
 

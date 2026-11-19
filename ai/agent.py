@@ -42,6 +42,7 @@ import json
 import logging
 import re
 import time
+from contextvars import ContextVar
 from typing import Optional
 
 from ai.bedrock import BedrockJSONError, SAMPLE_DIR, USAGE_KEYS, add_usage, converse_tools, is_mock, parse_json_object
@@ -55,6 +56,9 @@ JOB = "cloud_engineer"
 TOP_GAP = 3          # get_gap 이 돌려주는 부족 기술 수 (도구 결과가 대화에 쌓여 토큰이 늘어 5 → 3, 11/17)
 TOP_COURSES = 3      # recommend_courses 가 기술마다 돌려주는 과정 수
 MAX_RECOMMEND = 3    # recommend_courses 한 번에 추천하는 기술 수(기술마다 모델 호출 2~3번)
+NO_DEMAND_SUMMARY = "수요 집계에 없는 기술(공고 수 정보 없음)"
+NO_DEMAND_REASON = "이 기술은 공고 수요 집계에 없어 공고 수 정보는 없습니다."
+_MESSAGE: ContextVar[str] = ContextVar("agent_message", default="")  # 이번 사용자 메시지(이름 댄 기술 판정용)
 MAX_TURNS = 4        # 도구 호출 반복 한도(모델 호출 수)
 MAX_SKILLS = 30      # get_gap 입력 기술 수 한도
 CLOSE_MIN = 0.5      # 문자열 비교 후보의 최소 비슷도 (도카↔도커 0.5, 파이선↔파이썬 0.67)
@@ -163,35 +167,57 @@ def tool_get_skill_demand(skill: str) -> dict:
             "required_pct": pct, "summary": demand_summary(total, s["postings"], pct)}
 
 
+def _named_skills() -> set[str]:
+    """이번 사용자 메시지에 실제로 나온 기술(대표명). 화면 해석과 같은 ai.chat.mentioned_skills 를 쓴다(읽기만)."""
+    from ai.chat import mentioned_skills
+
+    return {x.lower() for x in mentioned_skills(_MESSAGE.get()) if x}
+
+
+def _drop_pair_sentences(reason: str) -> str:
+    """수요 집계에 없는 기술의 이유에서 "n건 중 m건" 문장을 뺀다(공고 수 0 으로 넘어가 "0건에서 언급"이 되므로)."""
+    kept = [x for x in re.split(r"(?<=[.!?。])\s+", reason) if x.strip() and not _PAIR.search(x)]
+    return " ".join([NO_DEMAND_REASON, *kept])
+
+
 def tool_recommend_courses(skills: list) -> dict:
     """부족 기술마다 검증한 과정 추천(화면 상담과 같은 api.get_recommendations(review=True)).
 
-    표기는 별칭 사전으로만 맞추고, 수요 집계에 없는 기술은 not_found 로 돌려준다(추천하지 않음).
-    수요 숫자와 summary 는 get_gap 과 같은 방식(_pct)으로 코드가 만든다. reason 은 검사를 통과한 문장이다.
+    표기는 별칭 사전으로만 맞춘다. 수요 집계에 있는 기술은 공고 수·필수 비율·summary 를 get_gap 과 같은 계산으로 준다.
+    수요 집계에 없는 기술은 사용자가 이번 메시지에서 직접 이름을 댔을 때만 추천하고(수요는 "정보 없음"), 아니면 not_found.
+    (화면 상담 구조 0 은 이름 댄 기술 대신 Gap 의 상위 부족 기술을 추천한다: backend/chat.py _analyze. 11/20 결정 ⓐ)
+    reason 은 검사를 통과한 문장이다. 수요 정보가 없는 기술은 공고 수를 말하는 문장만 빼고 안내 문장을 앞에 붙인다.
     """
     if not isinstance(skills, list):
         raise ValueError("skills 는 목록이어야 합니다")
     demand = api.get_demand(JOB)
     total = demand["total_postings"]
     raw = {s["skill"].lower(): s for s in demand["skills"]}
+    named = _named_skills()
     picked, not_found = [], []
     for name in [str(x).strip() for x in skills if str(x).strip()]:
         canon = normalize_skill(name) or name
         row = raw.get(canon.lower())
-        if row is None:
+        skill = row["skill"] if row else canon
+        if row is None and canon.lower() not in named:
             not_found.append(canon)
-        elif row["skill"] not in picked:
-            picked.append(row["skill"])
+        elif skill not in picked:
+            picked.append(skill)
     picked = picked[:MAX_RECOMMEND]
     recs = api.get_recommendations(JOB, picked, review=True) if picked else []
     out = []
     for rec in recs:
-        s = raw[rec["gap_skill"].lower()]
+        s = raw.get(rec["gap_skill"].lower())
+        courses = [{k: c[k] for k in ("title", "level", "match", "reason")} for c in rec["courses"][:TOP_COURSES]]
+        if s is None:  # 사용자가 이름을 댄, 수요 집계에 없는 기술
+            for c in courses:
+                c["reason"] = _drop_pair_sentences(c["reason"])
+            out.append({"skill": rec["gap_skill"], "demand_known": False, "summary": NO_DEMAND_SUMMARY, "courses": courses})
+            continue
         pct = _pct(s["required"], s["postings"])
         out.append({
-            "skill": rec["gap_skill"], "postings": s["postings"], "required_pct": pct,
-            "summary": demand_summary(total, s["postings"], pct),
-            "courses": [{k: c[k] for k in ("title", "level", "match", "reason")} for c in rec["courses"][:TOP_COURSES]],
+            "skill": rec["gap_skill"], "demand_known": True, "postings": s["postings"], "required_pct": pct,
+            "summary": demand_summary(total, s["postings"], pct), "courses": courses,
         })
     return {"of": total, "recommendations": out, "not_found": not_found}
 
@@ -280,7 +306,8 @@ def demand_facts(outputs: list[dict], texts: list[str]) -> dict:
         if out.get("found"):
             add(out["of"], out["postings"], out.get("required_pct"))
         for row in out.get("recommendations", []):
-            add(out["of"], row["postings"], row.get("required_pct"))
+            if row.get("demand_known"):  # 수요 정보가 없는 기술은 맞는 짝이 없다
+                add(out["of"], row["postings"], row.get("required_pct"))
     for text in texts:
         for n, m, k in _PAIR.findall(text):
             add(n, m, k or None)
@@ -366,6 +393,15 @@ def _result(answer: str, calls: list, usage: dict, started: float, uncertain_rea
 
 
 def chat(message: str, history: Optional[list] = None) -> dict:
+    """화면용 진입점. 이번 메시지를 추천 도구가 읽을 수 있게 둔 채 _chat 을 부른다(이름 댄 기술 판정)."""
+    token = _MESSAGE.set((message or "").strip())
+    try:
+        return _chat(message, history)
+    finally:
+        _MESSAGE.reset(token)
+
+
+def _chat(message: str, history: Optional[list] = None) -> dict:
     """화면용. {"answer", "tool_calls", "usage", "latency_ms", "uncertain", "uncertain_reason"}.
 
     history 는 [{"role": "user"|"assistant", "content": str}] (user 부터 번갈아, assistant 로 끝남).
