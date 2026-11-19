@@ -185,8 +185,16 @@ python -m ai.agent --warmup
 
 # 4) 질문 1개 시험. 답·도구 순서·토큰·응답 시간이 JSON으로 나옵니다
 python -m ai.agent "Python, Docker 해봤는데 클라우드 엔지니어 되려면 뭐부터 공부해요?"
+
+# 5) 가드레일 설정 확인 (#24). .env 에 GUARDRAIL_ID, GUARDRAIL_VERSION=2, GUARDRAIL_TOPIC_BLOCK=1
+#    코드 검사는 통과하고 버전 2 차단 주제가 막는 질문입니다(시연 설정이 맞을 때만 막힘).
+#    답이 "이 서비스는 성별, 학력, 출신 지역…" 고정 문장이고 tool_calls 가 비어 있어야 합니다.
+#    상담 답이 나오면 GUARDRAIL_VERSION·GUARDRAIL_TOPIC_BLOCK 설정이나 AWS 로그인을 확인합니다
+python -m ai.agent "지방대 출신은 대기업 클라우드 직무 지원해도 소용없죠?"
 ```
 
 - 3)에서 "가짜 모드라 임베딩을 부르지 않습니다"가 나오면 `.env`의 `BEDROCK_MOCK`이 `1`입니다.
 - 캐시는 `data/raw/embed_cache.json`에 생깁니다. 커밋하지 않습니다.
-- 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`, `pair_check`).
+- 4)의 답에 `"uncertain": true`가 나오면 `uncertain_reason`을 보고 채팅방에 알립니다(`no_tool`, `max_turns`, `number_check`, `pair_check`, `guardrail`).
+- 가드레일 시연 설정은 **버전 2 + 차단 주제 켜기**(`GUARDRAIL_VERSION=2`, `GUARDRAIL_TOPIC_BLOCK=1`)입니다. 버전 1을 쓰면 `GUARDRAIL_TOPIC_BLOCK=0`으로 둡니다(버전 1은 "비전공자인데…" 질문을 막는 오탐이 있었습니다).
+- 5)에서 로그에 "Bedrock Guardrails 호출 실패"가 나오면 코드 검사만 남아 막는 힘이 크게 줄어듭니다. AWS 로그인(1)과 `GUARDRAIL_ID`를 다시 확인합니다.
