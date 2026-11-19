@@ -240,7 +240,8 @@ def _render_answer(entry: dict, index: int) -> None:
     if shortcut and (action == "gap" or entry["courses"] or entry["alternatives"]):
         view, label = shortcut
         st.button(label, key=f"go_{index}", on_click=_go, args=(view,), icon=":material/arrow_forward:")
-    if entry["turn_id"] and experiments.active() and not entry.get("rated"):  # 실험이 꺼져 있으면 평가를 받지 않는다
+    if (entry["turn_id"] and entry.get("architecture") != "supervised"
+            and experiments.active() and not entry.get("rated")):
         st.feedback("thumbs", key=f"fb_{entry['turn_id']}", on_change=_on_rating, args=(entry,))
 
 
@@ -277,7 +278,7 @@ def _assessment_panel(conversation: Conversation, sidebar_job: str, session: cha
 
 
 def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSession | None,
-           sidebar_levels: dict[str, int] | None = None) -> None:
+           sidebar_levels: dict[str, int] | None = None, *, architecture: str = "screen") -> None:
     from backend import chat
 
     st.session_state.pop("from_chat", None)  # 상담으로 돌아왔으면 '돌아가기' 표시를 지운다
@@ -327,6 +328,7 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
                     reply = chat.handle_message(
                         conversation, message,
                         job=job, sidebar_skills=sidebar_skills, session=session, sidebar_levels=sidebar_levels,
+                        architecture=architecture,
                     )
                     # 실험용 항목은 없을 수도 있다(없으면 평가 위젯을 붙이지 않는다)
                     entry = {"answer": reply.text, "courses": reply.courses,
@@ -337,7 +339,8 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
                     # 예외에 닉네임, 프로필 또는 원문이 포함될 수 있다.
                     entry = {"answer": "메시지 처리 결과를 확인할 수 없습니다.", "courses": [], "turn_id": "",
                              "model": "", "action": "", "alternatives": []}
-            history.append({"prompt": message, "job": job, "session_id": conversation.usage.session_id, **entry})
+            history.append({"prompt": message, "job": job, "session_id": conversation.usage.session_id,
+                            "architecture": architecture, **entry})
             _render_answer(history[-1], len(history) - 1)
         # 대화에서 목표 직무가 정해지거나 바뀌면 마이페이지와 다른 화면도 그 직무를 따른다
         if conversation.job in JOBS and conversation.job != st.session_state.get("job"):
