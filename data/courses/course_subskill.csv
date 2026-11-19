@@ -179,3 +179,75 @@ JJBP2D35RG,C8-3,C8,비용 최적화,할인 모델,Savings Plans,기초,3,uncerta
 RE6C7ZPAHN,C8-3,C8,비용 최적화,할인 모델,Savings Plans,중급,1,certain,Savings Plans,Determine when to use Savings Plans vs Reserved Instances,objectives
 3P26XYYBM8,C8-3,C8,비용 최적화,할인 모델,Savings Plans,중급,2,uncertain,,,
 M8KE2XHTMG,C8-3,C8,비용 최적화,할인 모델,Savings Plans,중급,3,uncertain,,,
+63KTRM86DQ,A1-1,A1,생성형 AI·프롬프트,LLM 활용·프롬프트 설계,Amazon Bedrock,기초,1,certain,Bedrock,Understand how Amazon Bedrock works,objectives
+8K1GU9WS56,A1-1,A1,생성형 AI·프롬프트,LLM 활용·프롬프트 설계,Amazon Bedrock,기초,2,certain,Bedrock,Introduction to Cohere on Amazon Bedrock,title
+SXMNDA9AJ1,A1-1,A1,생성형 AI·프롬프트,LLM 활용·프롬프트 설계,Amazon Bedrock,기초,3,certain,Bedrock,Amazon Bedrock AgentCore Getting Started,title
+44TZ6CW5MX,A1-1,A1,생성형 AI·프롬프트,LLM 활용·프롬프트 설계,Amazon Bedrock,중급,1,certain,Bedrock,Evaluate and Enhance RAG Performance with Amazon Bedrock,title
+71GXBJX1H5,A1-1,A1,생성형 AI·프롬프트,LLM 활용·프롬프트 설계,Amazon Bedrock,중급,2,certain,Bedrock,"Deploy a production-ready intelligent event assistant using Amazon Bedrock AgentCore that leverages Memory, Identity, and Runtime components to deliver personalized experiences at scale",objectives
+24YYPWPMEF,A1-1,A1,생성형 AI·프롬프트,LLM 활용·프롬프트 설계,Amazon Bedrock,중급,3,certain,prompt,Define adversarial prompting and identify six common adversarial techniques used to exploit generative AI models,objectives
+PWJCMNXWHT,A1-2,A1,생성형 AI·프롬프트,RAG·에이전트 구성,retrieval augmented generation,기초,1,certain,Retrieval Augmented,Define Retrieval Augmented Generation (RAG) and describe its business application,objectives
+CDYTAJCKGY,A1-2,A1,생성형 AI·프롬프트,RAG·에이전트 구성,retrieval augmented generation,기초,2,certain,embedding,Identify AWS services that help store embeddings with vector databases,objectives
+YJAMEMQPQR,A1-2,A1,생성형 AI·프롬프트,RAG·에이전트 구성,retrieval augmented generation,기초,3,certain,Knowledge Bases,Getting Started with Amazon Bedrock Managed Knowledge Bases,title
+QZDAPJ6R5V,A1-2,A1,생성형 AI·프롬프트,RAG·에이전트 구성,retrieval augmented generation,중급,1,certain,RAG,"Explain how RAG works, its production components, and when to choose RAG over fine-tuning or other generative AI options for querying custom documents",objectives
+A1X8G6S34E,A1-2,A1,생성형 AI·프롬프트,RAG·에이전트 구성,retrieval augmented generation,중급,2,certain,RAG,Describe RAG and illustrate how it improves LLM performance,objectives
+A3GRZ1U4AN,A1-2,A1,생성형 AI·프롬프트,RAG·에이전트 구성,retrieval augmented generation,중급,3,certain,vector,Implement a vector database solution using Amazon Aurora PostgreSQL-Compatible Edition with pgvector to support retrieval augmented generation (RAG) in generative AI applications,objectives
+1H631ZWCTP,A1-3,A1,생성형 AI·프롬프트,모델 평가·안전성,responsible AI,기초,1,certain,responsible AI,Describe responsible AI,objectives
+H2AE8YJYF6,A1-3,A1,생성형 AI·프롬프트,모델 평가·안전성,responsible AI,기초,2,certain,responsible AI,"Apply responsible AI dimensions (fairness, explainability, privacy, safety, transparency, robustness) to a described AI system scenario",objectives
+2UE5PPMPPZ,A1-3,A1,생성형 AI·프롬프트,모델 평가·안전성,responsible AI,기초,3,certain,responsible AI,Understand how Amazon Bedrock supports responsible AI development,objectives
+D3V2B7RKDP,A1-3,A1,생성형 AI·프롬프트,모델 평가·안전성,responsible AI,중급,1,certain,Guardrails,Configuring Amazon Bedrock Guardrails,objectives
+X7Q73WN39F,A1-3,A1,생성형 AI·프롬프트,모델 평가·안전성,responsible AI,중급,2,certain,Responsible AI,"Guidelines for Responsible AI, explain the development of AI systems that are ethical and fair, recognize the importance of transparent and explainable models",objectives
+BD7XZC8CTT,A1-3,A1,생성형 AI·프롬프트,모델 평가·안전성,responsible AI,중급,3,uncertain,bias,"You will learn how to identify and mitigate bias, improve data quality, apply model explainability techniques, and monitor models for drift and fairness over time.",description
+W5U4ZWMGAH,A2-1,A2,ML 모델링·MLOps,ML 모델 학습·평가,machine learning,기초,1,certain,machine learning,Understand the basics of machine learning to help evaluate the benefits and risks associated with adopting ML in various business cases,objectives
+VSS1JQ8QWW,A2-1,A2,ML 모델링·MLOps,ML 모델 학습·평가,machine learning,기초,2,certain,machine learning,Describe the components of machine learning lifecycle.,objectives
+BS7FAJ9AG5,A2-1,A2,ML 모델링·MLOps,ML 모델 학습·평가,machine learning,기초,3,certain,machine learning,Understand the basics of machine learning to help evaluate the benefits and risks associated with adopting ML in various business cases,objectives
+ZH9HPH58MN,A2-1,A2,ML 모델링·MLOps,ML 모델 학습·평가,machine learning,중급,1,certain,Machine Learning,Machine Learning Exam Basics,title
+8U8G8MKUEK,A2-1,A2,ML 모델링·MLOps,ML 모델 학습·평가,machine learning,중급,2,certain,machine learning,Discuss the machine learning process,objectives
+4RTW7WHS2J,A2-1,A2,ML 모델링·MLOps,ML 모델 학습·평가,machine learning,중급,3,certain,machine learning,Describe basic machine learning (ML) concepts and techniques,objectives
+6BP61KB1FJ,A2-2,A2,ML 모델링·MLOps,데이터 분석·특징 추출,feature engineering,기초,1,uncertain,,,
+XBNAVKA88J,A2-2,A2,ML 모델링·MLOps,데이터 분석·특징 추출,feature engineering,기초,2,uncertain,,,
+ZUNND14QN5,A2-2,A2,ML 모델링·MLOps,데이터 분석·특징 추출,feature engineering,기초,3,uncertain,,,
+D7TQ6PCU7W,A2-2,A2,ML 모델링·MLOps,데이터 분석·특징 추출,feature engineering,중급,1,uncertain,,,
+VZ6B56ES7Z,A2-2,A2,ML 모델링·MLOps,데이터 분석·특징 추출,feature engineering,중급,2,uncertain,,,
+ND4MPPE459,A2-2,A2,ML 모델링·MLOps,데이터 분석·특징 추출,feature engineering,중급,3,certain,Feature,re:Invent 2025 Amazon Connect New Feature Releases,title
+R9R8GZ9TJ1,A2-3,A2,ML 모델링·MLOps,MLOps·모델 배포,Amazon SageMaker,기초,1,certain,SageMaker,Identify the purpose of Amazon SageMaker AI.,objectives
+2KDZZYRXYF,A2-3,A2,ML 모델링·MLOps,MLOps·모델 배포,Amazon SageMaker,기초,2,certain,SageMaker,Introduction to Cohere on Amazon SageMaker,title
+TDSZG4SR5M,A2-3,A2,ML 모델링·MLOps,MLOps·모델 배포,Amazon SageMaker,기초,3,certain,SageMaker,Amazon SageMaker Catalog Basics,title
+FXFTA818BY,A2-3,A2,ML 모델링·MLOps,MLOps·모델 배포,Amazon SageMaker,중급,1,certain,SageMaker,"Search the vast catalog of foundation models including large language models (LLMs) in the SageMaker JumpStart model hub, and select the right model for your use case",objectives
+ZVAPBV7536,A2-3,A2,ML 모델링·MLOps,MLOps·모델 배포,Amazon SageMaker,중급,2,certain,SageMaker,Explore the features of Amazon SageMaker Canvas and Amazon SageMaker Studio Lab,objectives
+RPNTDQ36CY,A2-3,A2,ML 모델링·MLOps,MLOps·모델 배포,Amazon SageMaker,중급,3,certain,SageMaker,"By the end of this course, you will be able to do the following: Introduction to S3 Tables, Introduction to Amazon SageMaker Lakehouse, and Integrate S3 Tables with SageMaker Lakehouse",objectives
+FJ1W4H4Y4J,A3-1,A3,AI 데이터 구축·품질,데이터 수집·파이프라인,AWS Glue,기초,1,certain,Glue,Understand how AWS Glue works.,objectives
+SE2G7QXCS4,A3-1,A3,AI 데이터 구축·품질,데이터 수집·파이프라인,AWS Glue,기초,2,certain,Glue,Introduction to AWS Glue 6.0,title
+NJJE35ZY26,A3-1,A3,AI 데이터 구축·품질,데이터 수집·파이프라인,AWS Glue,기초,3,uncertain,,,
+U89MJTNSM8,A3-1,A3,AI 데이터 구축·품질,데이터 수집·파이프라인,AWS Glue,중급,1,uncertain,,,
+ACYHAC5Q6K,A3-1,A3,AI 데이터 구축·품질,데이터 수집·파이프라인,AWS Glue,중급,2,uncertain,,,
+B6A3C8NAXG,A3-1,A3,AI 데이터 구축·품질,데이터 수집·파이프라인,AWS Glue,중급,3,uncertain,,,
+Z2Q8EV11ZT,A3-2,A3,AI 데이터 구축·품질,데이터 저장·SQL,data lake,기초,1,certain,Lake Formation,AWS Lake Formation Getting Started,title
+2FYHWEA42K,A3-2,A3,AI 데이터 구축·품질,데이터 저장·SQL,data lake,기초,2,uncertain,data lake,"With Amazon Security Lake, you can automatically centralize security data from various sources into a purpose-built data lake in your account.",description
+3R1V2BJMDW,A3-2,A3,AI 데이터 구축·품질,데이터 저장·SQL,data lake,기초,3,uncertain,query,"Using CloudTrail Lake, you can aggregate, immutably store, and query Amazon Web Services (AWS) activities of management and data events recorded by AWS CloudTrail.",description
+MRDCPBFREW,A3-2,A3,AI 데이터 구축·품질,데이터 저장·SQL,data lake,중급,1,certain,Lake Formation,"Implement Lake Formation permission models (tag-based access control, column-level security) to enforce data governance policies across a multi-team data lake.",objectives
+F3W8HURQVF,A3-2,A3,AI 데이터 구축·품질,데이터 저장·SQL,data lake,중급,2,certain,data lake,Why SQL struggles to reveal relationship-driven insights in data lakes,objectives
+D7TQ6PCU7W,A3-2,A3,AI 데이터 구축·품질,데이터 저장·SQL,data lake,중급,3,uncertain,data lake,"Participants will learn the AWS Modern Data Architecture built on five pillars - scalable data lakes, purpose-built analytics services, unified data access, unified governance, and cost-effectiveness - and its five core components: databases, data lakes, analytics, machine learning, and data governance.",description
+TDSZG4SR5M,A3-3,A3,AI 데이터 구축·품질,데이터 정제·라벨링·품질,Amazon SageMaker Ground Truth,기초,1,uncertain,data quality,"You will examine the catalog's architecture, key technical concepts, and real-world use cases, gaining practical knowledge of how to leverage semantic search, automated metadata generation, data lineage tracking, and fine-grained access controls to streamline AI/ML workflows while ensuring compliance and data quality across the enterprise.",description
+T4265HJ8MX,A3-3,A3,AI 데이터 구축·품질,데이터 정제·라벨링·품질,Amazon SageMaker Ground Truth,기초,2,uncertain,,,
+7S8M5RTN1D,A3-3,A3,AI 데이터 구축·품질,데이터 정제·라벨링·품질,Amazon SageMaker Ground Truth,기초,3,uncertain,,,
+FXFTA818BY,A3-3,A3,AI 데이터 구축·품질,데이터 정제·라벨링·품질,Amazon SageMaker Ground Truth,중급,1,certain,Clean,Cleanup the SageMaker resources you have created during demonstrations,objectives
+UJC41WFWAV,A3-3,A3,AI 데이터 구축·품질,데이터 정제·라벨링·품질,Amazon SageMaker Ground Truth,중급,2,uncertain,,,
+RPNTDQ36CY,A3-3,A3,AI 데이터 구축·품질,데이터 정제·라벨링·품질,Amazon SageMaker Ground Truth,중급,3,uncertain,,,
+2CWTRRKXXU,A4-1,A4,AI 서비스 구현·운영,모델 API·서비스 연동,Amazon API Gateway,기초,1,certain,API Gateway,Introduction to Amazon API Gateway,title
+9UQP272NNK,A4-1,A4,AI 서비스 구현·운영,모델 API·서비스 연동,Amazon API Gateway,기초,2,certain,API Gateway,Identify the purpose of API Gateway.,objectives
+GQA6FHWPJD,A4-1,A4,AI 서비스 구현·운영,모델 API·서비스 연동,Amazon API Gateway,기초,3,certain,API Gateway,Identify initial use cases where API Gateway and Lambda can decouple a larger monolith.,objectives
+M81H9JBA8E,A4-1,A4,AI 서비스 구현·운영,모델 API·서비스 연동,Amazon API Gateway,중급,1,certain,API Gateway,Build with Amazon API Gateway,title
+DVWSZU86VQ,A4-1,A4,AI 서비스 구현·운영,모델 API·서비스 연동,Amazon API Gateway,중급,2,certain,API Gateway,Recognize and resolve issues with API Gateway,objectives
+CWEG5J84E5,A4-1,A4,AI 서비스 구현·운영,모델 API·서비스 연동,Amazon API Gateway,중급,3,certain,API,Recognize the technique of chaining Amazon Connect APIs,objectives
+M494WWS5EF,A4-2,A4,AI 서비스 구현·운영,컨테이너·실행 환경,Amazon ECR,기초,1,certain,ECR,Learn how Amazon ECR works,objectives
+CY2F57HH7V,A4-2,A4,AI 서비스 구현·운영,컨테이너·실행 환경,Amazon ECR,기초,2,uncertain,,,
+V59J92TZE2,A4-2,A4,AI 서비스 구현·운영,컨테이너·실행 환경,Amazon ECR,기초,3,uncertain,,,
+PT6R6CVEFP,A4-2,A4,AI 서비스 구현·운영,컨테이너·실행 환경,Amazon ECR,중급,1,certain,ECR,"Create and manage Amazon ECR repositories to store, manage, and deploy container images securely",objectives
+NVQMVRTS5H,A4-2,A4,AI 서비스 구현·운영,컨테이너·실행 환경,Amazon ECR,중급,2,uncertain,,,
+DMG1BSGQNN,A4-2,A4,AI 서비스 구현·운영,컨테이너·실행 환경,Amazon ECR,중급,3,uncertain,,,
+X1H7K5U5VH,A4-3,A4,AI 서비스 구현·운영,배포 자동화·운영 모니터링,SageMaker Model Monitor,기초,1,uncertain,,,
+2KDZZYRXYF,A4-3,A4,AI 서비스 구현·운영,배포 자동화·운영 모니터링,SageMaker Model Monitor,기초,2,uncertain,,,
+T4265HJ8MX,A4-3,A4,AI 서비스 구현·운영,배포 자동화·운영 모니터링,SageMaker Model Monitor,기초,3,uncertain,,,
+BD7XZC8CTT,A4-3,A4,AI 서비스 구현·운영,배포 자동화·운영 모니터링,SageMaker Model Monitor,중급,1,uncertain,drift,"You will learn how to identify and mitigate bias, improve data quality, apply model explainability techniques, and monitor models for drift and fairness over time.",description
+M3VGHNKNYB,A4-3,A4,AI 서비스 구현·운영,배포 자동화·운영 모니터링,SageMaker Model Monitor,중급,2,uncertain,,,
+PY13DQ9U1D,A4-3,A4,AI 서비스 구현·운영,배포 자동화·운영 모니터링,SageMaker Model Monitor,중급,3,uncertain,,,
