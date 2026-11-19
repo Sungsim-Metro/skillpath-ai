@@ -13,6 +13,7 @@ S1, S2 = "a" * 32, "b" * 32
 COURSE = {"course_id": "c1", "title": "AWS 기초"}
 # 공개 검사가 이메일·전화번호 모양을 찾으므로 예시 전화번호는 조각을 이어 만든다(이메일은 example.com 만 쓴다)
 PHONE = "010-" + "1234-" + "5678"
+PHONE_INTL = "+82 " + "10-" + "1234-" + "5678"  # 국가번호가 붙으면 앞의 0 이 빠진다
 
 
 class MaskTest(unittest.TestCase):
@@ -22,6 +23,15 @@ class MaskTest(unittest.TestCase):
             chat_history.mask(text),
             "메일은 [이메일], 폰 [전화번호], [전화번호], 주민 [주민번호]입니다. Docker 3년, 포트 8080")
         self.assertEqual(chat_history.mask("번호는" + "010" + "1234" + "5678" + "입니다"), "번호는[전화번호]입니다")
+
+    def test_masks_foreigner_registration_numbers_and_country_code_phones(self) -> None:
+        """외국인등록번호(뒷자리 5~8)와 +82 국가번호 형식도 가린다. 일반 기술 문장은 건드리지 않는다."""
+        self.assertEqual(chat_history.mask("외국인 950302-5234567, 또는 9503028234567"), "외국인 [주민번호], 또는 [주민번호]")
+        self.assertEqual(chat_history.mask(f"해외 {PHONE_INTL}"), "해외 [전화번호]")
+        self.assertEqual(chat_history.mask("해외 +82-10-" + "1234-" + "5678, +82 (0)10-" + "1234-" + "5678"), "해외 [전화번호], [전화번호]")
+        self.assertEqual(chat_history.mask("유선 +82 2-123-" + "4567"), "유선 [전화번호]")
+        plain = "Docker 3년, 포트 8080, 2026-11-20 배포, 버전 1.2.3, AWS 계정 " + "123456" + "789012" + ", 점수 82 10 점"
+        self.assertEqual(chat_history.mask(plain), plain)
 
 
 class LocalHistoryTest(unittest.TestCase):
@@ -55,6 +65,27 @@ class LocalHistoryTest(unittest.TestCase):
         self.assertEqual(sessions[0]["title"], "새 대화" + "가" * 26 + "…")
         self.assertEqual(sessions[1]["title"], "Docker 써봤어요 [전화번호]")  # 제목은 첫 질문, 가린 뒤
         self.assertEqual(chat_history.load_session("lee", S2), [])  # 다른 회원의 세션은 열리지 않는다
+
+    def test_only_real_counseling_replies_are_recorded(self) -> None:
+        """저장 여부는 backend 가 정한다: 막힌 발화·범위 밖·검사 실패·처리 오류(reply 없음)·비회원은 저장하지 않는다."""
+        from types import SimpleNamespace as R
+
+        cases = [
+            (R(text="답", action="note", failed=False, courses=[COURSE]), "kim", True),
+            (R(text="답", action="gap", failed=False, courses=[]), "kim", True),
+            (R(text="답", action="unsupported", failed=False, courses=[]), "kim", True),
+            (R(text="차단", action="blocked", failed=False, courses=[]), "kim", False),
+            (R(text="범위", action="out_of_scope", failed=False, courses=[]), "kim", False),
+            (R(text="실패", action="intake", failed=True, courses=[]), "kim", False),
+            (None, "kim", False),  # 처리 중 예외
+            (R(text="답", action="note", failed=False, courses=[]), None, False),  # 비회원
+        ]
+        for reply, nickname, saved in cases:
+            before = len(chat_history.load_session("kim", S1))
+            self.assertEqual(chat_history.record_reply(nickname, S1, "질문", reply), saved, (reply, nickname))
+            self.assertEqual(len(chat_history.load_session("kim", S1)) - before, 1 if saved else 0, (reply, nickname))
+        self.assertEqual(chat_history.load_session("kim", S1)[0][2], [COURSE])  # 과정 카드도 함께 저장
+        self.assertTrue(chat_history.record_reply("kim", S1, "질문", R(text="답")))  # failed·action·courses 가 없는 응답도 정상으로 본다
 
     def test_bad_session_id_is_rejected_and_save_failure_does_not_raise(self) -> None:
         with self.assertRaises(ValueError):

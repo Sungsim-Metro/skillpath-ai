@@ -22,7 +22,7 @@ uv run --python 3.11 --with-requirements requirements.txt python -m backend.prof
 
 ## 회원 대화 기록 테이블 (`DYNAMODB_CHAT_TABLE`)
 
-`backend/chat_history.py`가 로그인한 회원의 상담 대화를 DynamoDB 테이블 `skillpath-chat-history`에 세션별로 저장한다(`DYNAMODB_CHAT_TABLE`에 이 이름을 넣는다). 비회원은 저장하지 않는다. 저장 전에 이메일·전화번호·주민등록번호 모양은 가린다.
+`backend/chat_history.py`가 로그인한 회원의 상담 대화를 DynamoDB 테이블 `skillpath-chat-history`에 세션별로 저장한다(`DYNAMODB_CHAT_TABLE`에 이 이름을 넣는다). 비회원은 저장하지 않는다. 저장 전에 이메일·전화번호(+82 국가번호 포함)·주민등록번호·외국인등록번호 모양은 가린다. 이름·주소는 가리지 못한다.
 
 | 항목 | 값 |
 | --- | --- |

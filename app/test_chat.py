@@ -99,13 +99,18 @@ class ChatScreenTest(unittest.TestCase):
             ("오류", RuntimeError("boom"), False),
             ("정상", Reply("정상 답", action="note"), True),
         ]
-        for text, outcome, saved in cases:
-            before = len(chat_history.load_session("저장 기준", session_id))
-            with patch("backend.chat.handle_message", side_effect=[outcome]):
-                at.chat_input[0].set_value(text).run()
-            self.assertFalse(at.exception, text)
-            after = len(chat_history.load_session("저장 기준", session_id))
-            self.assertEqual(after - before, 1 if saved else 0, text)
+        # 저장 여부는 backend(chat_history.record_reply)가 정한다. 화면은 부르기만 하므로, 저장하지 않는 턴에서도 부르되
+        # 실제 저장(append_turn)은 일어나지 않는 것을 호출 횟수와 저장 결과로 함께 확인한다.
+        with patch.object(chat_history, "append_turn", wraps=chat_history.append_turn) as spy:
+            for text, outcome, saved in cases:
+                before = len(chat_history.load_session("저장 기준", session_id))
+                calls = spy.call_count
+                with patch("backend.chat.handle_message", side_effect=[outcome]):
+                    at.chat_input[0].set_value(text).run()
+                self.assertFalse(at.exception, text)
+                after = len(chat_history.load_session("저장 기준", session_id))
+                self.assertEqual(after - before, 1 if saved else 0, text)
+                self.assertEqual(spy.call_count - calls, 1 if saved else 0, text)  # append_turn 호출 자체가 없다
         self.assertEqual([t[0] for t in chat_history.load_session("저장 기준", session_id)], ["정상"])
         self.assertEqual(len(at.session_state["chat_history"]), 5)  # 화면에는 다섯 턴이 모두 보인다
 

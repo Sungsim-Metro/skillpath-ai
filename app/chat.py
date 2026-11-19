@@ -193,9 +193,6 @@ PANEL_CSS = f"""<style>
   border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem; padding: 1rem; }}
 .st-key-chat_message {{ margin-left: {PANEL_REM + 1}rem; width: calc(100% - {PANEL_REM + 1}rem); }}
 </style>"""
-# 저장하지 않는 턴의 요청 종류(backend.chat.Reply.action). 가드레일에 막힌 발화와 범위 밖 질문은 상담 대화로 인정하지 않는다.
-# backend/chat.py 가 모델 대화 기록(state.history)에 넣지 않는 턴과 같은 기준이다. 처리 오류와 검사 실패(Reply.failed)도 저장하지 않는다.
-UNSAVED_ACTIONS = ("blocked", "out_of_scope")
 GUEST_NOTICE = "비회원의 대화는 저장되지 않습니다. 왼쪽에서 로그인하면 대화가 저장됩니다."
 MEMBER_NOTICE = "로그인했으므로 이 대화는 저장되고 왼쪽 '최근'에서 다시 볼 수 있습니다. 이메일·전화번호는 가려서 저장합니다."
 
@@ -353,8 +350,7 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
             entry = {"answer": "메시지 처리 결과를 확인할 수 없습니다.", "courses": [], "turn_id": "", "model": "",
                      "action": "", "alternatives": []}
         history.append({"prompt": message, "job": job, "session_id": conversation.usage.session_id, **entry})
-        if reply is not None and not getattr(reply, "failed", False) and entry["action"] not in UNSAVED_ACTIONS:
-            chat_history.append_turn(nickname, conversation.usage.session_id, message, entry["answer"], entry["courses"])
+        chat_history.record_reply(nickname, conversation.usage.session_id, message, reply)  # 저장 여부는 backend 가 정한다
 
     # 패널은 메시지를 처리하고 저장한 뒤에 채운다. 그래야 방금 보낸 첫 대화도 목록에 바로 뜬다.
     if opened:

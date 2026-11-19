@@ -1,7 +1,7 @@
 """로그인한 회원의 상담 대화를 세션별로 보관한다(상담 화면의 대화 기록 목록용, 2026-11-20).
 
 - 비회원(닉네임 없음)은 저장하지 않는다. 세 함수 모두 아무것도 하지 않고 빈 값을 돌려준다.
-- 저장하기 전에 이메일·전화번호·주민등록번호 모양의 글자는 코드로 가린다. 이름 같은 것은 못 가리므로 화면에 기록 안내를 둔다.
+- 저장하기 전에 이메일·전화번호(+82 국가번호 포함)·주민등록번호·외국인등록번호 모양의 글자는 코드로 가린다. 이름 같은 것은 못 가리므로 화면에 기록 안내를 둔다.
 - 저장 실패가 상담을 막지 않는다. append_turn 은 실패하면 False 를 돌려주고, 로그에는 예외 종류만 남긴다(대화·닉네임 없음).
 - 실제 모드는 DynamoDB(DYNAMODB_CHAT_TABLE), 모의 모드는 로컬 SQLite(SKILLPATH_MOCK_CHAT_DB)를 쓴다. 테이블 모양은 backend/README.md.
   DynamoDB 는 파티션 키 nickname, 정렬 키 sk 이고 한 턴(질문+답)이 한 줄이다. sk 는 세션 줄 `S#<세션ID>`, 턴 줄 `T#<세션ID>#<시각>`.
@@ -29,11 +29,13 @@ TITLE_CHARS = 30
 DEFAULT_TTL_DAYS = 30
 _SESSION_ID = re.compile(r"[0-9a-f]{32}")  # ai.usage.SessionUsage.session_id (uuid4 hex)
 # 순서가 중요하다: 13자리 주민번호를 전화번호보다 먼저 가린다. \w 는 한글도 글자로 보므로 숫자는 앞뒤 숫자 여부로 끊는다.
+# 국내 번호는 0 으로 시작하고, 국가번호가 붙으면 +82 뒤에 앞의 0 이 빠진다: 010-XXXX-XXXX = +82 10-XXXX-XXXX = +82 (0)10-XXXX-XXXX
+_KR_PREFIX = r"(?:(?<!\d)0|\+82[-.\s]?(?:\(0\))?)"
 _MASKS = [
-    (re.compile(r"(?<!\d)\d{6}[-\s]?[1-4]\d{6}(?!\d)"), "[주민번호]"),
+    (re.compile(r"(?<!\d)\d{6}[-\s]?[1-8]\d{6}(?!\d)"), "[주민번호]"),  # 주민등록번호(뒷자리 1~4)와 외국인등록번호(5~8)
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+"), "[이메일]"),
-    (re.compile(r"(?<!\d)01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)"), "[전화번호]"),
-    (re.compile(r"(?<!\d)0\d{1,2}[-.\s]\d{3,4}[-.\s]\d{4}(?!\d)"), "[전화번호]"),
+    (re.compile(rf"{_KR_PREFIX}1[016789][-.\s]?\d{{3,4}}[-.\s]?\d{{4}}(?!\d)"), "[전화번호]"),  # 휴대전화
+    (re.compile(rf"{_KR_PREFIX}\d{{1,2}}[-.\s]\d{{3,4}}[-.\s]\d{{4}}(?!\d)"), "[전화번호]"),  # 지역번호
 ]
 
 
@@ -51,6 +53,11 @@ def _now() -> str:
             now = datetime.fromisoformat(_last_ts) + timedelta(microseconds=1)
         _last_ts = now.isoformat(timespec="microseconds")
         return _last_ts
+
+
+# 상담 대화로 인정하지 않는 턴의 요청 종류(backend.chat.Reply.action). 가드레일에 막힌 발화와 범위 밖 질문은 저장하지 않는다.
+# backend/chat.py 가 모델 대화 기록(state.history)에 넣지 않는 턴과 같은 기준이다. 처리 오류(reply 없음)와 검사 실패(Reply.failed)도 저장하지 않는다.
+UNSAVED_ACTIONS = ("blocked", "out_of_scope")
 
 
 def mask(text: str) -> str:
@@ -160,6 +167,16 @@ def append_turn(nickname: str | None, session_id: str, prompt: str, answer: str,
     except Exception as exc:  # 대화·닉네임이 예외 문구에 섞일 수 있어 종류만 남긴다
         logger.warning("대화 기록을 저장하지 못했습니다(%s).", type(exc).__name__)
         return False
+
+
+def record_reply(nickname: str | None, session_id: str, prompt: str, reply) -> bool:
+    """상담 답 한 건을 저장할지 정하고 저장한다. 화면은 이 함수를 부르기만 한다.
+
+    reply 는 backend.chat.Reply 이거나 None(처리 오류). 막힌 발화·범위 밖·검사 실패·오류는 저장하지 않고 False 를 돌려준다.
+    Reply 를 직접 가져오지 않고 속성으로만 읽는다(backend.chat 과 서로 불러오지 않게)."""
+    if reply is None or getattr(reply, "failed", False) or getattr(reply, "action", "") in UNSAVED_ACTIONS:
+        return False
+    return append_turn(nickname, session_id, prompt, reply.text, getattr(reply, "courses", []))
 
 
 def list_sessions(nickname: str | None) -> list[dict]:
