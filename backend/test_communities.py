@@ -1,11 +1,11 @@
-"""현직자 연결: 소모임 짝짓기와 검색 링크, 메시지 초안 검사. 실행: python -m backend.test_communities"""
+"""현직자 연결: 모임 짝짓기와 검색 링크. 실행: python -m backend.test_communities"""
 import os
 import unittest
 from unittest import mock
 from urllib.parse import unquote
 
-from ai import coffeechat
 from backend import api, communities
+from backend.jobs import JOBS
 
 JOB = "cloud_engineer"
 
@@ -18,10 +18,10 @@ class CommunitiesTest(unittest.TestCase):
 
     def test_data_file_has_no_people_and_valid_areas(self):
         data = communities.load()
-        areas = set(api._skill_areas()["areas"])
+        areas = {a for job in JOBS for a in api._skill_areas(job)["areas"]}  # 영역 id 는 직무끼리 겹치지 않는다
         self.assertTrue(data["checked"] and data["source"] and data["limits"])
         for c in data["communities"]:
-            self.assertEqual(set(c), {"id", "name", "areas", "kind", "place", "link", "last_seen", "note"})
+            self.assertEqual(set(c), {"id", "name", "org", "areas", "kind", "place", "link", "last_seen", "note"})
             self.assertLessEqual(set(c["areas"]), areas, c["id"])
             self.assertIn(c["kind"], ("topic", "general", "region"))
             self.assertTrue(c["link"].startswith("https://"))
@@ -53,35 +53,22 @@ class CommunitiesTest(unittest.TestCase):
         found = communities.suggest(rows)
         self.assertEqual(found["topic"][0]["areas"], ["아키텍처 설계"])
 
+    def test_ai_job_gets_ai_communities(self):
+        found = communities.suggest(api.get_area_gap("ai_engineer", []))
+        self.assertTrue(found["topic"])
+        cloud_only = {"C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"}
+        for t in found["topic"]:  # AI 영역에 짝지어진 모임만 나온다
+            self.assertTrue(set(t["community"]["areas"]) - cloud_only, t["community"]["id"])
+        gaps = [{"area_id": "C2", "area": "스토리지·데이터베이스", "demand": 10, "owned": 0}]
+        self.assertEqual(communities.suggest(gaps)["unmatched"], ["스토리지·데이터베이스"])  # 짝이 약해 뺀 영역(리뷰 반영)
+
     def test_people_links_only_build_urls(self):
         links = communities.people_search_links("클라우드 엔지니어", ["AWS", "Docker", "Kubernetes", "Terraform"])
         self.assertEqual(len(links), 3)
         self.assertTrue(all(link["url"].startswith(communities.LINKEDIN_PEOPLE_SEARCH) for link in links))
-        self.assertIn("클라우드 엔지니어 AWS", unquote(links[0]["url"]))
-
-    def test_draft_keeps_blanks_and_three_questions(self):
-        draft, result = coffeechat.draft("클라우드 엔지니어", ["AWS", "Docker"], ["Python"])
-        self.assertTrue(all(b in draft["message"] for b in coffeechat.prompt.BLANKS))
-        self.assertEqual(len(draft["questions"]), 3)
-        self.assertEqual(result.attempts, 1)
-        with self.assertRaises(ValueError):
-            coffeechat.draft("클라우드 엔지니어", [], ["Python"])
-
-    def test_validate_draft_rejects_made_up_details(self):
-        llm_input = coffeechat.llm_input_of("클라우드 엔지니어", ["Docker"], ["Python"])
-        ok = {"message": "[받는 분 이름]님, [내 이름]입니다. [내 소개 한 줄] Docker 공부 방법을 여쭙고 싶습니다. 20분만 부탁드립니다.",
-              "questions": ["Docker는 실무에서 어떻게 쓰나요?", "Python은 어디에 쓰나요?", "공부 순서는요?"]}
-        coffeechat.validate_draft(ok, llm_input)
-        bad = [
-            {**ok, "message": ok["message"].replace("[내 이름]", "김철수")},                    # 이름을 지어냄
-            {**ok, "message": ok["message"] + " 저는 3년 동안 공부했습니다."},                  # 입력에 없는 숫자
-            {**ok, "questions": [*ok["questions"][:2], "Kubernetes도 해야 하나요?"]},           # 입력에 없는 기술
-            {**ok, "questions": ok["questions"][:2]},
-            {**ok, "questions": [*ok["questions"][:2], "Dock 은 무엇인가요?"]},                 # 입력 이름의 조각은 통과하지 못한다
-        ]
-        for data in bad:
-            with self.assertRaises(ValueError, msg=data):
-                coffeechat.validate_draft(data, llm_input)
+        self.assertEqual(unquote(links[0]["url"]), communities.LINKEDIN_PEOPLE_SEARCH + "클라우드 엔지니어")  # 첫 링크는 직무만
+        self.assertIn("클라우드 엔지니어 AWS", unquote(links[1]["url"]))
+        self.assertEqual(len(communities.people_search_links("AI 엔지니어", [])), 1)  # 부족 기술이 없어도 직무 링크는 있다
 
 
 if __name__ == "__main__":

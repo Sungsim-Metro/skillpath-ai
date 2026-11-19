@@ -1,84 +1,57 @@
-"""현직자 연결 카드: 부족 영역에 맞는 AWS 사용자 모임 소모임, 커피챗 요청 메시지 초안, 사람 찾기 검색 링크.
+"""현직자 연결 카드: 부족 영역에 맞는 개발자 모임과 직무별 사람 찾기 검색 링크 (2026-11-17 결정).
 
-부족 역량 탭 맨 아래의 한 구역이다. 사람을 조회하거나 추천하지 않는다. 모임은 사람이 고른 목록에서 코드가 고르고,
-사람 찾기는 검색 주소만 만들어 사용자가 직접 누른다. 메시지 초안은 버튼을 눌렀을 때만 만든다(호출 1번).
+부족 역량 탭 맨 아래의 한 구역이다. 사람을 조회하거나 추천하지 않는다. 모임은 공개 페이지를 보고 적은 목록에서 코드가 고르고,
+사람 찾기는 검색 주소만 만들어 사용자가 직접 누른다. LLM 을 부르지 않는다.
 """
 import streamlit as st
 
 from app.common import Ctx, load, md_escape, notice
-from ai import coffeechat
 from backend import api, communities
 from backend.jobs import JOBS
-
-MEETUP_HOME = "https://www.meetup.com/awskrug/"
 
 
 def _community_line(c: dict, areas: list[str] | None = None) -> str:
     why = f" · 부족 영역: {', '.join(areas)}" if areas else ""
     note = f" · {c['note']}" if c.get("note") else ""
-    return f"- **{md_escape(c['name'])}** · {c['place']}{why}  \n  :gray[최근 확인한 일정: {c['last_seen']}{md_escape(note)}]"
+    return f"- **{md_escape(c['name'])}** · {c['place']}{why}  \n  :gray[최근 확인: {c['last_seen']}{md_escape(note)}]"
 
 
 def render_connect(ctx: Ctx):
-    if not ctx.missing:
-        st.info("부족한 기술이 없어 연결할 모임을 따로 고르지 않았습니다.")
-        return
-    owned = getattr(ctx, "levels", None) or ctx.owned
-    rows, err = load(api.get_area_gap, ctx.job, owned)
+    job_title = JOBS[ctx.job]
+    st.markdown("**① 부족한 영역을 다루는 개발자 모임**")
+    rows, err = load(api.get_area_gap, ctx.job, ctx.levels)
+    found = None
+    if not err:
+        found, err = load(communities.suggest, rows)
     if err:
-        notice("현직자 연결", err)
-        return
-    found, err = load(communities.suggest, rows)
-    if err:
-        notice("현직자 연결", err)
-        return
-    meta = found["meta"]
-    missing_skills = [r["skill"] for r in ctx.missing]
-
-    st.markdown("**① 부족한 영역을 다루는 AWS 사용자 모임(AWSKRUG) 소모임**")
-    others = [*found["general"], *found["region"]]
-    if found["topic"]:
-        st.markdown("\n".join(_community_line(t["community"], t["areas"]) for t in found["topic"]))
-        first = found["topic"][0]["community"]
-        with st.expander("처음이거나 서울이 아니면 (입문·대학생·지역 모임)"):
+        notice("개발자 모임", err)
+    else:
+        meta = found["meta"]
+        others = [*found["general"], *found["region"]]
+        if found["topic"]:
+            st.markdown("\n".join(_community_line(t["community"], t["areas"]) for t in found["topic"]))
+            first = found["topic"][0]["community"]
+            with st.expander("처음이거나 서울이 아니면 (입문·대학생·지역 모임)"):
+                st.markdown("\n".join(_community_line(c) for c in others))
+        else:  # 부족한 영역이 없거나, AWS 처럼 여러 영역에 걸친 기술만 부족할 때
+            st.write("부족한 영역에 맞는 주제 모임을 고르지 못해 입문·대학생·지역 모임을 보여 드립니다.")
             st.markdown("\n".join(_community_line(c) for c in others))
-    else:  # AWS 처럼 여러 영역에 걸친 기술만 부족할 때: 주제 모임 대신 입문·대학생 모임을 바로 보여 준다
-        st.write("부족한 기술이 한 주제에 묶이지 않아 주제 소모임 대신 입문·대학생·지역 모임을 보여 드립니다.")
-        st.markdown("\n".join(_community_line(c) for c in others))
-        first = found["general"][0]
-    left, right = st.columns(2)
-    left.link_button("이 모임의 일정 안내 보기 (Meetup)", first["link"], icon=":material/open_in_new:", width="stretch")
-    right.link_button("전체 일정 보기 (Meetup)", MEETUP_HOME, icon=":material/open_in_new:", width="stretch")
-    extra = ""
-    if found.get("skipped"):
-        extra += f" 그 밖에 맞는 소모임이 있는 영역: {', '.join(found['skipped'])}."
-    if found["unmatched"]:
-        extra += f" 맞는 소모임을 확인하지 못한 영역: {', '.join(found['unmatched'])}."
-    st.caption(f"확인한 일정은 대부분 서울 오프라인이고 참가비와 사전 신청이 있습니다.{extra}")
-    with st.expander("이 목록을 어떻게 만들었나"):
-        st.caption(f"{meta['join']['text']} 목록은 사람이 공개 일정을 보고 고른 것이고 {meta['checked']}에 확인했습니다. {meta['limits']}")
-        st.link_button("AWSKRUG Slack", meta["join"]["slack"], icon=":material/open_in_new:")
+            first = found["general"][0]
+        st.link_button(f"{first['name']} 안내 보기", first["link"], icon=":material/open_in_new:")
+        extra = ""
+        if found["skipped"]:
+            extra += f" 그 밖에 맞는 모임이 있는 영역: {', '.join(found['skipped'])}."
+        if found["unmatched"]:
+            extra += f" 맞는 모임을 확인하지 못한 영역: {', '.join(found['unmatched'])}."
+        st.caption(f"AWSKRUG 일정은 대부분 서울 오프라인이고 참가비와 사전 신청이 있습니다.{extra}")
+        with st.expander("이 목록을 어떻게 만들었나"):
+            st.caption(f"목록은 공개 페이지를 보고 고른 것이고 {meta['checked']}에 확인했습니다. {meta['limits']}")
+            st.caption(f"AWSKRUG 모임: {meta['join']['text']}")
+            st.link_button("AWSKRUG Slack", meta["join"]["slack"], icon=":material/open_in_new:")
 
-    st.markdown("**② 커피챗 요청 메시지 초안과 물어볼 질문**")
-    st.caption("부족한 기술을 바탕으로 AI가 초안을 씁니다. 받는 분과 내 정보는 빈칸으로 두니 직접 채워서 보내세요.")
-    key = (ctx.job, tuple(missing_skills[:coffeechat.MAX_SKILLS]), tuple(ctx.owned[:coffeechat.MAX_SKILLS]))
-    if st.button("초안 만들기", key="coffeechat_btn"):
-        result, err = load(coffeechat.draft, JOBS[ctx.job], missing_skills, list(ctx.owned))
-        made = result[0] if result else coffeechat.fallback_draft(JOBS[ctx.job], missing_skills)
-        st.session_state["coffeechat"] = (key, made, bool(err))
-        st.session_state["coffeechat_text"] = made["message"]  # 입력창은 키에 남은 값을 쓰므로 새 초안을 직접 넣는다
-    saved = st.session_state.get("coffeechat")
-    if saved and saved[1]:
-        if saved[2]:
-            st.caption("AI 초안을 만들지 못해 기본 문안을 보여 드립니다. 고쳐서 쓰세요.")
-        if saved[0] != key:
-            st.caption("보유 기술이 바뀌었습니다. 초안을 다시 만들면 지금 진단에 맞게 바뀝니다.")
-        st.text_area("메시지 초안 (여기서 고쳐 쓰세요)", height=220, key="coffeechat_text")
-        st.caption("복사하려면 아래 상자 오른쪽 위의 복사 단추를 누르세요(위에서 고친 내용이 그대로 들어 있습니다).")
-        st.code(st.session_state.get("coffeechat_text", saved[1]["message"]), language=None, wrap_lines=True)
-        st.markdown("\n".join(f"{i}. {md_escape(q)}" for i, q in enumerate(saved[1]["questions"], start=1)))
-
-    st.markdown("**③ 직접 찾아보기**")
-    st.caption("검색 주소만 만들어 드립니다. 이 서비스는 사람 정보를 가져오거나 저장하지 않습니다.")
-    for link in communities.people_search_links(JOBS[ctx.job], missing_skills):
-        st.link_button(link["label"], link["url"], icon=":material/search:")
+    st.markdown("**② LinkedIn에서 직접 찾아보기**")
+    st.caption("검색어를 넣어 둔 주소만 만들어 드립니다. 이 서비스는 사람 정보를 가져오거나 저장하지 않습니다.")
+    job_link, *skill_links = communities.people_search_links(job_title, [r["skill"] for r in ctx.missing])
+    st.link_button(job_link["label"], job_link["url"], icon=":material/search:", type="primary")
+    for col, link in zip(st.columns(2), skill_links):
+        col.link_button(link["label"], link["url"], icon=":material/search:", width="stretch")
