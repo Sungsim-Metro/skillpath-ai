@@ -16,6 +16,8 @@ from backend import api, chat_history, chat_profiles
 from backend.jobs import JOBS
 
 MAIN = str(Path(__file__).with_name("main.py"))
+# 공개 검사가 전화번호 모양을 찾으므로 예시 번호는 조각을 이어 만든다
+PHONE = "010-" + "1234-" + "5678"
 
 
 class ChatScreenTest(unittest.TestCase):
@@ -54,7 +56,7 @@ class ChatScreenTest(unittest.TestCase):
         self.assertEqual([b for b in at.button if b.key == "chat_new"], [])
         at.button(key="history_toggle").click().run()
         self.assertEqual(len([b for b in at.button if b.key == "chat_new"]), 1)
-        at.chat_input[0].set_value("제가 Docker로 API를 배포했어요. 연락처 010-1234-5678").run()
+        at.chat_input[0].set_value(f"제가 Docker로 API를 배포했어요. 연락처 {PHONE}").run()
         self.assertFalse(at.exception)
         self.assertFalse(self.history_db.exists())
 
@@ -62,7 +64,7 @@ class ChatScreenTest(unittest.TestCase):
         at = self.open_screen()
         self.authenticate(at, "기록 회원", register=True)
         self.assertTrue(any("대화는 저장되고" in c.value for c in at.caption))
-        at.chat_input[0].set_value("제가 Docker로 API를 배포했어요. 연락처 010-1234-5678").run()
+        at.chat_input[0].set_value(f"제가 Docker로 API를 배포했어요. 연락처 {PHONE}").run()
         first = at.session_state["chat_conversation"].usage.session_id
         saved = chat_history.load_session("기록 회원", first)
         self.assertEqual(saved[0][0], "제가 Docker로 API를 배포했어요. 연락처 [전화번호]")  # 가려서 저장

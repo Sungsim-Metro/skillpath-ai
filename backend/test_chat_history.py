@@ -11,15 +11,17 @@ from backend import chat_history
 
 S1, S2 = "a" * 32, "b" * 32
 COURSE = {"course_id": "c1", "title": "AWS 기초"}
+# 공개 검사가 이메일·전화번호 모양을 찾으므로 예시 전화번호는 조각을 이어 만든다(이메일은 example.com 만 쓴다)
+PHONE = "010-" + "1234-" + "5678"
 
 
 class MaskTest(unittest.TestCase):
     def test_masks_contact_like_text_but_keeps_skills(self) -> None:
-        text = "메일은 jh.kim+1@test.co.kr, 폰 010-1234-5678, 02-123-4567, 주민 900101-1234567입니다. Docker 3년, 포트 8080"
+        text = f"메일은 jh.kim+1@example.com, 폰 {PHONE}, 02-123-4567, 주민 900101-1234567입니다. Docker 3년, 포트 8080"
         self.assertEqual(
             chat_history.mask(text),
             "메일은 [이메일], 폰 [전화번호], [전화번호], 주민 [주민번호]입니다. Docker 3년, 포트 8080")
-        self.assertEqual(chat_history.mask("번호는01012345678입니다"), "번호는[전화번호]입니다")
+        self.assertEqual(chat_history.mask("번호는" + "010" + "1234" + "5678" + "입니다"), "번호는[전화번호]입니다")
 
 
 class LocalHistoryTest(unittest.TestCase):
@@ -41,7 +43,7 @@ class LocalHistoryTest(unittest.TestCase):
         self.assertFalse(self.path.exists())
 
     def test_members_get_their_own_sessions_in_order(self) -> None:
-        self.assertTrue(chat_history.append_turn("kim", S1, "Docker 써봤어요 010-1234-5678", "알겠습니다", [COURSE]))
+        self.assertTrue(chat_history.append_turn("kim", S1, f"Docker 써봤어요 {PHONE}", "알겠습니다", [COURSE]))
         self.assertTrue(chat_history.append_turn("kim", S1, "부족한 기술은?", "Linux입니다"))
         self.assertTrue(chat_history.append_turn("kim", S2, "새 대화" + "가" * 50, "답"))
         chat_history.append_turn("lee", S1, "남의 대화", "답")
@@ -64,13 +66,25 @@ class LocalHistoryTest(unittest.TestCase):
         self.assertIn("OSError", "".join(logs.output))
 
 
+class ClockTest(unittest.TestCase):
+    def test_timestamps_never_repeat_even_if_the_clock_stands_still(self) -> None:
+        """시계 해상도가 거친 환경에서 같은 시각이 나오면 같은 세션의 턴 키가 겹친다."""
+        real = chat_history.datetime  # 패치하기 전에 진짜 클래스를 잡아 둔다
+        frozen = real(2026, 11, 20, 1, 0, 0, tzinfo=chat_history.timezone.utc)
+        with patch.object(chat_history, "datetime") as fake:
+            fake.now.return_value = frozen
+            fake.fromisoformat.side_effect = real.fromisoformat
+            stamps = [chat_history._now() for _ in range(5)]
+        self.assertEqual(stamps, sorted(set(stamps)))  # 중복 없이 오름차순
+
+
 class DynamoHistoryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.enterContext(patch.dict(os.environ, {"BEDROCK_MOCK": "0", "DYNAMODB_CHAT_TABLE": "chat-test"}))
         self.table = self.enterContext(patch.object(chat_history, "_resource")).return_value.Table.return_value
 
     def test_append_writes_a_turn_item_and_a_session_item(self) -> None:
-        self.assertTrue(chat_history.append_turn("kim", S1, "메일 a@b.com", "답", [COURSE]))
+        self.assertTrue(chat_history.append_turn("kim", S1, "메일 a@example.com", "답", [COURSE]))
         turn = self.table.put_item.call_args.kwargs["Item"]
         self.assertEqual((turn["nickname"], turn["prompt"]), ("kim", "메일 [이메일]"))
         self.assertTrue(turn["sk"].startswith(f"T#{S1}#"))

@@ -15,8 +15,9 @@ import re
 import sqlite3
 import time
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 
 from backend.api import is_mock
 from backend.dynamodb import _resource
@@ -34,6 +35,22 @@ _MASKS = [
     (re.compile(r"(?<!\d)01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)"), "[전화번호]"),
     (re.compile(r"(?<!\d)0\d{1,2}[-.\s]\d{3,4}[-.\s]\d{4}(?!\d)"), "[전화번호]"),
 ]
+
+
+_clock_lock = Lock()
+_last_ts = ""
+
+
+def _now() -> str:
+    """UTC 시각 문자열. 직전 값보다 항상 커서(마이크로초 단위) 같은 시각이 두 번 나오지 않는다.
+    Windows 처럼 시계 해상도가 거친 곳에서 같은 세션의 두 턴 키가 겹쳐 앞의 턴을 덮어쓰는 일을 막는다."""
+    global _last_ts
+    with _clock_lock:
+        now = datetime.now(timezone.utc)
+        if _last_ts and now.isoformat(timespec="microseconds") <= _last_ts:
+            now = datetime.fromisoformat(_last_ts) + timedelta(microseconds=1)
+        _last_ts = now.isoformat(timespec="microseconds")
+        return _last_ts
 
 
 def mask(text: str) -> str:
@@ -115,7 +132,7 @@ def append_turn(nickname: str | None, session_id: str, prompt: str, answer: str,
     if member is None:
         return False
     prompt, answer = mask(prompt), mask(answer)
-    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    now = _now()
     packed = json.dumps(list(courses), ensure_ascii=False, default=str)
     try:
         if is_mock():
