@@ -24,12 +24,13 @@ CSS = """<style>
 
 /* 사이드바 메뉴: 라디오를 목록형 메뉴로 보이게 한다 */
 [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] { gap: 2px; }
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label { width: 100%; margin: 0; padding: 0.5rem 0.75rem; border-radius: 0.5rem; cursor: pointer; }
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label > div:first-child { display: none; }
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:hover { background: #E7ECF3; }
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) { background: #D6E2F6; }
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p { font-weight: 700; color: #1F5FBF; }
+[data-testid="stSidebar"] [data-testid="stRadio"], [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] { width: 100%; gap: 2px; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > div { width: 100%; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stRadioOption"] { width: 100%; margin: 0; padding: 0.5rem 0.75rem; border-radius: 0.5rem; cursor: pointer; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stRadioOption"] > div:not(:last-child) { display: none; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stRadioOption"]:hover { background: #E7ECF3; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stRadioOption"]:has(input:checked) { background: #D6E2F6; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stRadioOption"]:has(input:checked) p { font-weight: 700; color: #1F5FBF; }
 
 /* 숫자 카드와 '먼저 채울 기술' 카드 */
 [data-testid="stMetric"] { background: #FFFFFF; box-shadow: 0 1px 2px rgba(26, 31, 43, 0.06); }
