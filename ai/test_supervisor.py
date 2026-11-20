@@ -167,6 +167,7 @@ class RealSupervisorBoundaryTest(unittest.TestCase):
         with self.assertRaises(chat.ChatIntakeError) as caught:
             self.supervisor.interpret_turn("Docker 강의를 보여줘", {})
         self.assertNotIn("secret-hallucination", str(caught.exception))
+        self.assertEqual(self.converse.call_count, 2)
 
     def test_semantic_result_review_excludes_urls_ratings_and_private_context(self):
         plan = self.supervisor.SupervisedTurn(chat.Turn(action="courses"), targets=["Docker"])
@@ -182,6 +183,47 @@ class RealSupervisorBoundaryTest(unittest.TestCase):
         self.assertNotIn("private", json.dumps(payload))
         self.assertNotIn("rating_avg", json.dumps(payload))
         self.assertIn("supervisor", usage.call_args.args[0])
+
+    def test_invalid_result_verdicts_exhaust_one_retry_and_fail_closed(self):
+        plan = self.supervisor.SupervisedTurn(chat.Turn(action="gap"))
+        self.respond({"approved": 1}, {"approved": True, "reason": "invalid-extra-field"})
+        with self.assertRaises(chat.ChatIntakeError) as caught:
+            self.supervisor.approve_result("부족한 기술은?", {}, plan, "Docker 수준을 확인했습니다.", [])
+        self.assertEqual(self.converse.call_count, 2)
+        self.assertNotIn("invalid-extra-field", str(caught.exception))
+
+    def test_supervised_turn_reaches_ten_converse_calls_with_all_retries(self):
+        from backend import chat as counseling
+
+        message = "Docker 교육과정을 추천해 주세요."
+        reinterpret = {"decision": "reinterpret", "issue": "course_target", "quote": "Docker"}
+        # 각 줄은 같은 단계의 두 응답이며 첫 응답에서 형식 검사가 실패한다.
+        self.respond(
+            {}, self.intake(scope="gap"),
+            {}, reinterpret,
+            {}, self.intake(targets=["Docker"]),
+            {}, {"decision": "continue", "issue": "none"},
+            {"approved": "true"}, {"approved": True},
+        )
+        course = {"gap_skill": "Docker", "title": "컨테이너 입문", "reason": "컨테이너 배포를 실습합니다.",
+                  "match": "certain", "url": "https://example.com/docker"}
+        worker_reply = counseling.Reply("Docker 과정입니다.", courses=[course], action="courses")
+        with (patch("ai.chat.guard_input", return_value=True),
+              patch("backend.supervised_courses.recommend_for_targets", return_value=worker_reply) as worker,
+              patch("ai.bedrock.record_usage") as usage):
+            reply = counseling.handle_message(counseling.Conversation(), message, job="cloud_engineer",
+                                              sidebar_skills=[], architecture="supervised")
+
+        worker.assert_called_once()
+        self.assertEqual(worker.call_args.args[1], ["Docker"])
+        self.assertEqual(reply.supervisor_decisions, ["reinterpret", "continue", "result_approved"])
+        self.assertEqual(reply.courses, [course])
+        self.assertFalse(reply.failed)
+        stages = ["chat_supervised_intake", "chat_supervisor_plan",
+                  "chat_supervised_intake", "chat_supervisor_plan", "chat_supervisor_result"]
+        self.assertEqual([call.args[:2] for call in usage.call_args_list],
+                         [(stage, attempt) for stage in stages for attempt in (1, 2)])
+        self.assertEqual(self.converse.call_count, 10)
 
     def test_manager_cannot_add_writes_or_accept_invalid_decisions(self):
         bad = {"decision": "continue", "issue": "none", "save": True}
@@ -229,3 +271,7 @@ class RealSupervisorBoundaryTest(unittest.TestCase):
         self.supervisor._validate_candidate(whole, "보유한 기술을 전부 저장해줘", context)
         latest = self.intake("note", scope="none", save=True, save_skills=["S3"])
         self.supervisor._validate_candidate(latest, "방금 정정한 내용도 저장해줘", context)
+
+
+if __name__ == "__main__":
+    unittest.main()
