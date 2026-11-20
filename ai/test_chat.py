@@ -401,9 +401,6 @@ class RealBoundaryTest(unittest.TestCase):
             chat._validate(payload, message, {"experiences": [direct], "excluded_skills": ["Docker"]})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class PruneTest(unittest.TestCase):
     """모델 답에서 사용자 발화로 확인되지 않는 항목만 덜어 낸다. 남는 항목은 모두 발화에 실제로 있어야 한다."""
@@ -442,3 +439,28 @@ class PruneTest(unittest.TestCase):
         data["add_skills"] = []
         with self.assertRaises(ValueError):
             chat._validate(data, self.MESSAGE, {})
+
+
+    def test_restored_span_never_mixes_in_teammate_wish_or_negation_clauses(self):
+        message = "Docker로 배포 파이프라인을 직접 구축해봤어(CI 포함). 그 뒤 모니터링 설정은 팀원이 했어."
+        for quote in ("Docker로 배포 파이프라인을 직접 구축해봤어 모니터링 설정은 팀원이 했어",  # 중간 구절을 뺌(앞뒤 끝 맞추기)
+                      "Docker로 배포 파이프라인을 직접 구축해봤어(CI 포함) 그 뒤 모니터링 설정은 팀원이 했어"):  # 부호만 다름
+            with self.subTest(quote=quote):
+                data = asdict(chat.Turn(status="ok", add_experiences=[quote]))
+                chat._prune(data, message, {})
+                self.assertEqual(data["add_experiences"], [])
+        wish = "Kubernetes로 클러스터를 직접 운영해봤어. 그리고 Terraform으로 인프라를 자동화해 보고 싶어."
+        data = asdict(chat.Turn(status="ok", add_experiences=["Kubernetes로 클러스터를 직접 운영해봤어 그리고 Terraform으로 인프라를 자동화해 보고 싶어"]))
+        chat._prune(data, wish, {})
+        self.assertEqual(data["add_experiences"], [])
+        # 본인의 일만 있는 구간은 그대로 살아난다
+        data = asdict(chat.Turn(status="ok", add_experiences=["Docker로 배포 파이프라인을 직접 구축해봤어 CI 포함"]))
+        chat._prune(data, message, {})
+        self.assertEqual(len(data["add_experiences"]), 1)
+        self.assertIn(data["add_experiences"][0], message)  # 원문의 실제 구간
+        self.assertIn("CI 포함", data["add_experiences"][0])
+        self.assertNotIn("팀원", data["add_experiences"][0])
+
+
+if __name__ == "__main__":
+    unittest.main()

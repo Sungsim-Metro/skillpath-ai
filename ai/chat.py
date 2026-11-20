@@ -385,8 +385,18 @@ MIN_QUOTE_CHARS = 6  # 이보다 짧은 인용은 우연히 겹칠 수 있어 �
 ANCHOR_CHARS = 10  # 앞뒤 끝 맞추기에 쓰는 글자 수(공백·부호 제외). 짧은 인용에는 쓰지 않는다
 
 
+def _own_work_only(span: str) -> bool:
+    """구간 안의 모든 절이 본인이 한 일인가. 제삼자 절이 끼었거나 희망·부정 절이 있으면 거짓."""
+    clauses = [c for c in _CLAUSES.split(span) if c and c.strip(" ,")]
+    return len(list(owned_clauses(span))) == len(clauses) and not any(
+        WISH.search(c) or NEGATION.search(c) for c in clauses)
+
+
 def _verbatim_span(item: str, sources: list[str]) -> str | None:
-    """모델이 공백·괄호·문장부호만 바꿔 인용했다면 원문에 실제로 있는 그 구간을 돌려준다. 없으면 None."""
+    """모델이 공백·괄호·문장부호만 바꿔 인용했다면 원문에 실제로 있는 그 구간을 돌려준다. 없으면 None.
+
+    되살린 구간에 팀원이 한 일, 희망, 부정이 섞이면 경험으로 저장하지 않는다(_own_work_only).
+    """
     want = _LOOSE_DROP.sub("", item).casefold()
     if len(want) < MIN_QUOTE_CHARS:
         return None
@@ -395,12 +405,14 @@ def _verbatim_span(item: str, sources: list[str]) -> str | None:
         flat = "".join(c for _, c in kept).casefold()
         at = flat.find(want)
         if at >= 0:
-            return text[kept[at][0]:kept[at + len(want) - 1][0] + 1]
+            span = text[kept[at][0]:kept[at + len(want) - 1][0] + 1]
+            return span if _own_work_only(span) else None
         if len(want) >= 2 * ANCHOR_CHARS:  # 모델이 중간의 한 구절을 뺀 경우: 앞뒤 끝이 원문에 있으면 그 사이 원문 구간을 쓴다
             start = flat.find(want[:ANCHOR_CHARS])
             end = flat.find(want[-ANCHOR_CHARS:], start + ANCHOR_CHARS) if start >= 0 else -1
             if end >= 0:
-                return text[kept[start][0]:kept[end + ANCHOR_CHARS - 1][0] + 1]
+                span = text[kept[start][0]:kept[end + ANCHOR_CHARS - 1][0] + 1]
+                return span if _own_work_only(span) else None
     return None
 
 
