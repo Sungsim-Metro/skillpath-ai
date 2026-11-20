@@ -85,6 +85,19 @@ class ChatScreenTest(unittest.TestCase):
         self.assertTrue(any("[전화번호]" in t.value for t in at.text))
         self.assertTrue(any("Kubernetes" in t.value for t in at.text))
 
+    def test_history_is_hidden_and_nothing_is_saved_when_storage_is_off(self):
+        """저장소가 꺼져 있으면(실제 모드에서 DYNAMODB_CHAT_TABLE 없음) 패널도 '저장됩니다' 안내도 없고 저장도 없다."""
+        from app import chat as chat_screen
+
+        with patch.object(chat_history, "enabled", return_value=False):
+            at = self.open_screen()
+            self.authenticate(at, "저장 꺼짐", register=True)
+            at.chat_input[0].set_value("제가 Docker로 API를 배포했어요").run()
+            self.assertFalse(at.exception)
+            self.assertEqual([b.key for b in at.button if b.key in ("chat_new", "history_toggle")], [])
+            self.assertFalse({c.value for c in at.caption} & {chat_screen.GUEST_NOTICE, chat_screen.MEMBER_NOTICE})
+            self.assertFalse(self.history_db.exists())
+
     def test_only_real_counseling_turns_are_saved(self):
         """막힌 발화·범위 밖 질문·검사 실패·처리 오류는 화면에는 남아도 DB 에는 저장하지 않는다."""
         from backend.chat import Reply

@@ -194,7 +194,8 @@ PANEL_CSS = f"""<style>
 .st-key-chat_message {{ margin-left: {PANEL_REM + 1}rem; width: calc(100% - {PANEL_REM + 1}rem); }}
 </style>"""
 GUEST_NOTICE = "비회원의 대화는 저장되지 않습니다. 왼쪽에서 로그인하면 대화가 저장됩니다."
-MEMBER_NOTICE = "로그인했으므로 이 대화는 저장되고 왼쪽 '최근'에서 다시 볼 수 있습니다. 이메일·전화번호는 가려서 저장합니다."
+MEMBER_NOTICE = ("로그인했으므로 이 대화는 저장되고 왼쪽 '최근'에서 다시 볼 수 있습니다. "
+                 "이름·연락처·주소 같은 개인정보는 입력하지 마세요. 연락처 모양은 가려서 저장하지만 이름과 주소는 가릴 수 없습니다.")
 
 
 def _when(iso: str) -> str:
@@ -317,14 +318,16 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
     from backend import chat
 
     nickname = session.nickname if session else None
-    opened = st.session_state.get("history_open", True)
+    history_on = chat_history.enabled()  # 저장소가 준비되지 않았으면 패널도 '저장됩니다' 안내도 그리지 않는다
+    opened = history_on and st.session_state.get("history_open", True)
     panel, body = st.columns([1, 4]) if opened else (None, st.container())  # 패널은 메시지를 처리한 뒤 채운다
     with body:
-        if not opened:
+        if history_on and not opened:
             _toggle_button(False)
         st.title("학습 상담")
         st.caption("직접 맡은 일이나 사용한 기술을 알려주세요. 부족한 기술이나 교육과정은 원할 때 물어보세요.")
-        st.caption(MEMBER_NOTICE if nickname else GUEST_NOTICE)
+        if history_on:
+            st.caption(MEMBER_NOTICE if nickname else GUEST_NOTICE)
     if "chat_conversation" not in st.session_state:
         st.session_state.chat_conversation = chat.Conversation()
         st.session_state.chat_history = []
@@ -332,7 +335,9 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
     if not hasattr(conversation, "usage"):
         conversation.usage = SessionUsage()
     history = st.session_state.chat_history
-    message = st.chat_input("경험을 적거나 궁금한 점을 물어보세요.", key="chat_message")
+    # 저장되는 회원에게는 입력하는 자리에서 직접 알린다(제목 아래 안내문은 놓치기 쉽다)
+    placeholder = "경험을 적거나 궁금한 점을 물어보세요." + (" 이름·연락처는 적지 마세요." if history_on and nickname else "")
+    message = st.chat_input(placeholder, key="chat_message")
     reply = None
     if message and message.strip():
         st.session_state.pop("viewing_session", None)  # 새 질문은 현재 대화에 이어진다

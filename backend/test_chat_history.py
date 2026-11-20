@@ -90,6 +90,10 @@ class LocalHistoryTest(unittest.TestCase):
     def test_bad_session_id_is_rejected_and_save_failure_does_not_raise(self) -> None:
         with self.assertRaises(ValueError):
             chat_history.append_turn("kim", "S#x", "질문", "답")
+        # 화면이 부르는 record_reply 는 세션 ID 오류로도 상담을 막지 않는다(append_turn 은 버그를 드러내려고 올린다)
+        bad_reply = MagicMock(text="답", failed=False, action="note", courses=[])
+        with self.assertLogs(chat_history.logger, "WARNING"):
+            self.assertFalse(chat_history.record_reply("kim", "S#x", "질문", bad_reply))
         with patch.object(chat_history, "_connect", side_effect=OSError("secret 닉네임 kim")), \
                 self.assertLogs(chat_history.logger, "WARNING") as logs:
             self.assertFalse(chat_history.append_turn("kim", S1, "질문", "답"))
@@ -136,12 +140,18 @@ class DynamoHistoryTest(unittest.TestCase):
         self.assertEqual(chat_history.load_session("kim", S1),
                          [("q1", "a1", [{"course_id": "c1"}]), ("q2", "a2", [])])
 
-    def test_missing_table_name_is_a_logged_failure_for_append_and_an_error_for_reads(self) -> None:
+    def test_without_a_table_name_the_feature_is_off_and_silent(self) -> None:
+        """실제 모드에서 테이블 이름이 없으면 저장도 목록도 없고, 경고 로그도 쌓지 않는다(켜지지 않은 기능이다)."""
         with patch.dict(os.environ, {"DYNAMODB_CHAT_TABLE": ""}):
-            with self.assertLogs(chat_history.logger, "WARNING"):
+            self.assertFalse(chat_history.enabled())
+            with self.assertNoLogs(chat_history.logger, "WARNING"):
                 self.assertFalse(chat_history.append_turn("kim", S1, "q", "a"))
-            with self.assertRaises(ValueError):
-                chat_history.list_sessions("kim")
+                self.assertFalse(chat_history.record_reply("kim", S1, "q", MagicMock(text="a", failed=False, action="note", courses=[])))
+            self.assertEqual(chat_history.list_sessions("kim"), [])
+            self.assertEqual(chat_history.load_session("kim", S1), [])
+        self.table.put_item.assert_not_called()
+        with patch.dict(os.environ, {"DYNAMODB_CHAT_TABLE": "chat-test"}):
+            self.assertTrue(chat_history.enabled())
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """로그인한 회원의 상담 대화를 세션별로 보관한다(상담 화면의 대화 기록 목록용, 2026-11-20).
 
 - 비회원(닉네임 없음)은 저장하지 않는다. 세 함수 모두 아무것도 하지 않고 빈 값을 돌려준다.
+- 실제 모드에서 DYNAMODB_CHAT_TABLE 이 없으면 이 기능은 꺼진다(enabled() 가 False: 저장·목록·열람이 모두 조용히 비고, 화면도 패널과 안내를 그리지 않는다).
 - 저장하기 전에 이메일·전화번호(+82 국가번호 포함)·주민등록번호·외국인등록번호 모양의 글자는 코드로 가린다. 이름 같은 것은 못 가리므로 화면에 기록 안내를 둔다.
 - 저장 실패가 상담을 막지 않는다. append_turn 은 실패하면 False 를 돌려주고, 로그에는 예외 종류만 남긴다(대화·닉네임 없음).
 - 실제 모드는 DynamoDB(DYNAMODB_CHAT_TABLE), 모의 모드는 로컬 SQLite(SKILLPATH_MOCK_CHAT_DB)를 쓴다. 테이블 모양은 backend/README.md.
@@ -58,6 +59,12 @@ def _now() -> str:
 # 상담 대화로 인정하지 않는 턴의 요청 종류(backend.chat.Reply.action). 가드레일에 막힌 발화와 범위 밖 질문은 저장하지 않는다.
 # backend/chat.py 가 모델 대화 기록(state.history)에 넣지 않는 턴과 같은 기준이다. 처리 오류(reply 없음)와 검사 실패(Reply.failed)도 저장하지 않는다.
 UNSAVED_ACTIONS = ("blocked", "out_of_scope")
+
+
+def enabled() -> bool:
+    """대화 저장소가 준비됐는가. 모의 모드는 로컬 SQLite 라 늘 켜지고, 실제 모드는 DYNAMODB_CHAT_TABLE 이 있어야 켜진다.
+    꺼져 있으면 저장하지 않으면서 '저장됩니다'라고 안내하는 일이 없도록 화면도 이 값을 따른다."""
+    return is_mock() or bool(os.getenv("DYNAMODB_CHAT_TABLE", "").strip())
 
 
 def mask(text: str) -> str:
@@ -136,7 +143,7 @@ def append_turn(nickname: str | None, session_id: str, prompt: str, answer: str,
                 courses: list[dict] | tuple = ()) -> bool:
     """한 턴을 저장한다. 저장했으면 True, 비회원이거나 실패하면 False."""
     member = _check(nickname, session_id)
-    if member is None:
+    if member is None or not enabled():
         return False
     prompt, answer = mask(prompt), mask(answer)
     now = _now()
@@ -176,13 +183,17 @@ def record_reply(nickname: str | None, session_id: str, prompt: str, reply) -> b
     Reply 를 직접 가져오지 않고 속성으로만 읽는다(backend.chat 과 서로 불러오지 않게)."""
     if reply is None or getattr(reply, "failed", False) or getattr(reply, "action", "") in UNSAVED_ACTIONS:
         return False
-    return append_turn(nickname, session_id, prompt, reply.text, getattr(reply, "courses", []))
+    try:
+        return append_turn(nickname, session_id, prompt, reply.text, getattr(reply, "courses", []))
+    except ValueError:  # 세션 ID 형식 오류. append_turn 은 버그를 드러내려고 그대로 올리지만, 상담 화면이 깨지면 안 된다
+        logger.warning("대화 기록을 저장하지 못했습니다(세션 ID 형식).")
+        return False
 
 
 def list_sessions(nickname: str | None) -> list[dict]:
     """회원의 세션 목록을 최근 순으로 돌려준다: [{session_id, title, updated_at}]. 비회원은 빈 목록."""
     member = (nickname or "").strip()
-    if not member:
+    if not member or not enabled():
         return []
     if is_mock():
         db = _connect(create=False)
@@ -200,7 +211,7 @@ def list_sessions(nickname: str | None) -> list[dict]:
 def load_session(nickname: str | None, session_id: str) -> list[Turn]:
     """세션 하나의 대화를 시간 순으로 돌려준다. 비회원이거나 없는 세션이면 빈 목록."""
     member = _check(nickname, session_id)
-    if member is None:
+    if member is None or not enabled():
         return []
     if is_mock():
         db = _connect(create=False)
