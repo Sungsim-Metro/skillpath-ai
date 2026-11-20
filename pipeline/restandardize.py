@@ -17,6 +17,12 @@ raw·normalized·evidence 에 그대로 다시 적용해, 기술 이름·confide
 실행(SSO 로그인 후):
   BEDROCK_MOCK=0 python -m pipeline.restandardize --job-category ai_engineer          # 드라이런
   BEDROCK_MOCK=0 python -m pipeline.restandardize --job-category ai_engineer --apply --backup-dir outputs/backup
+
+복구(--apply 가 중간에 실패했거나 결과가 마음에 안 들 때): 백업 파일 이름의 시각(예: 20261121T010203Z)을 준다.
+  BEDROCK_MOCK=0 python -m pipeline.restandardize --job-category ai_engineer --backup-dir outputs/backup --restore 20261121T010203Z          # 확인만
+  BEDROCK_MOCK=0 python -m pipeline.restandardize --job-category ai_engineer --backup-dir outputs/backup --restore 20261121T010203Z --apply  # 되돌려 씀
+쓰는 순서는 추출 결과 → 수요 집계(마지막)다. 중간에 실패하면 둘이 어긋나므로 같은 명령을 다시 돌리거나(같은 건을 다시 쓰므로 안전) --restore 로 되돌린다.
+쓰기 전에 모든 항목이 DynamoDB 형식(float 금지)으로 바뀌는지 먼저 검사해, 도중에 형식 오류로 멈추는 일을 막는다.
 """
 from __future__ import annotations
 
@@ -92,6 +98,30 @@ def _top(snapshot: dict) -> list[tuple[str, int]]:
     return [(row["skill"], row["postings"]) for row in snapshot["demand"]["skills"][:TOP]]
 
 
+def check_writable(values: list[dict]) -> None:
+    """DynamoDB 가 받을 수 있는 형식인지(float 금지 등) 쓰기 전에 모두 검사한다. 안 되면 TypeError, 아무것도 쓰지 않는다."""
+    from boto3.dynamodb.types import TypeSerializer
+    serializer = TypeSerializer()
+    for value in values:
+        serializer.serialize(value)
+
+
+def restore(store, backup_dir: Path, job_category: str, stamp: str, apply: bool) -> int:
+    """백업 파일(추출 결과 목록, 수요 집계)로 되돌린다. 형식 검사를 먼저 하고 집계를 마지막에 쓴다."""
+    extractions = json.loads((backup_dir / f"{job_category}-extractions-{stamp}.json").read_text(encoding="utf-8"))
+    demand = json.loads((backup_dir / f"{job_category}-demand-{stamp}.json").read_text(encoding="utf-8"))
+    check_writable([*extractions, demand])
+    print(f"복구 대상: 추출 결과 {len(extractions)}건과 수요 집계(snapshot {demand.get('snapshot_id')})")
+    if not apply:
+        print("확인만 했습니다. 아무것도 쓰지 않았습니다(--apply 를 주면 되돌려 씁니다).")
+        return 0
+    for item in extractions:
+        store.save_extraction(item)
+    store.save_demand(demand)
+    print("복구했습니다.")
+    return 0
+
+
 def _dump(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
@@ -104,9 +134,10 @@ def main() -> int:
                         help="후처리 규칙 버전(기본 v2.1: 사전에 있는 기술이면 high). v1 이면 12개 대표명만 high")
     parser.add_argument("--apply", action="store_true", help="DynamoDB 에 쓴다(기본은 드라이런)")
     parser.add_argument("--backup-dir", type=Path, help="--apply 때 쓰기 전에 현재 값을 저장할 폴더(필수)")
+    parser.add_argument("--restore", metavar="STAMP", help="이 시각의 백업으로 되돌린다(--backup-dir 필요, 쓰려면 --apply)")
     args = parser.parse_args()
-    if args.apply and not args.backup_dir:
-        parser.error("--apply 는 --backup-dir 가 있어야 한다")
+    if (args.apply or args.restore) and not args.backup_dir:
+        parser.error("--apply 와 --restore 는 --backup-dir 가 있어야 한다")
     if os.getenv("BEDROCK_MOCK", "1") == "1":
         parser.exit(1, "BEDROCK_MOCK=0 과 AWS 로그인(SSO)이 필요합니다. 가짜 모드에서는 DynamoDB 를 읽지 않습니다.\n")
 
@@ -116,6 +147,8 @@ def main() -> int:
     os.environ.setdefault("DYNAMODB_EXTRACTIONS_TABLE", "skillpath-posting-extractions")
     os.environ.setdefault("DYNAMODB_DEMAND_TABLE", "skillpath-demand")
     store = DynamoDBStore.from_env()
+    if args.restore:
+        return restore(store, args.backup_dir, args.job_category, args.restore, args.apply)
     current = store.get_demand_snapshot(args.job_category)
     if current is None:
         parser.exit(1, "공개된 수요 집계가 없어 비교할 수 없습니다.\n")
@@ -155,6 +188,8 @@ def main() -> int:
     if not args.apply:
         print("\n드라이런입니다. 아무것도 쓰지 않았습니다.")
         return 0
+    marker_check = [{**i, "analysis": {**i["analysis"], "restandardized_at": "x", "restandardized_rules": "x"}} for i in changed]
+    check_writable([*marker_check, new_snapshot])  # 형식 오류는 백업·쓰기 전에 여기서 멈춘다
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     _dump(args.backup_dir / f"{args.job_category}-demand-{stamp}.json", current)
     _dump(args.backup_dir / f"{args.job_category}-extractions-{stamp}.json", items)
