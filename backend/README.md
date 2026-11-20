@@ -65,3 +65,49 @@ uv run --python 3.11 --with boto3 python -m backend.dynamodb create-chat-table
    ```
 4. 앱 로그에 `대화 기록을 저장하지 못했습니다(` 경고가 없다. `ClientError`가 보이면 2번 권한을, `ValueError`가 보이면 1번 설정을 먼저 본다.
 5. TTL이 켜져 있다(`aws dynamodb describe-time-to-live --table-name skillpath-chat-history`에서 `ENABLED`, `expires_at`).
+
+### 분석용 내보내기 (S3 `skillpath-ai-chat-export-<계정ID>`)
+
+대화 기록의 **원본은 DynamoDB**(`skillpath-chat-history`)이고, 사용자 테스트처럼 한꺼번에 볼 때만 S3로 **복사본**을 내보낸다.
+앱은 이 버킷을 읽거나 쓰지 않는다(앱 실행 역할의 S3 권한은 데이터 버킷뿐이다). 테이블을 되살리는 복구용 백업이 아니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 버킷 | `skillpath-ai-chat-export-<계정ID>` (ap-northeast-2, 계정 ID는 `aws sts get-caller-identity`로 확인) |
+| 공개 | 모두 차단 (`BlockPublicAcls`, `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets`) |
+| 암호화 | 기본 암호화(AES256) |
+| 수명 | 만든 지 **14일** 뒤 자동 삭제(규칙 `expire-14d`), 끊긴 업로드는 1일 뒤 정리 |
+| 버전 관리 | 끔 |
+
+**보관 기간 규칙.** S3 사본의 수명은 사본을 만든 날부터 센다. 사용자에게 알린 "대화 후 30일"을 넘지 않으려면
+**(대화한 날부터 내보낸 날까지의 일수) + 수명 ≤ 30** 이어야 한다. 테스트 직후에 내보내면 14일로 충분하다.
+30일이 지나면 DynamoDB 원본도 사라져 다시 내보낼 수 없다. 그 뒤에도 남길 분석 결과는 대화 원문이 아니라 집계한 숫자와 요약으로 따로 뽑는다.
+
+**내보내기**(사람이 실행한다. SSO 로그인 후, 읽는 권한은 `dynamodb:Scan`, 쓰는 권한은 이 버킷의 `s3:PutObject`):
+
+```bash
+export AWS_PROFILE=kosa AWS_REGION=ap-northeast-2 PYTHONIOENCODING=utf-8
+ACCT=$(aws sts get-caller-identity --query Account --output text); BUCKET=skillpath-ai-chat-export-$ACCT
+python -X utf8 - <<'PY' | aws s3 cp - "s3://$BUCKET/chat-history/export-$(date +%Y%m%d-%H%M).jsonl" --sse AES256
+import boto3, json
+t = boto3.resource("dynamodb", region_name="ap-northeast-2").Table("skillpath-chat-history")
+kw = {}
+while True:
+    r = t.scan(**kw)
+    for item in r["Items"]:
+        print(json.dumps(item, ensure_ascii=False, default=str))
+    if "LastEvaluatedKey" not in r:
+        break
+    kw = {"ExclusiveStartKey": r["LastEvaluatedKey"]}
+PY
+```
+
+한 줄에 한 항목(JSONL)이다. 세션 줄(`sk`가 `S#…`)과 턴 줄(`sk`가 `T#…`)이 함께 들어 있다.
+분석이 끝나면 14일을 기다리지 말고 바로 지운다: `aws s3 rm "s3://$BUCKET/chat-history/" --recursive`
+
+**주의.**
+- 대화 원문이다. 연락처·등록번호 모양은 가렸지만 이름과 주소는 가리지 못한다. 저장소, PR, 팀 채팅에 올리지 않고, 접근은 팀원으로 제한한다.
+- 내보낸 파일을 로컬에 내려받아 두지 않는다(위처럼 읽은 자리에서 바로 올린다).
+- 자동 실행(예약)은 하지 않는다. 앱 서버의 역할에 S3 쓰기 권한을 더해야 해서, 사람이 필요할 때만 실행한다.
+- 분석에 쓴다는 사실이 사용자 안내(설문과 화면 안내문)에 들어 있는지 확인한다.
+
