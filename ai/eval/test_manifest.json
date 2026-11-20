@@ -1,0 +1,208 @@
+{
+ "note": "#21 채점용 공고 확인표. 본문 원문·URL·제목은 두지 않는다. 공고와 정답지는 data/raw/eval_test/ (커밋 안 함)",
+ "created": "2026-11-20",
+ "count": 50,
+ "postings": [
+  {
+   "id": "hf-wanted-162049",
+   "text_sha256": "c058c9ce0de30fb10c4287846113354c2c37ff1fb149b56fed1d3bd4d5f95784"
+  },
+  {
+   "id": "hf-wanted-166692",
+   "text_sha256": "e835839a623b13ea20fc738cfdff3a45515d7c1180d8c286f61849369e8d27b4"
+  },
+  {
+   "id": "hf-wanted-246176",
+   "text_sha256": "f97b5b681566c792e89ec544ac0d8b8d1804b9a3ef84e2c29f910158fe784958"
+  },
+  {
+   "id": "hf-wanted-250075",
+   "text_sha256": "34f23bc117c3d7f9215ab9e1d70813df8192ee6448d9e1cde88ed20b7c2ed320"
+  },
+  {
+   "id": "hf-wanted-258130",
+   "text_sha256": "968c30c04bd575a7b5f740f3e5e3865dc08b4d712bcf1f258d7af4cd51dfef42"
+  },
+  {
+   "id": "hf-wanted-285686",
+   "text_sha256": "3239da81eec2bb9ee830189b39dfd940caffd24485b308a49e5f1493e8810824"
+  },
+  {
+   "id": "hf-wanted-289143",
+   "text_sha256": "51308a785bbb2dc7b2b067508ee66d118f5a52176364b9159a0290bd0bca66a4"
+  },
+  {
+   "id": "hf-wanted-304544",
+   "text_sha256": "c4ba9402f618475c52c5e23a722fd818433ed373c3a6a78bd0023de48bb2f958"
+  },
+  {
+   "id": "hf-wanted-315501",
+   "text_sha256": "2b33f289982459889238173436857630cc5f07350fcf590b1286d0911a50a63a"
+  },
+  {
+   "id": "hf-wanted-318367",
+   "text_sha256": "ce96b5baefb84a48f31d1ad463e81353947f729f7ed95dd611451ab0fb1de031"
+  },
+  {
+   "id": "hf-wanted-323919",
+   "text_sha256": "152d90846557088922236dd9442dbb78ac15eb0cdf17578d9e8991811cacb1c6"
+  },
+  {
+   "id": "hf-wanted-328202",
+   "text_sha256": "fa26454e109a5c040804994b7b362335d7506a1119376b5729bf658028a20aa5"
+  },
+  {
+   "id": "hf-wanted-332530",
+   "text_sha256": "d6fe7ddd3bfa11c4d73f001759292d13836fb168214251542d4338b6b26715f1"
+  },
+  {
+   "id": "hf-wanted-334267",
+   "text_sha256": "825ecd210afdcc01d8877cda5d54d9dc44a2deb47f8efbeb74e0327076bab1a0"
+  },
+  {
+   "id": "hf-wanted-339170",
+   "text_sha256": "6e0cab0f8f247b2612564178e707f0bca5cb5ea43350d3250af1147408049e36"
+  },
+  {
+   "id": "hf-wanted-341292",
+   "text_sha256": "632f9b058ee8820ba6aa65e32eb163a5158ebb799cd7513962407eff87bf07ec"
+  },
+  {
+   "id": "hf-wanted-342676",
+   "text_sha256": "df7edc48a859d5038b120a7464ee9daa56d490bfcb1f4a71eef60069eb035307"
+  },
+  {
+   "id": "hf-wanted-343025",
+   "text_sha256": "1edd2af39cd34359b8fcb0f35957341c17f387810ccaeb3bb081cc975a5dbe23"
+  },
+  {
+   "id": "hf-wanted-343753",
+   "text_sha256": "778650514558eb2bc06c6e87596996efa4c485719eceb662c2ceed884baea4b8"
+  },
+  {
+   "id": "hf-wanted-343889",
+   "text_sha256": "67105144d982652e3bb1d9cf8620a9f4165c150607dbbabdc32935f7075724bb"
+  },
+  {
+   "id": "hf-wanted-343893",
+   "text_sha256": "e5925568d2ee9570573c948e3a553a39d0f98f3bfc4aeb3522db693c55433446"
+  },
+  {
+   "id": "hf-wanted-345372",
+   "text_sha256": "f757a1f05eb579ef7df71ec1ca5ede3784922f3362c9c2ca3933d4bd5adbd8dc"
+  },
+  {
+   "id": "hf-wanted-347456",
+   "text_sha256": "1445174da8b4f72e64ca87c4cf889ef3fdd31c0d7ed6afc43f8cce036cf39d43"
+  },
+  {
+   "id": "hf-wanted-348773",
+   "text_sha256": "902b7d1822c0a074b2abd15ca06038b511995cd78a2d77772d2c4d2761a0c332"
+  },
+  {
+   "id": "hf-wanted-349279",
+   "text_sha256": "d9da57983b59fe0c6dd0408b4f1a984fb1a8d44bcfd7cc2871b7db3b4076fb63"
+  },
+  {
+   "id": "hf-wanted-351691",
+   "text_sha256": "897bf7724dc878b065d785cb95b542261db18b48ae004a1a899aed5bdfab02ab"
+  },
+  {
+   "id": "hf-wanted-352055",
+   "text_sha256": "c5757552f8e6fc6f02fcab7f271fac59d6526b46f84bd1e81161396a84382248"
+  },
+  {
+   "id": "hf-wanted-353181",
+   "text_sha256": "06e9e76cbdd1395b5835bdcc9043b03eb5f55f66f3e09ab164623373118bfe94"
+  },
+  {
+   "id": "hf-wanted-353634",
+   "text_sha256": "20ca7806d824d7517c8ded2b8c7d7581310805b369f42476ac98eb4b40e6da94"
+  },
+  {
+   "id": "hf-wanted-355361",
+   "text_sha256": "57c028b7cce4aa349386469b7949b40d906964dcc903ff1ad3e7c51d83ccc8b8"
+  },
+  {
+   "id": "hf-wanted-356059",
+   "text_sha256": "b499c23ed96e4b160f20755d734e5ed9f13c092178f2bbbf00cc004abcadac53"
+  },
+  {
+   "id": "hf-wanted-356105",
+   "text_sha256": "e2cca57cdc01c32f91109a57119bbc0d3513beb0681727ae1f1ccabf56df16e9"
+  },
+  {
+   "id": "hf-wanted-356543",
+   "text_sha256": "12faed2a32d5f0d2229e3cff0bd2f3ff60383199eade324fc4b2e57ba7c9640a"
+  },
+  {
+   "id": "hf-wanted-356821",
+   "text_sha256": "1e1ad35f067fd228a541eaf658043db93ec91a6506157ad696a0338b153b56df"
+  },
+  {
+   "id": "hf-wanted-357761",
+   "text_sha256": "aa9a04491e3e895cbe0240256e3968c58ef87a87ef5bb62b35176b65694a788b"
+  },
+  {
+   "id": "hf-wanted-358977",
+   "text_sha256": "d4cc3aaa19450e678c0aa1115217d956fa7a1f338ed1c252abbe6f339223d5f6"
+  },
+  {
+   "id": "hf-wanted-359937",
+   "text_sha256": "76bdf3f6d98a6c2234ba34e9bb22db5aba7f1cbe469050a5c8dc0d365514cdd2"
+  },
+  {
+   "id": "hf-wanted-360493",
+   "text_sha256": "5ff6f2c7f9b14dd352cb7e9ec673e7b0ae94e3b2501a7ba6ccad1e6fd85a46c5"
+  },
+  {
+   "id": "hf-wanted-360883",
+   "text_sha256": "b3df453ea9bcce5357b804e364d9cebaa123a6d222bc353e0116846587b6913b"
+  },
+  {
+   "id": "hf-wanted-362305",
+   "text_sha256": "0c38103b320c9753f300f4e03bca0f3dce53eb251e7c8fdc7fa416ad511da77e"
+  },
+  {
+   "id": "hf-wanted-362636",
+   "text_sha256": "13ecca905b53efa2ee43250eb7f5b17f0d513cc9457d074afc89b259b51743b6"
+  },
+  {
+   "id": "hf-wanted-364279",
+   "text_sha256": "db7f3e2c7d06492d4aa401d7a7efa4d02da1ca2e31b976329167818baaf49f64"
+  },
+  {
+   "id": "hf-wanted-364355",
+   "text_sha256": "c729cab99a54a0b8c91b367d1e19c0e3e8d6124298f9ab00fc25084fc982da54"
+  },
+  {
+   "id": "hf-wanted-365522",
+   "text_sha256": "cf5eb9e889a68f21a781f952cbc744402de06330c36de385db09c25f088d268b"
+  },
+  {
+   "id": "hf-wanted-365715",
+   "text_sha256": "e99b231ebd5b6302587e6262661e56d47e1af7aa716b0dfda20174029049fe9e"
+  },
+  {
+   "id": "rp-159158",
+   "text_sha256": "a5089f694abedd10adb30f4406404be4b4186616804c10109c7a4854b44b698b"
+  },
+  {
+   "id": "rp-159323",
+   "text_sha256": "370a832f561003966d301af2d2b58539099e2fedf05193ec6259863d0ff0deaf"
+  },
+  {
+   "id": "rp-159452",
+   "text_sha256": "125b59a7474aab61b806cd74acfa4d8717802652325fdb5faaa04b5182d9465b"
+  },
+  {
+   "id": "rp-159557",
+   "text_sha256": "d55e3f7e6ddb4bb138e5b28f9938b60d71a2f60138abee02a09408836a130d91"
+  },
+  {
+   "id": "rp-159632",
+   "text_sha256": "a4508cb628368bad75c2923407c84fe2633c231928366e3921734ca137e87663"
+  }
+ ],
+ "regenerated": "2026-11-20 채점 공고 10건 → 50건 확장(성진 요청). 최종 평가(outputs/eval/test_runs.log)를 아직 돌리지 않았고, 기존 10건의 id·본문 해시는 그대로 포함한다. 이전 확인표는 outputs/eval/test_manifest.10건.bak.json"
+}
