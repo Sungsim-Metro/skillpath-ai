@@ -60,9 +60,9 @@ class ChatScreenTest(unittest.TestCase):
         first = at.session_state["chat_conversation"].usage.session_id
         at.button(key="chat_new").click().run()  # 비회원도 새 채팅을 시작할 수 있다
         self.assertNotEqual(at.session_state["chat_conversation"].usage.session_id, first)
-        at.button(key="history_toggle").click().run()  # 패널을 접으면 새 채팅 버튼도 같이 접힌다
-        self.assertEqual([b for b in at.button if b.key == "chat_new"], [])
-        at.button(key="history_toggle").click().run()
+        at.button(key="history_toggle").click().run()  # 패널을 접어도 새 채팅 버튼은 제목 옆에 남는다(하나뿐)
+        self.assertEqual(len([b for b in at.button if b.key == "chat_new"]), 1)
+        at.button(key="history_toggle").click().run()  # 다시 펼치면 패널 안의 버튼 하나뿐이다(제목 옆 버튼은 사라진다)
         self.assertEqual(len([b for b in at.button if b.key == "chat_new"]), 1)
         at.chat_input[0].set_value(f"제가 Docker로 API를 배포했어요. 연락처 {PHONE}").run()
         self.assertFalse(at.exception)
@@ -101,7 +101,8 @@ class ChatScreenTest(unittest.TestCase):
             self.authenticate(at, "저장 꺼짐", register=True)
             at.chat_input[0].set_value("제가 Docker로 API를 배포했어요").run()
             self.assertFalse(at.exception)
-            self.assertEqual([b.key for b in at.button if b.key in ("chat_new", "history_toggle")], [])
+            # 패널과 접기 버튼은 없고, 대화를 비우는 새 채팅 버튼은 제목 옆에 남는다
+            self.assertEqual([b.key for b in at.button if b.key in ("chat_new", "history_toggle")], ["chat_new"])
             self.assertFalse({c.value for c in at.caption} & {chat_screen.GUEST_NOTICE, chat_screen.MEMBER_NOTICE})
             self.assertFalse(self.history_db.exists())
 
@@ -600,7 +601,7 @@ class ChatScreenTest(unittest.TestCase):
         at.radio(key="view").set_value("chat").run()
 
         self.diagnose(at, {"C1-4": 3})
-        at.button(key="chat_reset").click().run()  # 새 상담: 대화만 비우고 진단은 그대로 둔다
+        at.button(key="chat_new").click().run()  # 새 채팅: 대화만 비우고 진단은 그대로 둔다
         self.assertFalse(at.exception)
         self.assertFalse(at.chat_message)
         self.assertEqual(at.session_state["levels"], {"C1-4": 3})

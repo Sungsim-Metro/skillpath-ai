@@ -296,10 +296,16 @@ def _toggle_button(opened: bool) -> None:
               width="stretch" if opened else "content")
 
 
+def _new_chat_button(container=st) -> None:
+    """대화만 비우는 새 채팅 버튼. 패널 안과 제목 옆(패널이 없거나 접혔을 때)이 같은 버튼이고, 둘이 함께 나오지는 않는다."""
+    container.button("새 채팅", key="chat_new", on_click=_reset_chat, icon=":material/edit_square:", width="stretch",
+                     help="대화만 비웁니다. 로그인과 진단 결과는 그대로입니다.")
+
+
 def _history_panel(session: chat_profiles.ProfileSession | None) -> None:
     """학습 상담 왼쪽 패널: 새 채팅 버튼과 '최근' 대화 목록. 누르면 그 대화를 읽기 전용으로 연다(이어 쓰기는 아직 없다)."""
     _toggle_button(True)
-    st.button("새 채팅", key="chat_new", on_click=_reset_chat, icon=":material/edit_square:", width="stretch")
+    _new_chat_button()
     st.caption("최근")
     if session is None:
         st.caption("로그인하면 대화 기록이 저장됩니다.")
@@ -455,8 +461,8 @@ def render(job: str, sidebar_skills: list[str], session: chat_profiles.ProfileSe
             _toggle_button(False)
         heading, action = st.columns([4, 1], vertical_alignment="bottom")
         heading.title("학습 상담")
-        action.button("새 상담 시작", key="chat_reset", on_click=_reset_chat, icon=":material/refresh:",
-                      width="stretch", help="대화만 비웁니다. 로그인과 진단 결과는 그대로입니다.")
+        if not opened:  # 패널이 열려 있으면 패널의 '새 채팅'을 쓴다. 패널이 없거나 접혔을 때 대화를 비울 길을 남긴다
+            _new_chat_button(action)
         st.caption("직접 맡은 일이나 사용한 기술을 알려주세요. 부족한 기술이나 교육과정은 원할 때 물어보세요.")
         if history_on:
             st.caption(MEMBER_NOTICE if nickname else GUEST_NOTICE)
