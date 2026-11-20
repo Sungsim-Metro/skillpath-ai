@@ -47,6 +47,22 @@ CSS = """<style>
 /* 상담: 추천 질문은 알약 모양 */
 [class*="st-key-suggest_"] button { border-radius: 999px; }
 [class*="st-key-suggest_"] button:hover { background: #D6E2F6; border-color: #9DB4DA; color: #1F5FBF; }
+
+/* 좁은 화면(폰): 깨지지 않을 정도만 맞춘다. 열은 Streamlit 이 세로로 쌓는다 */
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding: 3.5rem 1rem 6rem; }
+  [data-testid="stMainBlockContainer"] h1 { font-size: 1.6rem; }
+  [data-testid="stMetricValue"] { font-size: 1.5rem; }
+  .st-key-journey p { border-radius: 0.75rem; }
+  /* 숫자 카드는 한 줄에 둘씩 놓아 첫 화면을 다 차지하지 않게 한다 */
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) { flex-direction: row !important; flex-wrap: wrap; gap: 0.5rem; }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) > [data-testid="stColumn"] {
+    flex: 1 1 calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important; width: auto !important; }
+  [class*="st-key-step_"], [class*="st-key-step_"] button { width: 100%; }
+  /* 대화 기록 패널은 숨기고 입력창을 화면 폭대로 쓴다(패널 CSS 가 뒤에 들어오므로 !important) */
+  [data-testid="stColumn"]:has(.st-key-history_panel) { display: none !important; }
+  .st-key-chat_message { margin-left: 0 !important; width: 100% !important; }
+}
 </style>"""
 
 
