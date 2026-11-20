@@ -47,11 +47,17 @@ def _dialog() -> None:
     st.checkbox("다시 보지 않기", value=True, key="tour_hide")
     back, forward = st.columns(2)
     back.button("이전", key="tour_prev", disabled=step == 0, on_click=_move, args=(-1,), width="stretch")
+    # 닫는 버튼은 on_click 이 아니라 st.rerun() 으로 처리한다. 창(dialog)은 프래그먼트라서 콜백만 쓰면 창 안만 다시 그려져
+    # 닫히지 않고 1단계로 돌아간다. st.rerun() 은 앱 전체를 다시 실행해 창을 닫는다.
     if step < len(STEPS) - 1:
         forward.button("다음", key="tour_next", type="primary", on_click=_move, args=(1,), width="stretch")
+        done = False
     else:
-        forward.button("시작하기", key="tour_done", type="primary", on_click=_close, width="stretch")
-    st.button("건너뛰기", key="tour_skip", on_click=_close, type="tertiary")
+        done = forward.button("시작하기", key="tour_done", type="primary", width="stretch")
+    skipped = st.button("건너뛰기", key="tour_skip", type="tertiary")
+    if done or skipped:
+        _close()
+        st.rerun()
 
 
 def show_if_open() -> None:
