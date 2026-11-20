@@ -403,3 +403,42 @@ class RealBoundaryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PruneTest(unittest.TestCase):
+    """모델 답에서 사용자 발화로 확인되지 않는 항목만 덜어 낸다. 남는 항목은 모두 발화에 실제로 있어야 한다."""
+
+    MESSAGE = ("Docker 컨테이너를 띄워서 SSH로 접속하여 변경된 파일에 대한 최신화(Github도 사용) 작업을 진행해본 경험이 있어. "
+               "AWS 환경에서 S3 버킷 생성, EC2 인스턴스 생성을 해봤어. Kubernetes는 팀원이 썼어.")
+
+    def _prune(self, **fields):
+        data = asdict(chat.Turn(status="ok", **fields))
+        chat._prune(data, self.MESSAGE, {})
+        return data
+
+    def test_vendor_prefix_is_dropped_when_only_the_bare_name_was_said(self):
+        data = self._prune(add_skills=["AWS S3", "AWS EC2", "Docker"])
+        self.assertEqual(data["add_skills"], ["S3", "EC2", "Docker"])
+
+    def test_skills_not_in_the_message_or_owned_by_others_are_dropped(self):
+        data = self._prune(add_skills=["Terraform", "Kubernetes", "Docker"])  # 말한 적 없음 / 팀원이 씀
+        self.assertEqual(data["add_skills"], ["Docker"])
+
+    def test_quote_missing_a_phrase_is_replaced_by_the_original_span(self):
+        quote = "Docker 컨테이너를 띄워서 SSH로 접속하여 변경된 파일에 대한 최신화 작업을 진행해본 경험이 있어"
+        data = self._prune(add_experiences=[quote])
+        self.assertEqual(len(data["add_experiences"]), 1)
+        self.assertIn("(Github도 사용)", data["add_experiences"][0])
+        self.assertIn(data["add_experiences"][0], self.MESSAGE)
+
+    def test_invented_or_too_short_quotes_are_dropped(self):
+        data = self._prune(add_experiences=["Terraform으로 전체 인프라를 자동화하고 운영했습니다", "SSH 접속"])
+        self.assertEqual(data["add_experiences"], [])
+
+    def test_pruned_turn_passes_validation_and_others_stay_strict(self):
+        data = self._prune(add_skills=["AWS S3", "Terraform"], add_experiences=["EC2 인스턴스 생성을 해봤어"])
+        chat._validate(data, self.MESSAGE, {})  # 예외 없음
+        data["remove_skills"] = ["Docker"]  # 확인된 적 없는 정정은 여전히 거부
+        data["add_skills"] = []
+        with self.assertRaises(ValueError):
+            chat._validate(data, self.MESSAGE, {})
