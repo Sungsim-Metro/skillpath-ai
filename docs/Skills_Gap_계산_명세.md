@@ -121,7 +121,8 @@ ALIASES = {
     "Amazon Bedrock": ["Amazon Bedrock", "Bedrock", "아마존 베드록"],
     "SageMaker": ["SageMaker", "세이지메이커", "Amazon SageMaker"],
     "Java": ["Java", "자바"],
-    "Spring": ["Spring", "Spring Boot", "스프링"],
+    "Spring": ["Spring", "스프링"],
+    "Spring Boot": ["Spring Boot", "스프링부트"],
     "React": ["React", "리액트"],
     "정보보안": ["정보보안", "보안 관제", "클라우드 보안"],
 }
