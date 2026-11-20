@@ -420,9 +420,9 @@ def _handle_turn(state: Conversation, message: str, job: str, sidebar_skills: li
     try:
         allowed = intake.guard_input(message)
     except intake.ChatIntakeError:
-        return Reply("요청의 가드레일 점검을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        return Reply("요청의 가드레일 점검을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.", action="intake", failed=True)
     if not allowed:
-        return Reply("이 요청은 학습 상담 범위에서 처리할 수 없습니다.")
+        return Reply("이 요청은 학습 상담 범위에서 처리할 수 없습니다.", action="blocked")
     read_failed = False
     if state.session is not None and state.profile is None:
         try:
