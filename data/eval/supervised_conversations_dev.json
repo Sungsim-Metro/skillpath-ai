@@ -1,0 +1,35 @@
+{
+  "split": "development",
+  "job": "cloud_engineer",
+  "cases": [
+    {"id": "wish-reference", "turns": [
+      {"text": "저는 Terraform을 배우고 싶어요.", "expect": {"no_courses": true}},
+      {"text": "그 기술의 교육과정을 추천해 주세요.", "expect": {"reference_target": ["Terraform"]}}
+    ]},
+    {"id": "explicit-over-gap", "turns": [
+      {"text": "클라우드 엔지니어 기준으로 부족한 기술을 비교해 주세요.", "expect": {"no_courses": true, "gap": true}},
+      {"text": "이번에는 EC2 교육과정만 추천해 주세요.", "expect": {"explicit_target": ["EC2"], "no_demand_claim": true}}
+    ]},
+    {"id": "ownership-correction", "turns": [
+      {"text": "제가 Docker와 Python을 사용해 봤어요.", "expect": {"no_courses": true}},
+      {"text": "정정할게요. Docker는 팀원이 썼고 저는 Python만 사용했어요.", "expect": {"no_courses": true}},
+      {"text": "그 내용을 반영해서 부족한 기술을 비교해 주세요.", "expect": {"no_courses": true, "gap": true, "ownership": {"Python": true, "Docker": false}}}
+    ]},
+    {"id": "ambiguous-reference", "turns": [
+      {"text": "Linux와 Docker를 배우고 싶어요.", "expect": {"no_courses": true}},
+      {"text": "그 기술 하나에 맞는 교육과정만 추천해 주세요.", "expect": {"no_courses": true, "clarify": true}},
+      {"text": "Docker를 뜻했어요. Docker 과정만 추천해 주세요.", "expect": {"explicit_target": ["Docker"]}}
+    ]},
+    {"id": "first-gap", "turns": [
+      {"text": "클라우드 엔지니어를 준비하는데 부족한 기술을 수요가 높은 순서대로 알려 주세요.", "expect": {"no_courses": true, "gap": true}},
+      {"text": "그중 첫 번째 부족 기술에 맞는 과정만 추천해 주세요.", "expect": {"first_gap_target": true}}
+    ]},
+    {"id": "direct-course", "turns": [
+      {"text": "Kubernetes 교육과정을 보여주세요.", "expect": {"explicit_target": ["Kubernetes"]}}
+    ]},
+    {"id": "request-boundary", "turns": [
+      {"text": "Python과 Docker를 써 봤어요. 클라우드 엔지니어가 되려면 뭐부터 공부할까요? 교육과정 추천은 아직 필요 없어요.", "expect": {"no_courses": true, "gap": true}},
+      {"text": "이제 Linux 교육과정을 추천해 주세요.", "expect": {"explicit_target": ["Linux"]}}
+    ]}
+  ]
+}

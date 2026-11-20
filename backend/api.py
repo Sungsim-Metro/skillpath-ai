@@ -49,6 +49,9 @@ _recommend_cache_lock = Lock()
 logger = logging.getLogger(__name__)
 
 UNCLASSIFIED = "미분류"
+# Gap 에 넣는 기술은 공고의 이 비율 이상이 요구한 것만이다. 소수 공고에만 나오는 기술(기술이 100개가 넘으면 대부분)은
+# 부족 여부를 따져도 의미가 없다. AI 직무는 10% 에서 12개 안팎이 된다(2026-11-20). 시장 수요 화면은 전체를 보여 준다.
+GAP_MIN_SHARE = 0.10
 
 # 가짜 모드에서만 쓰는 최소 별칭 표. 실제 표준화는 pipeline 의 별칭 사전(#13)이 맡는다.
 _MOCK_ALIASES = {
@@ -117,7 +120,7 @@ def _area_of(skill: str, job_category: str = DEFAULT_JOB) -> tuple[str, str]:
     return (area_id, table["areas"][area_id]) if area_id else ("UNCLASSIFIED", UNCLASSIFIED)
 
 
-def get_gap(job_category: str, owned_skills, min_ratio: float = 0.2) -> list[dict]:
+def get_gap(job_category: str, owned_skills, min_ratio: float = GAP_MIN_SHARE) -> list[dict]:
     """공고 비율이 min_ratio 이상인 기술을 수요 높은 순으로 돌려주고, 내 단계와 보유 여부를 표시한다.
 
     대시보드와 상담은 owned_skills에 {세부 능력 ID 또는 custom:기술명: 0~5}를 전달한다.
@@ -195,6 +198,12 @@ def get_level_radar(job_category: str, owned_skills) -> list[dict]:
     return rows
 
 
+def _representative(demand: dict) -> dict:
+    """Gap 에 쓸 기술만 남긴다(공고 비율 GAP_MIN_SHARE 이상). 입력은 고치지 않는다."""
+    total = demand["total_postings"]
+    return {**demand, "skills": [s for s in demand["skills"] if total and s["postings"] / total >= GAP_MIN_SHARE]}
+
+
 def get_area_gap(job_category: str, owned_skills) -> list[dict]:
     """영역(능력 범주)마다 공고 수요와 그중 내가 채운 몫을 돌려준다. 계산은 전부 코드로 한다.
 
@@ -203,7 +212,7 @@ def get_area_gap(job_category: str, owned_skills) -> list[dict]:
       coverage = owned / demand (demand 가 0이면 0). 기준 단계에 못 미친 기술은 missing_skills 에 남는다.
     영역 순서는 data/skill_areas.json 의 순서이고, 사전에 없는 기술은 마지막의 미분류에 모은다.
     """
-    demand = get_demand(job_category)
+    demand = _representative(get_demand(job_category))
     skills = [s["skill"] for s in demand["skills"]]
     return _area_rows(demand, skill_levels(owned_skills, skills, job_category), job_category)
 
@@ -237,7 +246,7 @@ def get_area_gap_after(job_category: str, owned_skills, recommendations: list[di
     지금 단계가 더 높으면 그대로 둔다. 형식은 get_area_gap 과 같고, 영역마다 raised 가 더 붙는다:
     [{"skill", "from", "to"}] 단계가 오르는 기술. 과정을 마친다고 그 단계가 된다는 보장은 없다. 화면에는 "예상"이라고 적는다.
     """
-    demand = get_demand(job_category)
+    demand = _representative(get_demand(job_category))
     skills = [s["skill"] for s in demand["skills"]]
     now = skill_levels(owned_skills, skills, job_category)
     after = dict(now)
@@ -326,6 +335,15 @@ def get_course_coverage(job_category: str) -> list[dict]:
     return rows
 
 
+def recommendation_demand(row: dict, total: int) -> dict:
+    """수요 집계 한 행을 추천 사유에 사용할 건수와 필수 비율로 바꾼다."""
+    return {
+        "postings": row["postings"],
+        "of": total,
+        "required_ratio": round(row["required"] / row["postings"], 2) if row["postings"] else 0,
+    }
+
+
 def demand_pairs(job_category: str, gap_skills: list[str]) -> list[tuple[str, dict]]:
     """추천에 넘기는 (기술, 수요 숫자) 목록. 숫자는 수요 집계에서 코드로 만든다."""
     demand_all = get_demand(job_category)
@@ -333,16 +351,13 @@ def demand_pairs(job_category: str, gap_skills: list[str]) -> list[tuple[str, di
     pairs = []
     for skill in gap_skills:
         d = by_demand.get(skill, {"postings": 0, "required": 0})  # 수요에 없는 기술은 0 으로 넘긴다
-        pairs.append((skill, {
-            "postings": d["postings"],
-            "of": demand_all["total_postings"],
-            "required_ratio": round(d["required"] / d["postings"], 2) if d["postings"] else 0,
-        }))
+        pairs.append((skill, recommendation_demand(d, demand_all["total_postings"])))
     return pairs
 
 
 def get_recommendations(job_category: str, gap_skills: list[str], *, review: bool = False,
-                        levels: dict[str, float] | None = None) -> list[dict]:
+                        levels: dict[str, float] | None = None,
+                        review_evidence: dict[str, dict] | None = None) -> list[dict]:
     """부족 기술마다 추천(③)을 돌려준다. 찾은 과정이 없으면 courses 가 빈 목록이다.
 
     levels 는 부족 기술의 내 단계 {기술: 0~5}(get_gap 의 user_level)다. 주면 추천마다 user_level 을 적고,
@@ -354,11 +369,18 @@ def get_recommendations(job_category: str, gap_skills: list[str], *, review: boo
     실제 모드는 gap_skills 앞에서부터(화면은 수요 높은 순으로 준다) RECOMMEND_TOP_N 개만 추천하고,
     같은 직무·같은 기술·같은 수요 숫자면 Bedrock 을 다시 부르지 않고 캐시를 돌려준다.
     채팅에서 review=True이면 과정 목표로 사유를 검증한다. 모의 모드에서도 로컬 과정 목록을 쓴다.
+    명시한 기술의 상담은 직무 집계에서 읽은 review_evidence를 넘긴다. 해당 기술의 행이 없으면
+    이 내부 결과의 demand는 None이며, 검토한 과정 목표만 사유에 쓴다.
     """
     mock = is_mock()
     if not mock or review:
         gap_skills = gap_skills[:RECOMMEND_TOP_N]  # 기술별 모델 호출 비용과 화면 길이를 제한한다
-    pairs = demand_pairs(job_category, gap_skills)
+    if review_evidence is None:
+        pairs = demand_pairs(job_category, gap_skills)
+    else:
+        if not review:
+            raise ValueError("수요 근거 지정은 검토를 거치는 추천에서만 지원합니다.")
+        pairs = [(skill, review_evidence.get(skill)) for skill in gap_skills]
     if mock and not review:
         by_skill = {r["gap_skill"]: r for r in _load("recommendations.json", job_category)}
         return [_with_level(by_skill[skill] if skill in by_skill else {"gap_skill": skill, "demand": demand, "courses": []},
@@ -370,7 +392,8 @@ def get_recommendations(job_category: str, gap_skills: list[str], *, review: boo
     kb_scope = None if mock else (os.getenv("AWS_REGION", "ap-northeast-2"), os.getenv("BEDROCK_KB_ID", ""))
     # 모델도 키에 넣는다. 상담 실험은 메시지마다 모델이 달라서, 다른 모델이 쓴 이유가 섞여 나오면 안 된다
     key = (job_category, review, mock, kb_scope, None if mock else current_model(),
-           tuple((skill, d["postings"], d["of"], d["required_ratio"]) for skill, d in pairs))
+           tuple((skill, (d["postings"], d["of"], d["required_ratio"]) if d is not None else None)
+                 for skill, d in pairs))
     with _recommend_cache_lock:
         cached = _recommend_cache.get(key)
         if cached is not None:
