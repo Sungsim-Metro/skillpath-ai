@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
+from app.testing import set_job
+
 from ai.chat import Turn
 from backend import api, chat_history, chat_profiles
 from backend.jobs import JOBS
@@ -18,6 +20,11 @@ from backend.jobs import JOBS
 MAIN = str(Path(__file__).with_name("main.py"))
 # 공개 검사가 전화번호 모양을 찾으므로 예시 번호는 조각을 이어 만든다
 PHONE = "010-" + "1234-" + "5678"
+
+
+def tokens(at) -> str:
+    """이 대화의 누적 토큰. 화면에는 보여 주지 않아 상담 상태에서 읽는다."""
+    return f'{at.session_state["chat_conversation"].usage.total_tokens:,}'
 
 
 class ChatScreenTest(unittest.TestCase):
@@ -150,24 +157,27 @@ class ChatScreenTest(unittest.TestCase):
               patch("ai.bedrock._call", side_effect=replies) as call):
             at.chat_input[0].set_value("내 경험을 정리해줘").run()
             self.assertIn("보유 기술", at.chat_message[-1].text[0].value)
-            self.assertEqual(at.metric[0].value, "33")
+            self.assertEqual(tokens(at), "33")
             at.chat_input[0].set_value("다시 정리해줘").run()
             self.assertIn("해석하지 못했습니다", at.chat_message[-1].text[0].value)
-            self.assertEqual(at.metric[0].value, "110")
-            self.assertTrue(any(f"입력 100 · 출력 10 · 세션 ID `{session_id}`" in c.value for c in at.caption))
+            self.assertEqual(tokens(at), "110")
+            usage = at.session_state["chat_conversation"].usage
+            self.assertEqual((usage.input_tokens, usage.output_tokens, usage.session_id), (100, 10, session_id))
+            self.assertFalse(at.metric)  # 토큰 수는 상담 화면에 보여 주지 않는다
+            self.assertFalse(any("세션 ID" in c.value or "토큰" in c.value for c in at.caption))
             at.run()
             other.run()
-            self.assertEqual(at.metric[0].value, "110")
-            self.assertEqual(other.metric[0].value, "0")
+            self.assertEqual(tokens(at), "110")
+            self.assertEqual(tokens(other), "0")
             self.assertEqual(call.call_count, 4)
 
         self.authenticate(at, "처음 닉네임", register=True)
         at.radio(key="view").set_value("gap").run()
         at.radio(key="view").set_value("chat").run()
-        self.assertEqual(at.metric[0].value, "110")
+        self.assertEqual(tokens(at), "110")
         self.assertEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
         at.button(key="auth_logout").click().run()
-        self.assertEqual(at.metric[0].value, "0")
+        self.assertEqual(tokens(at), "0")
         self.assertNotEqual(session_id, at.session_state["chat_conversation"].usage.session_id)
 
         root = str(Path(MAIN).parent.parent)
@@ -190,7 +200,7 @@ class ChatScreenTest(unittest.TestCase):
         at.run()
         self.assertFalse(at.exception)
         self.assertEqual([item.text[0].value for item in at.chat_message], messages)
-        self.assertEqual(at.metric[0].value, "0")
+        self.assertEqual(tokens(at), "0")
         session_id = at.session_state["chat_conversation"].usage.session_id
         at.run()
         self.assertEqual(at.session_state["chat_conversation"].usage.session_id, session_id)
@@ -246,15 +256,36 @@ class ChatScreenTest(unittest.TestCase):
                 self.assertFalse(at.exception)
                 self.assertEqual(len(at.get("feedback")), 1)        # 답 하나에 평가 위젯 하나
                 self.assertFalse(at.radio(key="view") is None)
-                self.assertFalse([r for r in at.radio if r.key and r.key.startswith("ab_")])
+                def choices(screen):
+                    return [b for b in screen.button if b.key and b.key.startswith("ab_")]
+
+                self.assertFalse(choices(at))
                 at.chat_input[0].set_value("그중 먼저 들을 교육과정을 추천해줘.").run()
                 self.assertFalse(at.exception)
-                choice = [r for r in at.radio if r.key and r.key.startswith("ab_")]
-                self.assertEqual(len(choice), 1)
+                self.assertEqual([b.label for b in choices(at)], ["추천 A 고르기", "추천 B 고르기", "둘이 비슷해요"])
                 self.assertEqual([m.value for m in at.markdown if m.value in ("**추천 A**", "**추천 B**")],
                                  ["**추천 A**", "**추천 B**"])
-                choice[0].set_value("A").run()
+                choices(at)[0].click().run()
                 self.assertFalse(at.exception)
+                self.assertFalse(choices(at))                       # 고르면 선택 버튼이 사라지고
+                self.assertTrue(any("이 추천을 골랐습니다" in c.value for c in at.caption))
+                self.assertEqual([t.value for t in at.toast], ["의견 주셔서 감사합니다!"])
+                rated = at.get("feedback")
+                self.assertEqual(len(rated), 2)                     # 답 두 개에 평가 위젯이 하나씩
+                at.session_state[rated[0].key] = 1                  # 좋아요를 누른 것과 같은 상태로 콜백을 부른다
+                from app import chat as chat_screen
+                entry = at.session_state["chat_history"][0]
+                with patch.object(chat_screen.st, "session_state", {rated[0].key: 1}), \
+                     patch.object(chat_screen.st, "toast") as toast:
+                    chat_screen._on_rating(entry)
+                toast.assert_called_once_with("의견 주셔서 감사합니다!")
+                failed = at.session_state["chat_history"][1]
+                with patch.object(chat_screen.st, "session_state", {f"fb_{failed['turn_id']}": 0}),                      patch.object(chat_screen.st, "toast") as toast,                      patch.object(experiments, "save_feedback", side_effect=RuntimeError("down")):
+                    chat_screen._on_rating(failed)
+                self.assertNotIn("rated", failed)                   # 저장하지 못한 평가는 숨기지 않고 감사 인사도 하지 않는다
+                self.assertNotIn("감사", toast.call_args.args[0])
+                at.run()
+                self.assertEqual(len(at.get("feedback")), 1)        # 평가한 답의 위젯은 숨긴다
                 rows = experiments.load_feedback()
             self.assertEqual(len(rows), 2)                          # 턴마다 한 건(평가를 안 눌러도 요청 종류와 토큰은 남는다)
             self.assertEqual(sorted(row["action"] for row in rows), ["courses", "gap"])
@@ -302,7 +333,6 @@ class ChatScreenTest(unittest.TestCase):
         self.assertEqual(at.session_state["levels"]["C1-4"], 4)
         at.button(key="auth_logout").click().run()
         self.assertTrue(at.session_state["levels_example"])
-        self.assertTrue(at.button(key="open_report").disabled)
         self.assertEqual(at.text_input(key="auth_password").value, "")
         self.assertFalse(at.exception)
 
@@ -399,8 +429,8 @@ class ChatScreenTest(unittest.TestCase):
         message = "제가 Docker로 API를 배포했어요."
         at.chat_input[0].set_value(message).run()
         next(r for r in at.radio if "컨테이너" in r.label).set_value(1).run()
-        at.selectbox(key="job").set_value("ai_engineer").run()
-        at.selectbox(key="job").set_value("cloud_engineer").run()
+        set_job(at, "ai_engineer")
+        set_job(at, "cloud_engineer")
         at.chat_input[0].set_value(message).run()
         self.assertEqual(next(r.value for r in at.radio if "컨테이너" in r.label), 3)
         self.assertTrue(at.button(key="apply_chat_levels").disabled)
@@ -427,7 +457,7 @@ class ChatScreenTest(unittest.TestCase):
         self.assertIn("Docker", question.label)
         self.assertIn("Kubernetes", question.label)
         question.set_value(4).run()
-        at.selectbox(key="job").set_value("ai_engineer").run()
+        set_job(at, "ai_engineer")
         self.assertFalse([r for r in at.radio if r.key.startswith("chat_level_")])
         at.chat_input[0].set_value("제가 Python을 사용했어요.").run()
         at.radio(key="chat_level_A2-2").set_value(1).run()
@@ -455,7 +485,6 @@ class ChatScreenTest(unittest.TestCase):
             self.assertFalse(at.chat_message)
             self.assertIsNot(at.session_state["chat_conversation"], first_state)
             self.assertTrue(at.session_state["levels_example"])
-            self.assertTrue(at.button(key="open_report").disabled)
             for key in ("lv_page", "extraction", "extracted_text", "profile_session"):
                 self.assertNotIn(key, at.session_state)
             at.chat_input[0].set_value("내 상태를 정리해줘").run()
@@ -533,12 +562,66 @@ class ChatScreenTest(unittest.TestCase):
 
         second = self.open_screen()
         self.authenticate(second, "역량 예시", password="x")
-        second.selectbox(key="job").set_value("ai_engineer").run()
+        set_job(second, "ai_engineer")
         second.chat_input[0].set_value("제가 acme.flow를 사용했어요. acme.flow만 프로필에 저장해줘.").run()
         self.assertFalse(second.exception)
         profile = chat_profiles.load_profile(second.session_state["profile_session"])
         self.assertEqual(profile["skills"], ["Acme.Flow"])
         self.assertEqual(profile["levels"], {})
+
+    def test_suggested_questions_new_chat_and_the_way_back_from_a_shortcut(self):
+        at = self.open_screen()
+        suggestions = [b for b in at.button if b.key and b.key.startswith("suggest_")]
+        self.assertEqual(len(suggestions), 4)
+        self.assertTrue(any("목표 직무 클라우드 엔지니어" in c.value and "수준 진단 전" in c.value for c in at.caption))
+        next(b for b in suggestions if "부족" in b.label).click().run()  # 추천 질문을 누르면 그 글이 메시지로 들어간다
+        self.assertFalse(at.exception)
+        self.assertEqual(len(at.chat_message), 2)
+        self.assertEqual(at.chat_message[0].text[0].value, "지금 뭐가 부족해?")
+        self.assertNotIn("chat_suggested", at.session_state)
+        at.run()
+        self.assertEqual(len(at.chat_message), 2)  # 다시 그려도 같은 질문을 또 보내지 않는다
+
+        self.assertFalse([b for b in at.button if b.key == "back_to_chat"])
+        next(b for b in at.button if b.key and b.key.startswith("go_")).click().run()
+        self.assertEqual(at.session_state["view"], "gap")
+        at.button(key="back_to_chat").click().run()  # 바로가기로 넘어간 화면에서 상담으로 돌아간다
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state["view"], "chat")
+        self.assertEqual(len(at.chat_message), 2)
+        at.radio(key="view").set_value("gap").run()
+        self.assertFalse([b for b in at.button if b.key == "back_to_chat"])  # 메뉴로 직접 가면 돌아가기 버튼이 없다
+        at.radio(key="view").set_value("chat").run()
+        next(b for b in at.button if b.key and b.key.startswith("go_")).click().run()
+        at.radio(key="view").set_value("demand").run()  # 바로가기로 간 뒤 메뉴로 다른 화면에 가면 버튼이 남지 않는다
+        self.assertFalse([b for b in at.button if b.key == "back_to_chat"])
+        at.radio(key="view").set_value("gap").run()
+        self.assertFalse([b for b in at.button if b.key == "back_to_chat"])
+        at.radio(key="view").set_value("chat").run()
+
+        self.diagnose(at, {"C1-4": 3})
+        at.button(key="chat_reset").click().run()  # 새 상담: 대화만 비우고 진단은 그대로 둔다
+        self.assertFalse(at.exception)
+        self.assertFalse(at.chat_message)
+        self.assertEqual(at.session_state["levels"], {"C1-4": 3})
+        self.assertTrue(any("진단으로 확인한 보유 기술" in c.value for c in at.caption))
+
+    def test_level_questions_survive_the_turn_that_sets_the_job_by_conversation(self):
+        at = self.open_screen()
+        self.assertEqual(at.session_state["job"], "cloud_engineer")
+        at.chat_input[0].set_value("AI 엔지니어 준비 중이고 제가 RAG를 사용했어요.").run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state["job"], "ai_engineer")  # 대화로 직무가 바뀌고
+        pending = at.session_state["chat_assessment"]            # 그 턴에 말한 기술의 문항도 남는다
+        self.assertEqual((pending[0], pending[1]), ("ai_engineer", ["RAG"]))
+
+    def test_survey_button_appears_only_with_an_https_address(self):
+        self.assertFalse(self.open_screen().sidebar.get("link_button"))
+        with patch.dict(os.environ, {"SURVEY_URL": "javascript:alert(1)"}):
+            self.assertFalse(self.open_screen().sidebar.get("link_button"))
+        with patch.dict(os.environ, {"SURVEY_URL": "https://example.com/form"}):
+            links = self.open_screen().sidebar.get("link_button")
+        self.assertEqual([item.proto.url for item in links], ["https://example.com/form"])
 
     def test_returned_course_links_have_plain_text_details(self):
         at = self.open_screen()
@@ -554,10 +637,12 @@ class ChatScreenTest(unittest.TestCase):
         self.assertFalse(any(plain_text in block.value for block in at.markdown))
         self.assertFalse(at.exception)
         self.assertEqual([item.proto.url for item in at.get("link_button")], [course["url"], course["url"]])
-        details = " ".join(item.value for item in at.chat_message[-1].text)
-        for expected in (course["title"], course["reason"], "불확실"):
+        answer = at.chat_message[-1]
+        details = " ".join(item.value for item in [*answer.text, *answer.markdown, *answer.caption]).replace("\\", "")
+        for expected in (course["title"], course["reason"], "유사 과정"):
             self.assertIn(expected, details)
         self.assertNotIn("★", details)  # 평점이 없는 과정은 평점 줄이 없다
+        self.assertFalse([b for b in answer.get("link_button") if b.proto.label.startswith("★")])
 
     def test_cards_show_rank_and_rating_and_shortcuts_open_the_matching_screen(self):
         at = self.open_screen()
@@ -570,11 +655,22 @@ class ChatScreenTest(unittest.TestCase):
             at.chat_input[0].set_value("과정 추천해줘").run()
         self.assertFalse(at.exception)
         answer = at.chat_message[-1]
-        self.assertEqual([t.value for t in answer.text if t.value.startswith("★")], ["★ 4.6 · 평가 1,280개"])
+        self.assertEqual([b.proto.label for b in answer.get("link_button") if b.proto.label.startswith("★")],
+                         ["★ 4.6 · 평가 1,280개"])
+        self.assertEqual([tab.label for tab in answer.tabs], ["Docker", "Linux"])  # 기술이 여럿이면 탭으로 나눈다
         badges = [m.value for m in answer.markdown if "위]" in m.value]
         self.assertEqual([b.split("]")[0] for b in badges], [":blue-badge[1위", ":blue-badge[2위", ":blue-badge[1위"])
-        self.assertEqual([b.label for b in answer.button], ["추천 과정 보기"])
-        answer.button[0].click().run()
+        self.assertEqual([b.label for b in answer.button], ["담기", "담기", "담기", "추천 과정 보기"])
+        self.assertNotIn("saved_courses", at.session_state)
+        answer.button[0].click().run()  # 과정을 담는다(모아 보는 화면은 app/test_saved.py 가 본다)
+        self.assertFalse(at.exception)
+        self.assertEqual([c["title"] for c in at.session_state["saved_courses"].values()], ["평점 있는 과정"])
+        answer = at.chat_message[-1]
+        self.assertEqual([b.label for b in answer.button][:3], ["담아 둠"] * 3)  # 테스트의 세 과정은 주소가 같아 함께 바뀐다
+        answer.button[0].click().run()  # 다시 누르면 뺀다
+        self.assertEqual(at.session_state["saved_courses"], {})
+        answer = at.chat_message[-1]
+        next(b for b in answer.button if b.label == "추천 과정 보기").click().run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state["view"], "recommend")
         self.assertEqual(at.title[0].value, "학습 추천")

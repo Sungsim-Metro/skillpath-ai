@@ -28,7 +28,7 @@ first = open_view(None)
 menu = first.sidebar.radio(key="view")
 print("메뉴:", list(menu.options))
 failed = False
-for view in ("chat", "demand", "gap", "recommend", "connect"):
+for view in ("chat", "demand", "gap", "recommend", "saved", "connect", "report"):
     at = first if view == "chat" else open_view(view)
     print(f"[{view}] 예외:", texts(at.exception) or "없음")
     print(f"[{view}] st.error:", texts(at.error) or "없음")
