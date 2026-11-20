@@ -114,7 +114,7 @@ def render_course_card(course: dict, *, rank: int | None = None, key: str = "") 
         elif rating:
             st.caption(rating)
         if course.get("reason"):
-            with st.expander("추천 이유 더보기"):
+            with st.expander("추천 이유 더보기", expanded=rank == 1):  # 1위는 펼쳐 두어 왜 추천했는지 바로 읽게 한다
                 st.text(course["reason"])
         if linked:
             st.link_button("교육과정 열기", course["url"], icon=":material/open_in_new:", width="stretch")
