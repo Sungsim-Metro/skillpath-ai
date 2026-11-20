@@ -107,6 +107,9 @@ def hybrid():
         docker = search_courses("Docker")
         assert docker[0] == search_courses("Docker", mode="rules")[0]
         assert all(row["match"] == "uncertain" for row in docker[1:])
+        # 규칙 표가 붙인 유사 과정이라도 검색(여기서는 [a, b, c])이 올리지 않은 과정은 나오지 않는다
+        searched = {a, b, c}
+        assert all(row["course_id"] in searched for row in docker if row["match"] == "uncertain")
         k8s = search_courses("Kubernetes", k=5)
         certain = [r for r in search_courses("Kubernetes", mode="rules", k=5) if r["match"] == "certain"]
         assert all(r["match"] == "certain" for r in k8s[:len(certain)])
