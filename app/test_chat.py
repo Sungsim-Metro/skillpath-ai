@@ -53,6 +53,35 @@ class ChatScreenTest(unittest.TestCase):
         at.button(key="auth_register" if register else "auth_login").click().run()
         self.assertFalse(at.exception)
 
+    def test_supervised_launch_preserves_session_and_does_not_rerun_workers_on_refresh(self):
+        with patch("sys.argv", [MAIN, "--supervised"]):
+            at = self.open_screen()
+            at.chat_input[0].set_value("저는 Kubernetes를 배우고 싶어요.").run()
+            at.chat_input[0].set_value("그 기술의 강의를 추천해 주세요.").run()
+            self.assertFalse(at.exception)
+            entry = at.session_state["chat_history"][-1]
+            self.assertEqual({c["gap_skill"] for c in entry["courses"]}, {"Kubernetes"})
+            with patch("backend.chat.handle_message", side_effect=AssertionError("재실행")) as handle:
+                at.run()
+            handle.assert_not_called()
+            self.assertFalse(at.exception)
+
+    def test_registered_structure_three_runs_supervised_chat_without_a_vote(self):
+        with patch.dict(os.environ, AB_STRUCTURES="3"):
+            at = self.open_screen()
+            self.authenticate(at, "팀장 상담 회원", register=True)
+            at.chat_input[0].set_value("저는 Kubernetes를 배우고 싶어요.").run()
+            at.chat_input[0].set_value("그 기술의 강의를 추천해 주세요.").run()
+            self.assertFalse(at.exception)
+            entry = at.session_state["chat_history"][-1]
+            self.assertEqual(entry["architecture"], "supervised")
+            self.assertEqual({card["gap_skill"] for card in entry["courses"]}, {"Kubernetes"})
+            self.assertEqual(entry["alternatives"], [])
+            self.assertFalse(any(button.key and button.key.startswith("ab_") for button in at.button))
+            saved = chat_history.load_session("팀장 상담 회원", entry["session_id"])
+            self.assertEqual(len(saved), 2)
+            self.assertEqual(saved[-1], (entry["prompt"], entry["answer"], entry["courses"]))
+
     def test_guest_chat_is_not_saved_and_is_told_so(self):
         at = self.open_screen()
         self.assertTrue(any("저장되지 않습니다" in c.value for c in at.caption))
@@ -574,7 +603,18 @@ class ChatScreenTest(unittest.TestCase):
         at = self.open_screen()
         suggestions = [b for b in at.button if b.key and b.key.startswith("suggest_")]
         self.assertEqual(len(suggestions), 4)
+        self.assertEqual(suggestions[3].label, "AI 직무로 보기")  # 클라우드를 보고 있으면 AI 로 바꾸는 버튼
         self.assertTrue(any("목표 직무 클라우드 엔지니어" in c.value and "수준 진단 전" in c.value for c in at.caption))
+        suggestions[3].click().run()  # 누르면 직무가 바뀌고, 이제는 반대로 클라우드로 돌아가는 버튼이 나온다
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state["job"], "ai_engineer")
+        back = [b for b in at.button if b.key and b.key.startswith("suggest_")]
+        self.assertEqual(back[3].label, "클라우드 직무로 보기")
+        back[3].click().run()
+        self.assertEqual(at.session_state["job"], "cloud_engineer")
+        self.assertEqual([b for b in at.button if b.key and b.key.startswith("suggest_")][3].label, "AI 직무로 보기")
+        at = self.open_screen()  # 이어지는 확인은 새 화면에서
+        suggestions = [b for b in at.button if b.key and b.key.startswith("suggest_")]
         next(b for b in suggestions if "부족" in b.label).click().run()  # 추천 질문을 누르면 그 글이 메시지로 들어간다
         self.assertFalse(at.exception)
         self.assertEqual(len(at.chat_message), 2)
@@ -628,7 +668,6 @@ class ChatScreenTest(unittest.TestCase):
         at = self.open_screen()
         labels = [b.label for b in at.button if (b.key or "").startswith("suggest_")]
         self.assertEqual(len(labels), 4)
-        self.assertIn("AI 엔지니어로 보기", labels)  # 지금 목표(클라우드)가 아닌 직무
         self.assertFalse(at.chat_message)
 
     def test_returned_course_links_have_plain_text_details(self):
