@@ -13,6 +13,47 @@ JOURNEY_STEP = {"demand": "gap", "gap": "gap", "recommend": "recommend"}
 NUMBERS = "①②③④"
 
 
+# 화면 전체에 한 번 넣는 스타일(2026-11-20). 고정 문자열이라 사용자 입력이 들어가지 않는다.
+# 선택자는 위젯 key 가 만드는 st-key-* 클래스와 Streamlit 의 data-testid 만 쓴다. 색은 .streamlit/config.toml 과 같다.
+CSS = """<style>
+/* 본문: 너무 넓게 퍼지지 않게 폭을 잡고 제목 크기를 낮춘다 */
+[data-testid="stMainBlockContainer"], [data-testid="stBottomBlockContainer"] { max-width: 1240px; }
+[data-testid="stMainBlockContainer"] { padding-top: 3.5rem; }
+[data-testid="stMainBlockContainer"] h1 { font-size: 2rem; padding-bottom: 0.25rem; }
+[data-testid="stMainBlockContainer"] h3 { font-size: 1.3rem; }
+
+/* 사이드바 메뉴: 라디오를 목록형 메뉴로 보이게 한다 */
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] { gap: 2px; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label { width: 100%; margin: 0; padding: 0.5rem 0.75rem; border-radius: 0.5rem; cursor: pointer; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label > div:first-child { display: none; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:hover { background: #E7ECF3; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) { background: #D6E2F6; }
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p { font-weight: 700; color: #1F5FBF; }
+
+/* 숫자 카드와 '먼저 채울 기술' 카드 */
+[data-testid="stMetric"] { background: #FFFFFF; box-shadow: 0 1px 2px rgba(26, 31, 43, 0.06); }
+[data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 700; }
+[class*="st-key-priority_"] { border-top: 3px solid #1F5FBF; box-shadow: 0 1px 3px rgba(26, 31, 43, 0.08); }
+
+/* 단계 표시, 다음 단계 버튼, 설문 안내 상자 */
+.st-key-journey p { background: #F3F5F8; display: inline-block; padding: 0.3rem 0.8rem; border-radius: 999px; }
+.st-key-journey strong { color: #1F5FBF; }
+[class*="st-key-next_"] { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #E3E7ED; }
+[class*="st-key-step_"] button { padding: 0.6rem 1.4rem; }
+.st-key-survey_card { background: #F3F5F8; border-left: 4px solid #1F5FBF; margin-top: 1rem; }
+
+/* 상담: 추천 질문은 알약 모양 */
+[class*="st-key-suggest_"] button { border-radius: 999px; }
+[class*="st-key-suggest_"] button:hover { background: #D6E2F6; border-color: #9DB4DA; color: #1F5FBF; }
+</style>"""
+
+
+def inject_css() -> None:
+    """공통 스타일을 넣는다. app/main.py 가 화면마다 한 번 부른다."""
+    st.markdown(CSS, unsafe_allow_html=True)
+
+
 def survey_url() -> str:
     """사용자 테스트 설문 주소. https 주소가 아니면 빈 값이다(설문 안내를 그리지 않는다)."""
     url = os.getenv("SURVEY_URL", "").strip()
