@@ -168,8 +168,12 @@ class CourseCardTextTest(unittest.TestCase):
 
         self.assertEqual([card.duration_text(m) for m in (90, 60, 45, 0, None, "60", True)],
                          ["약 1시간 30분", "약 1시간", "약 45분", "", "", "", ""])
-        self.assertEqual([card.prerequisite_text({"prerequisites": p}) for p in ("없음", "None", "표기 없음", "")],
+        self.assertEqual([card.prerequisite_text({"prerequisites": p})
+                          for p in ("없음", "None", "No prerequisites needed.", "No prerequisite required")],
                          ["선수지식 없음"] * 4)
+        # 과정 페이지에 선수지식 항목이 없으면 없다고 단정하지 않고 적지 않는다(원칙 4)
+        self.assertEqual([card.prerequisite_text({"prerequisites": p}) for p in ("표기 없음", "")], ["", ""])
+        self.assertTrue(card.prerequisite_text({"prerequisites": "None of the above applies"}).startswith("선수지식 있음"))
         sentence = "We recommend that attendees of this course have basic AWS knowledge."
         self.assertNotIn("recommend", card.prerequisite_text({"prerequisites": sentence}))
         self.assertTrue(card.prerequisite_text({"prerequisites": sentence}).startswith("선수지식 있음"))

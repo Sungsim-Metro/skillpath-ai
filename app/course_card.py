@@ -13,6 +13,7 @@
 - 담기: 카드의 버튼으로 과정을 담아 메뉴의 '담은 교육과정' 화면(app/tabs/saved.py)에서 모아 본다.
   로그인했으면 프로필에 저장하고(backend.chat_profiles), 비회원이면 이 브라우저 세션에만 둔다.
 """
+import re
 from urllib.parse import urlsplit
 
 import streamlit as st
@@ -35,7 +36,9 @@ def rating_text(course: dict) -> str:
     return f"★ {avg:.1f} · 평가 {count:,}개"
 
 
-NO_PREREQ = {"", "none", "없음", "표기 없음", "n/a"}
+# 과정 페이지가 선수지식이 없다고 적은 표기("None", "No prerequisites needed.", "No prerequisite required", 예시 데이터의 "없음")
+NO_PREREQ = re.compile(r"^(none|n/a|없음|no prerequisites?( (needed|required))?)\.?$", re.IGNORECASE)
+UNKNOWN_PREREQ = {"", "표기 없음"}  # 과정 페이지에 선수지식 항목이 없는 경우(ai.recommend 의 NO_PREREQ). 없다고 단정하지 않는다(원칙 4)
 LANGUAGES = {"English": "영어", "Korean": "한국어", "한국어": "한국어"}
 SERVICES_SHOWN = 3  # 카드에 적는 AWS 서비스 수. 나머지는 "외 n개"로 줄인다
 
@@ -49,11 +52,11 @@ def duration_text(minutes) -> str:
 
 
 def prerequisite_text(course: dict) -> str:
-    """'선수지식 있음' 또는 '선수지식 없음'. 담은 과정처럼 값이 없는 카드에는 빈 글자."""
+    """'선수지식 있음' 또는 '선수지식 없음'. 과정 페이지에 항목이 없거나 값이 없는 카드(담은 과정)에는 빈 글자."""
     value = course.get("prerequisites")
-    if not isinstance(value, str):
+    if not isinstance(value, str) or value.strip() in UNKNOWN_PREREQ:
         return ""
-    return "선수지식 없음" if value.strip().casefold() in NO_PREREQ else "선수지식 있음(과정 페이지에서 확인)"
+    return "선수지식 없음" if NO_PREREQ.match(value.strip()) else "선수지식 있음(과정 페이지에서 확인)"
 
 
 def services_text(course: dict) -> str:
