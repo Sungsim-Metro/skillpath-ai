@@ -451,6 +451,12 @@ class PruneTest(unittest.TestCase):
         self.assertEqual(data["remove_skills"], ["Terraform"])
         self.assertEqual(data["remove_experiences"], ["Terraform으로 VPC를 만들었어요"])
         chat._validate(data, message, context)  # 예외 없음
+        # 같은 기술을 추가하면서 정정한 답은 덜어 내지 않고 거부한다(앞뒤가 안 맞는 답)
+        clash = asdict(chat.Turn(status="ok", add_skills=["Docker"], remove_skills=["Docker"]))
+        chat._prune(clash, message, context)
+        self.assertEqual(clash["remove_skills"], ["Docker"])
+        with self.assertRaises(ValueError):
+            chat._validate(clash, message, context)
 
     def test_restored_span_never_mixes_in_teammate_wish_or_negation_clauses(self):
         message = "Docker로 배포 파이프라인을 직접 구축해봤어(CI 포함). 그 뒤 모니터링 설정은 팀원이 했어."

@@ -452,9 +452,13 @@ def _prune(data: dict, message: str, context: dict) -> None:
     # 긴 발화에는 "팀원이 썼지만 저는 안 다뤘어요" 같은 부정이 섞인다. 모델이 그것을 정정으로 올려도 턴 전체를 버리지 않는다
     removable = _items("skills", context.get("skills", [])) | _supported_experience_skills(
         context.get("experiences", []), data["remove_skills"])
-    data["remove_skills"] = [n for n in data["remove_skills"] if _items("skills", [n]) <= removable]
+    # 같은 항목을 추가하면서 정정한 답은 덜어 내지 않는다. 앞뒤가 안 맞는 답이라 _validate 가 거부해 다시 요청하게 둔다
+    added = _items("skills", data["add_skills"])
+    data["remove_skills"] = [n for n in data["remove_skills"]
+                             if _items("skills", [n]) <= removable or _items("skills", [n]) & added]
     confirmed = set(context.get("experiences", []))
-    data["remove_experiences"] = [e for e in data["remove_experiences"] if e in confirmed]
+    data["remove_experiences"] = [e for e in data["remove_experiences"]
+                                  if e in confirmed or e in data["add_experiences"]]
     # 경험 기반 기술은 지금 확인된 본인 작업으로 설명되는 것만 둔다
     active = active_experiences(context, data["add_experiences"], data["remove_experiences"])
     data["experience_skills"] = [n for n in data["experience_skills"]
