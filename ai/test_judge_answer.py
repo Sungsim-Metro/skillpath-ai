@@ -148,6 +148,23 @@ def test_answers_split_from_compare_rows():
     assert len(ac.evidence_text({"x": "가" * (ac.EVIDENCE_MAX + 10)})) <= ac.EVIDENCE_MAX + len(" …(잘림)")
 
 
+def test_no_judged_items_stops_with_notice():
+    # 채점 대상(gap·demand·courses) 답이 하나도 없으면 안내만 하고 채점·결과 파일 없이 끝난다
+    import argparse
+    import contextlib
+    import io
+    with tempfile.TemporaryDirectory() as d:
+        answers = Path(d) / "agent_answers_dev_mock_x.json"
+        answers.write_text(json.dumps({"set": "dev", "answers": {"0": {"O1": {"answer": "답", "evidence": "{}"}}}},
+                                      ensure_ascii=False), encoding="utf-8")
+        args = argparse.Namespace(judge=str(answers), bedrock=False, max_judge_calls=None, rounds=1, human_sheet=False)
+        buf = io.StringIO()
+        with mock.patch.object(ac, "OUT_DIR", Path(d) / "out"), contextlib.redirect_stdout(buf):
+            code = ac.run_judge(args)
+        assert code == 0 and "채점 대상이 없습니다" in buf.getvalue()
+        assert not (Path(d) / "out").exists()
+
+
 def _expect_error(fn, kind=ValueError):
     try:
         fn()

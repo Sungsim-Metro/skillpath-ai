@@ -454,6 +454,10 @@ def run_judge(args) -> int:
         print("실제 모드 채점은 --max-judge-calls 를 줘야 합니다. 멈춥니다.")
         return 1
     cases = json.loads((HOLDOUT if data.get("set") == "holdout" else CASES).read_text(encoding="utf-8"))["cases"]
+    by_id = {c["id"]: c for c in cases}
+    if not any(cid in by_id and judge_answer.judged_case(by_id[cid]) for rows in data["answers"].values() for cid in rows):
+        print("채점 대상이 없습니다(기대 의도가 gap·demand·courses 인 문항의 답이 답 파일에 없음). 채점하지 않고 끝냅니다.")
+        return 0
     try:
         out, result = judge_answer.judge_file(answers_path, cases, args.rounds, args.max_judge_calls, OUT_DIR,
                                              human_sheet=args.human_sheet)
