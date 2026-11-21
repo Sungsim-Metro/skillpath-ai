@@ -64,8 +64,9 @@ def render_area_gap(ctx: Ctx):
     ).properties(height=44 * len(df) + 50)
     # 숫자만 두지 않고 무엇을 뜻하는지 한 줄로 먼저 적는다. 값은 backend 가 준 충족률 그대로다
     low = min(shown, key=lambda r: r["coverage"])
-    st.markdown(f"가장 많이 비어 있는 영역은 **{md_escape(low['area'])}**입니다. "
-                f"공고가 요구한 것의 {low['coverage']:.0%}를 채웠습니다.")
+    if low["coverage"] < 1:  # 모든 영역을 다 채웠으면 비어 있는 영역이라고 적지 않는다
+        st.markdown(f"가장 많이 비어 있는 영역은 **{md_escape(low['area'])}**입니다. "
+                    f"공고가 요구한 것의 {low['coverage']:.0%}를 채웠습니다.")
     st.altair_chart(chart, width="stretch")
     st.caption(
         "옅은 막대는 공고가 그 영역의 기술을 요구한 건수, 진한 막대는 그중 내가 채운 몫입니다."
