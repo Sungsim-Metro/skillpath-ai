@@ -281,6 +281,10 @@ class GuidedFlowTest(unittest.TestCase):
     def test_priority_card_opens_the_evidence_of_that_skill(self):
         at = open_app("gap")
         self.assertIn("먼저 채울 기술", [item.value for item in at.subheader])
+        # 카드에 그 기술의 영역 이름을 함께 적는다(처음 보는 기술이어도 어느 분야인지 알게)
+        first = next(r for r in api.get_gap(at.session_state["job"], at.session_state["levels"]) if not r["owned"])
+        self.assertTrue(first["area"])
+        self.assertTrue(any(first["area"] in c.value.replace("\\", "") for c in at.caption))
         at.button(key="evidence_0").click().run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state["view"], "demand")
