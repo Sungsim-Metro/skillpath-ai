@@ -64,7 +64,7 @@
   "Argo CD": [],
   "Helm": ["Helm Chart", "헬름"],
   "Prefect": [],
-  "LangGraph": [],
+  "LangGraph": ["랭그래프", "랭크래프"],
   "EKS": ["Amazon EKS", "Elastic Kubernetes Service", "Amazon Elastic Kubernetes Service"],
   "IaC": ["Infrastructure as Code", "코드형 인프라"],
   "Istio": ["이스티오"],

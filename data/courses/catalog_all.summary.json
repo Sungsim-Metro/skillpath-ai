@@ -1,0 +1,778 @@
+{
+  "source": "https://skillbuilder.aws/graphql",
+  "scope": {
+    "type": "digital_course",
+    "access": "free",
+    "language": "en-US",
+    "difficulty": "all",
+    "topics": "all",
+    "roles": "all"
+  },
+  "expected_variants": 1272,
+  "collected_variants": 1270,
+  "missing_variants": 2,
+  "complete": false,
+  "fetched_pages": 73,
+  "cached_pages": 49,
+  "issues": [],
+  "partitions": [
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "artificial_intelligence"
+      },
+      "expected": 118,
+      "collected": 118,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "security_identity_and_compliance"
+      },
+      "expected": 36,
+      "collected": 36,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "cloud_essentials"
+      },
+      "expected": 32,
+      "collected": 32,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "migration_and_transfer"
+      },
+      "expected": 31,
+      "collected": 31,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "data_analytics"
+      },
+      "expected": 28,
+      "collected": 28,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "compute"
+      },
+      "expected": 26,
+      "collected": 26,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "network_and_content_delivery"
+      },
+      "expected": 24,
+      "collected": 24,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "contact_center"
+      },
+      "expected": 23,
+      "collected": 23,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "management_and_governance"
+      },
+      "expected": 23,
+      "collected": 23,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "database"
+      },
+      "expected": 20,
+      "collected": 20,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "storage"
+      },
+      "expected": 18,
+      "collected": 18,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "media_services"
+      },
+      "expected": 17,
+      "collected": 17,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "cloud_financial_management"
+      },
+      "expected": 15,
+      "collected": 15,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "containers"
+      },
+      "expected": 14,
+      "collected": 14,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "developer_tools"
+      },
+      "expected": 12,
+      "collected": 12,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "business_applications"
+      },
+      "expected": 8,
+      "collected": 8,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "application_integration"
+      },
+      "expected": 7,
+      "collected": 7,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "architecting"
+      },
+      "expected": 7,
+      "collected": 7,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "developing"
+      },
+      "expected": 6,
+      "collected": 6,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "serverless"
+      },
+      "expected": 6,
+      "collected": 6,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "aws_for_games"
+      },
+      "expected": 4,
+      "collected": 4,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "saas"
+      },
+      "expected": 4,
+      "collected": 4,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "sap_on_aws"
+      },
+      "expected": 4,
+      "collected": 4,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "end_user_computing"
+      },
+      "expected": 3,
+      "collected": 3,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "industry_solutions"
+      },
+      "expected": 3,
+      "collected": 3,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "internet_of_things_iot"
+      },
+      "expected": 3,
+      "collected": 3,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "satellite"
+      },
+      "expected": 3,
+      "collected": 3,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "devops"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "front_end_web_and_mobile"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "microsoft_workloads_on_aws"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "quantum_technologies"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "aws_cost_management"
+      },
+      "expected": 1,
+      "collected": 1,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "blockchain"
+      },
+      "expected": 1,
+      "collected": 1,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour",
+        "domain": "cloud_operations_sysops"
+      },
+      "expected": 1,
+      "collected": 1,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "0-1-hour"
+      },
+      "expected": 522,
+      "collected": 520,
+      "complete": false
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "1-2-hours"
+      },
+      "expected": 54,
+      "collected": 54,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental",
+        "duration": "over-2-hours"
+      },
+      "expected": 14,
+      "collected": 14,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "fundamental"
+      },
+      "expected": 590,
+      "collected": 588,
+      "complete": false
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "artificial_intelligence"
+      },
+      "expected": 79,
+      "collected": 79,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "contact_center"
+      },
+      "expected": 34,
+      "collected": 34,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "database"
+      },
+      "expected": 32,
+      "collected": 32,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "security_identity_and_compliance"
+      },
+      "expected": 17,
+      "collected": 17,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "cloud_operations_sysops"
+      },
+      "expected": 13,
+      "collected": 13,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "storage"
+      },
+      "expected": 13,
+      "collected": 13,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "architecting"
+      },
+      "expected": 12,
+      "collected": 12,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "network_and_content_delivery"
+      },
+      "expected": 11,
+      "collected": 11,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "business_applications"
+      },
+      "expected": 9,
+      "collected": 9,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "containers"
+      },
+      "expected": 9,
+      "collected": 9,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "cloud_financial_management"
+      },
+      "expected": 7,
+      "collected": 7,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "compute"
+      },
+      "expected": 7,
+      "collected": 7,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "media_services"
+      },
+      "expected": 6,
+      "collected": 6,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "data_analytics"
+      },
+      "expected": 4,
+      "collected": 4,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "end_user_computing"
+      },
+      "expected": 4,
+      "collected": 4,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "migration_and_transfer"
+      },
+      "expected": 4,
+      "collected": 4,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "industry_solutions"
+      },
+      "expected": 3,
+      "collected": 3,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "sap_on_aws"
+      },
+      "expected": 3,
+      "collected": 3,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "cloud_essentials"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "developing"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "management_and_governance"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "serverless"
+      },
+      "expected": 2,
+      "collected": 2,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "application_integration"
+      },
+      "expected": 1,
+      "collected": 1,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "aws_for_games"
+      },
+      "expected": 1,
+      "collected": 1,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour",
+        "domain": "internet_of_things_iot"
+      },
+      "expected": 1,
+      "collected": 1,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "0-1-hour"
+      },
+      "expected": 278,
+      "collected": 278,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "1-2-hours"
+      },
+      "expected": 147,
+      "collected": 147,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate",
+        "duration": "over-2-hours"
+      },
+      "expected": 33,
+      "collected": 33,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "intermediate"
+      },
+      "expected": 458,
+      "collected": 458,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "advanced",
+        "duration": "0-1-hour"
+      },
+      "expected": 139,
+      "collected": 139,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "advanced",
+        "duration": "1-2-hours"
+      },
+      "expected": 67,
+      "collected": 67,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "advanced",
+        "duration": "over-2-hours"
+      },
+      "expected": 18,
+      "collected": 18,
+      "complete": true
+    },
+    {
+      "filters": {
+        "courseLevel": "advanced"
+      },
+      "expected": 224,
+      "collected": 224,
+      "complete": true
+    },
+    {
+      "filters": {},
+      "expected": 1272,
+      "collected": 1270,
+      "complete": false
+    }
+  ],
+  "exported_courses": 1270,
+  "new_courses": 1056,
+  "baseline_courses": 216,
+  "baseline_overlap": 214,
+  "baseline_only_ids": [
+    "V8MQ93JRH6",
+    "VZ6UJAWE63"
+  ],
+  "levels": {
+    "고급": 224,
+    "중급": 458,
+    "기초": 588
+  },
+  "domains": {
+    "Containers": 39,
+    "End-user computing": 18,
+    "Contact center": 68,
+    "Management and governance": 39,
+    "Cloud operations (SysOps)": 23,
+    "Microsoft workloads on AWS": 4,
+    "Network and content delivery": 49,
+    "Artificial intelligence": 336,
+    "Database": 93,
+    "Storage": 68,
+    "Developer tools": 13,
+    "SAP on AWS": 11,
+    "AWS Cost Management": 1,
+    "unspecified": 21,
+    "Security, identity, and compliance": 87,
+    "Serverless": 25,
+    "Data analytics": 51,
+    "Migration and transfer": 51,
+    "Media services": 28,
+    "Cloud essentials": 46,
+    "Compute": 47,
+    "Cloud financial management": 25,
+    "DevOps": 5,
+    "Business applications": 25,
+    "Industry solutions": 14,
+    "AWS for Games": 10,
+    "Architecting": 32,
+    "Satellite": 3,
+    "Internet of Things (IoT)": 7,
+    "Quantum technologies": 4,
+    "SaaS": 6,
+    "Application integration": 9,
+    "Developing": 9,
+    "Blockchain": 1,
+    "Front-end web and mobile": 2
+  },
+  "statuses": {
+    "ACTIVE": 1268,
+    "MAINTENANCE": 2
+  },
+  "with_objectives": 883,
+  "with_ratings": 1233,
+  "recommendable": 877
+}
