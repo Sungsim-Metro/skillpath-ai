@@ -1,6 +1,8 @@
 """학습 상담 상태를 합치고, 사용자가 요청한 범위의 도구만 실행한다."""
 from __future__ import annotations
 
+import copy
+import random
 from dataclasses import dataclass, field, replace
 from itertools import groupby
 from typing import TYPE_CHECKING
@@ -173,6 +175,19 @@ def _verified_courses(recommendations: list[dict], missing: list[dict]) -> list[
     return courses
 
 
+def _course_info(course: dict) -> dict:
+    """소요 시간·강의 언어·다루는 AWS 서비스(③ 의 선택 필드). 형식이 맞는 값만 카드에 옮기고 틀리면 그 값만 뺀다."""
+    info = {}
+    minutes, language, services = course.get("duration_min"), course.get("language"), course.get("aws_services")
+    if isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0:
+        info["duration_min"] = minutes
+    if isinstance(language, str) and language.strip():
+        info["language"] = language.strip()
+    if isinstance(services, list) and services and all(isinstance(s, str) and s.strip() for s in services):
+        info["aws_services"] = [s.strip() for s in services]
+    return info
+
+
 def _verified_course_cards(skill: str, candidates: list[dict]) -> list[dict]:
     """후보 필드와 링크를 검사하고 검증된 이유를 그대로 카드에 옮긴다."""
     courses = []
@@ -189,6 +204,7 @@ def _verified_course_cards(skill: str, candidates: list[dict]) -> list[dict]:
         if (isinstance(avg, (int, float)) and not isinstance(avg, bool) and 0 < avg <= 5
                 and isinstance(count, int) and not isinstance(count, bool) and count > 0):
             shown.update(rating_avg=avg, rating_count=count)
+        shown.update(_course_info(course))
         courses.append(shown)
     return courses
 
@@ -415,7 +431,9 @@ def _targeted_courses(facts: dict, levels: dict, targets: list[str], preference:
 
 def _remember_courses(state: Conversation, facts: dict, reply: Reply, targets: list[str]) -> None:
     """Use displayed card levels as the baseline, including both sides of a vote."""
-    cards = [c for side in reply.alternatives for c in side["courses"]] if reply.alternatives else reply.courses
+    cards = list(reply.courses)
+    for side in reply.alternatives:
+        cards.extend(side["courses"])
     shown: dict[str, list[str]] = {}
     for card in cards:
         levels = shown.setdefault(card["gap_skill"], [])
@@ -564,6 +582,8 @@ def handle_message(state: Conversation, message: str, *, job: str, sidebar_skill
     model = None if supervised else experiments.pick_model()
     turn_id = uuid4().hex
     before = (state.usage.input_tokens, state.usage.output_tokens)
+    rival = None if supervised else experiments.chat_rival()
+    snapshot = copy.deepcopy(state) if rival else None  # 비교용 구조는 이 턴 전의 상태에서 같은 메시지를 다시 처리한다
     with track_session(state.usage), use_model(model):
         used = "" if api.is_mock() else current_model()
         try:
@@ -575,7 +595,43 @@ def handle_message(state: Conversation, message: str, *, job: str, sidebar_skill
     reply.turn_id, reply.model = turn_id, used
     if not supervised:
         _record_turn(state, turn_id, job, used, before, action=reply.action, failed=reply.failed)
+    if rival and reply.action == "courses" and reply.courses and not reply.alternatives and not reply.failed:
+        reply.alternatives = _compare_chat_structures(state, snapshot, rival, message, job, sidebar_skills,
+                                                      sidebar_levels, reply, before)
+        if reply.alternatives:
+            facts = _context(state, job, sidebar_skills)
+            _remember_courses(state, facts, reply, facts["last_course_skills"])
     return reply
+
+
+def _compare_chat_structures(state: Conversation, snapshot: Conversation, rival: str, message: str, job: str,
+                             sidebar_skills: list[str], sidebar_levels: dict[str, int] | None, reply: Reply,
+                             before: tuple[int, int]) -> list[dict]:
+    """과정 추천 턴을 상담 구조(rival, 예: 3번 팀장 구조)로 한 번 더 처리해 A/B 로 나란히 보여 줄 두 결과를 만든다.
+
+    상담 상태와 화면의 답은 기본 구조의 것을 그대로 둔다. 비교용 구조는 턴 전 상태의 사본에서 돌리고 프로필에는 쓰지 못하게
+    로그인 정보를 뺀다. 비교용 구조가 과정을 내지 못했거나 검증에 실패하면 빈 목록을 돌려줘 A/B 를 열지 않는다.
+    좌우 순서는 코드가 무작위로 정하고, 구조별 토큰은 세션 사용량의 앞뒤 차이로 잰다.
+    """
+    usage = state.usage
+    screen_tokens = {"input": usage.input_tokens - before[0], "output": usage.output_tokens - before[1]}
+    snapshot.session = None
+    snapshot.profile = copy.deepcopy(state.profile)
+    start = (usage.input_tokens, usage.output_tokens)
+    try:
+        with track_session(usage), use_model(None):
+            other = _handle_turn(snapshot, message, job, sidebar_skills, sidebar_levels, supervised=True)
+    except Exception:
+        return []
+    if other.failed or other.action != "courses" or not other.courses:
+        return []
+    results = [
+        {"structure": experiments.DEFAULT_STRUCTURE, "courses": reply.courses, "tokens": screen_tokens},
+        {"structure": rival, "courses": other.courses,
+         "tokens": {"input": usage.input_tokens - start[0], "output": usage.output_tokens - start[1]}},
+    ]
+    random.shuffle(results)
+    return results
 
 
 def _record_turn(state: Conversation, turn_id: str, job: str, model: str, before: tuple[int, int], *,

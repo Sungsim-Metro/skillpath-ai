@@ -1,11 +1,12 @@
 """부족 역량 화면 (Q2 어떤 근거로 필요하다 판단했나).
 
-능력 범주별 Gap 과 영역별 역량을 펼쳐 두고, 부족한 기술 표·교육 공급·채용 시장 Gap 은 아래에 접어 둔다(2026-11-20).
+먼저 채울 기술 카드, 영역별 부족 정도, 영역별 역량, 부족한 기술 표를 펼쳐 두고 교육 공급·채용 시장 비교는 아래에 접어 둔다(2026-11-20).
 """
 import altair as alt
 import pandas as pd
 import streamlit as st
 
+from app import ui
 from app.common import (
     ACCENT,
     ACCENT_LIGHT,
@@ -33,7 +34,7 @@ def render_area_gap(ctx: Ctx):
     """능력 범주별 Gap: 영역마다 공고 수요(옅은 막대) 위에 내가 가진 몫(진한 막대)을 겹친다."""
     rows, err = load(api.get_area_gap, ctx.job, ctx.levels)
     if err:
-        notice("능력 범주별 Gap", err)
+        notice("영역별 부족 정도", err)
         return
     shown = [r for r in rows if r["demand"] > 0]
     if not shown:
@@ -63,9 +64,7 @@ def render_area_gap(ctx: Ctx):
     ).properties(height=44 * len(df) + 50)
     st.altair_chart(chart, width="stretch")
     st.caption(
-        "옅은 막대는 공고가 그 영역의 기술을 요구한 건수, 진한 막대는 그중 내가 채운 몫입니다. "
-        "기술마다 필수로 요구한 공고는 기준 단계를 넘으면, 우대로 요구한 공고는 내 단계/5만큼 채운 것으로 셉니다. "
-        "비어 있는 만큼이 Gap입니다. 여러 영역에 걸치는 기술(AWS 등)은 공통, 사전에 없는 기술은 미분류로 셉니다."
+        "옅은 막대는 공고가 그 영역의 기술을 요구한 건수, 진한 막대는 그중 내가 채운 몫입니다."
         + (f" 이 데이터에서 수요가 없는 영역: {', '.join(empty)}." if empty else "")
     )
 
@@ -99,7 +98,7 @@ def render_market_gap(ctx: Ctx) -> None:
         return
     except (OSError, ValueError) as exc:
         logger.exception("시장 Gap 입력 읽기 실패")
-        st.error(f"시장 Gap 자료를 읽을 수 없습니다({type(exc).__name__}). 입력 파일 형식과 실행 로그를 확인하세요.")
+        st.error("채용 시장 비교 자료를 읽을 수 없습니다. 잠시 뒤 다시 시도해 주세요.")
         return
 
     st.caption(f"{job_title} · {md_escape(market['source'])}")
@@ -113,10 +112,10 @@ def render_market_gap(ctx: Ctx) -> None:
     df["직군"] = df["직군"].map(JOBS)
     df["내 보유"] = df["기술"].isin(ctx.owned).map({True: "보유", False: "-"})
     st.caption(
-        f"Gap은 {job_title} 공고의 기술 수요 비중에서 학습 프로그램의 기술 공급 비중을 뺀 값입니다. "
-        "공고마다 각 기술이 등장한 칸 중 가장 높은 가중치를 적용합니다. 혜택·복지와 회사소개는 수요에서 제외합니다. "
-        "프로그램 제목·설명·학습 목표에 같은 기술이 여러 번 나와도 프로그램당 한 번만 셉니다. "
-        "양수이면 채용 수요 비중이 더 크고, 음수이면 프로그램의 공급 비중이 더 큽니다."
+        f"Gap = {job_title} 공고의 기술 수요 비중 − 학습 프로그램의 기술 공급 비중. "
+        "양수이면 채용 수요가, 음수이면 프로그램 공급이 더 큽니다. "
+        "공고마다 각 기술이 등장한 칸 중 가장 높은 가중치를 적용합니다. "
+        "혜택·복지와 회사소개는 수요에서 빼고, 한 프로그램에 같은 기술이 여러 번 나와도 한 번만 셉니다."
     )
 
     left, right = st.columns(2)
@@ -162,6 +161,31 @@ def render_market_gap(ctx: Ctx) -> None:
                        mime="text/csv", key="market_gap_csv", on_click="ignore")
 
 
+PRIORITY_CARDS = 3  # '먼저 채울 기술'에 카드로 올리는 수
+
+
+def _render_priorities(missing: list[dict]) -> None:
+    """먼저 채울 기술: 부족한 기술의 앞쪽 몇 개를 카드로 올려 무엇이 왜 부족한지 한눈에 보인다.
+
+    순서와 숫자는 backend.api.get_gap 이 준 그대로다(수요 높은 순). 화면은 앞에서부터 그리기만 한다.
+    """
+    if not missing:
+        return
+    st.subheader("먼저 채울 기술")
+    top = missing[:PRIORITY_CARDS]
+    for number, (column, r) in enumerate(zip(st.columns(len(top)), top)):
+        guessed = " (불확실)" if r["required_level_confidence"] == "uncertain" else ""
+        with column, st.container(border=True, key=f"priority_{number}"):
+            st.markdown(f"##### {number + 1}. {md_escape(r['skill'])}")
+            if r.get("area"):  # 처음 보는 기술 이름이어도 어느 분야인지 알 수 있게 영역을 함께 적는다(설문 2026-11-20)
+                st.caption(md_escape(r["area"]))
+            st.markdown(f"공고 {r['of']}건 중 **{r['postings']}건**이 요구 · 그중 필수 {r['required_ratio']:.0%}")
+            st.markdown(f"내 단계 **{r['user_level']}** → 기준 **{r['required_level']}단계**{guessed}")
+            st.button("공고 근거 보기", key=f"evidence_{number}", on_click=ui.go, args=("demand",),
+                      kwargs={"evidence_skill": r["skill"]}, icon=":material/format_quote:", width="stretch",
+                      help="이 기술을 요구한 공고 문장을 시장 수요 화면에서 봅니다.")
+
+
 def _render_gap(ctx: Ctx):
     demand, gap_rows, missing = ctx.demand, ctx.gap_rows, ctx.missing
     have = [r for r in gap_rows if r["owned"]]
@@ -170,25 +194,24 @@ def _render_gap(ctx: Ctx):
     c2.metric("주요 요구 기술", f"{len(gap_rows)}개", help=f"공고의 {GAP_MIN_SHARE:.0%} 이상이 요구한 기술", border=True)
     c3.metric("그중 보유", f"{len(have)}개", help="내 단계가 기준 단계 이상인 기술", border=True)
     c4.metric("부족", f"{len(missing)}개", border=True)
-    st.caption("사이드바의 목표 직무와 수준 진단으로 계산한 값입니다. 학습 상담의 답은 대화에서 말한 경험까지 반영해 다를 수 있습니다.")
+    # 숫자 바로 아래에 '먼저 채울 기술'을 둔다. 안내문과 표는 그 뒤로 미루고 접어, 한 화면에서 볼 것을 줄인다(설문 2026-11-20)
+    _render_priorities(missing)
     guessed = [r for r in gap_rows if r["required_level_confidence"] == "uncertain"]
     if guessed:
-        st.warning(
-            f"주요 요구 기술 {len(gap_rows)}개 중 {len(guessed)}개는 아직 공고로 기준 단계를 정하지 못해 "
-            f"팀이 정한 추정값(3단계)으로 보유·부족을 나눴습니다. 이 기술들의 판정은 참고용이며, "
-            "표에 '불확실'로 표시합니다.",
-            icon=":material/info:",
+        st.caption(
+            f":material/info: 주요 요구 기술 {len(gap_rows)}개 중 {len(guessed)}개는 공고로 기준 단계를 정하지 못해 "
+            "추정값(3단계)으로 판정했습니다. '불확실'로 표시하며 참고용입니다."
         )
 
     with st.container(border=True):
-        st.subheader("능력 범주별 Gap")
+        st.subheader("영역별 부족 정도")
         render_area_gap(ctx)
 
-    with st.container(border=True):
-        st.subheader("영역별 역량: 지금과 추천 과정을 마친 뒤")
+    # 영역 막대와 같은 내용을 다른 모양으로 보여 주는 차트라 접어 둔다
+    with st.expander("영역별 역량: 지금과 추천 과정을 마친 뒤"):
         render_radar(ctx)
 
-    with st.expander(f"부족한 기술 {len(missing)}개 (수요 높은 순)"):
+    with st.expander(f"부족한 기술 {len(missing)}개 전체 표 (수요 높은 순)"):
         if not gap_rows:
             st.info("이 직무에서 보유 수준과 비교할 주요 요구 기술이 없습니다.")
         elif not missing:
@@ -217,8 +240,7 @@ def _render_gap(ctx: Ctx):
                 },
             )
             st.caption(
-                "내 단계는 사이드바 '수준 진단하기'에서 고른 세부 능력 단계로 계산합니다. 기준 단계는 공고 문장을 단계 예시와 "
-                "비교해 정한 값이고, 공고가 부족하면 3단계(팀 결정값)와 '불확실'로 둡니다. "
+                "내 단계는 '수준 진단 설문'의 답, 기준 단계는 공고 문장으로 정한 값입니다. "
                 "충족도 = 필수 비중 × (기준 이상이면 1) + 우대 비중 × 내 단계/5."
             )
         if have:
@@ -231,7 +253,7 @@ def render(ctx: Ctx):
     if gap_err:
         if isinstance(gap_err, Pending):
             empty_metrics(["분석한 공고", "주요 요구 기술", "그중 보유", "부족"])
-            notice("능력 범주별 Gap", gap_err, "영역마다 공고 수요와 내가 가진 몫이 여기에 나옵니다.")
+            notice("영역별 부족 정도", gap_err, "영역마다 공고 수요와 내가 가진 몫이 여기에 나옵니다.")
             notice("부족한 기술", gap_err, "보유 기술과 비교해 부족한 기술이 수요 높은 순으로 여기에 나옵니다.")
         else:
             notice("부족 역량", gap_err)
@@ -241,5 +263,5 @@ def render(ctx: Ctx):
     with st.expander("교육 공급"):
         render_supply()
 
-    with st.expander("채용 시장 Gap"):
+    with st.expander("채용 시장 수요와 교육 공급 차이"):
         render_market_gap(ctx)

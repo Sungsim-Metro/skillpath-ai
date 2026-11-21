@@ -175,6 +175,7 @@ def _validate_candidate(data: dict, message: str, context: dict) -> None:
         raise ValueError("상담 해석 필드를 확인하세요.")
     turn = data["turn"]
     scopes = _save_scopes(message, context) if turn.get("save") is True else []
+    chat._prune(turn, message, context)  # 기본 구조와 같은 느슨한 처리(어긋난 항목만 버림)
     chat._validate(turn, message, context, check_save_scope=len(scopes) <= 1)
     if turn["status"] == "ok" and turn["save"]:
         _validate_writes(turn, context, scopes)
@@ -221,7 +222,10 @@ def _validate_review(data: dict, message: str, context: dict) -> None:
     if decision == "reinterpret":
         quote = data["quote"]
         texts = [message, *(m["content"] for m in context.get("history", []) if m["role"] == "user")]
-        if not isinstance(quote, str) or not quote.strip() or len(quote) > 160 or not any(quote in text for text in texts):
+        # 여러 줄 발화에서 모델이 줄바꿈을 공백으로 바꿔 인용해도 같은 구절로 본다
+        flat = lambda text: " ".join(text.split())
+        if (not isinstance(quote, str) or not quote.strip() or len(quote) > 160
+                or not any(flat(quote) in flat(text) for text in texts)):
             raise ValueError("재해석에는 사용자가 실제로 말한 근거 구절이 필요합니다.")
 
 
@@ -262,7 +266,7 @@ def interpret_turn(message: str, context: dict) -> SupervisedTurn:
     feedback = {}
     for attempt in range(2):
         candidate = _ask(chat.intake_prompt() + "\n" + _INTAKE, {**base, **feedback}, "chat_supervised_intake",
-                         lambda data: _validate_candidate(data, message, context), 1500)
+                         lambda data: _validate_candidate(data, message, context), chat.INTAKE_MAX_TOKENS)
         review = _ask(_REVIEW, {**base, "candidate": candidate}, "chat_supervisor_plan",
                       lambda data: _validate_review(data, message, context), 250)
         decision, issue = review["decision"], review["issue"]

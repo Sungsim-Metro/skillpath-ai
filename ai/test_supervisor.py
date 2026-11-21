@@ -32,6 +32,14 @@ class SupervisedLearningTest(unittest.TestCase):
         mode.start()
         self.addCleanup(mode.stop)
 
+    def test_candidate_validation_prunes_like_the_default_structure(self):
+        """감독형 구조도 기본 구조처럼 어긋난 항목만 버린다(AWS S3 → S3, 말하지 않은 기술은 삭제)."""
+        message = "S3 버킷을 직접 만들어 봤어요."
+        turn = asdict(chat.Turn(status="ok", add_skills=["AWS S3", "Terraform"]))
+        candidate = {"turn": turn, "add_wishes": [], "remove_wishes": [], "targets": [], "course_scope": "none"}
+        self.supervisor._validate_candidate(candidate, message, {})
+        self.assertEqual(candidate["turn"]["add_skills"], ["S3"])
+
     def test_wish_is_separate_from_own_and_teammates_completed_work(self):
         raw = "팀원이 Docker를 썼고 저는 Python으로 API를 개발했어요. Terraform을 배우고 싶어요."
         with patch("ai.bedrock._client", side_effect=AssertionError):
@@ -279,6 +287,14 @@ class RealSupervisorBoundaryTest(unittest.TestCase):
         with self.assertRaises(chat.ChatIntakeError):
             self.supervisor.interpret_turn("그 기술 과정 찾아줘", {})
         self.assertEqual(self.converse.call_count, 3)
+
+    def test_quote_across_a_line_break_matches_and_an_absent_quote_does_not(self):
+        """여러 줄 발화에서 모델이 줄바꿈을 공백으로 바꿔 인용해도 같은 구절로 본다. 원문에 없는 구절은 여전히 거부한다."""
+        message = "Docker로 배포해 봤어요.\n그 기술\n과정 찾아줘"
+        ok = {"decision": "reinterpret", "issue": "course_target", "quote": "그 기술 과정 찾아줘"}
+        self.supervisor._validate_review(ok, message, {})  # 예외 없음
+        with self.assertRaises(ValueError):
+            self.supervisor._validate_review({**ok, "quote": "그 기술 강의 찾아줘"}, message, {})
 
     def test_approved_generic_gap_cannot_replace_an_unresolved_singular_reference(self):
         self.respond(self.intake(scope="gap"), {"decision": "continue", "issue": "none"})
