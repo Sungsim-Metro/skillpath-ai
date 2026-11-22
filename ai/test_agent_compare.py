@@ -140,7 +140,7 @@ def test_mock_run_on_dev_cases():
     cases = json.loads(ac.CASES.read_text(encoding="utf-8"))["cases"]
     assert sum(1 for c in cases if not c.get("reference")) == 12  # 개선용 12문항(+ 참고 문항)
     assert all(c["job"] == "cloud_engineer" for c in cases if not c.get("reference"))
-    both = ac.evaluate(cases, ["0", "A"])
+    both = ac.evaluate(cases, ["0", "A", "3"])
     a = both["A"]
     assert set(a["rows"]) == {c["id"] for c in cases if not c.get("reference")}  # 참고 문항(AI 엔지니어)은 구조 0 만
     assert a["summary"]["model_calls"] == 0 and a["summary"]["intent_not_applicable"] == 0  # A 는 해당 없음이 없다
@@ -154,6 +154,14 @@ def test_mock_run_on_dev_cases():
     assert (s["intent_total"], s["intent_not_applicable"]) == (8, 2)  # 구조 0: D1·D2 는 해당 없음
     assert (s["ask_back_total"], s["ask_back_not_applicable"]) == (0, 2)  # 구조 0: T1·T2 되묻기는 해당 없음
     assert (a["summary"]["ask_back_total"], a["summary"]["ask_back_not_applicable"]) == (2, 0)
+    t = both["3"]
+    assert set(t["rows"]) == {c["id"] for c in cases}  # 3번도 참고 문항을 돌린다(점수에서는 뺀다)
+    s3 = t["summary"]
+    assert s3["model_calls"] == 0 and s3["guard_blocked"] == s3["guard_total"] == 2
+    assert (s3["intent_total"], s3["intent_not_applicable"]) == (8, 2)  # 3번도 demand 의도가 없다
+    assert (s3["ask_back_total"], s3["ask_back_not_applicable"]) == (0, 2)  # 기술 표기 되묻기 기능이 없다
+    assert all(row["intent"] != "no_turn" for cid, row in t["rows"].items() if not cid.startswith("G"))  # 팀장 계획을 봤다
+    assert all(row["remote_usage_records"] == 0 for row in t["rows"].values())
 
 
 def test_budget_stops_before_call():
@@ -224,7 +232,7 @@ def test_isolated_run_matches_in_process():
         return
     cases = json.loads(ac.CASES.read_text(encoding="utf-8"))["cases"]
     case = next(c for c in cases if c["id"] == "C1")
-    for name in ("0", "A"):
+    for name in ("0", "A", "3"):
         here = ac.STRUCTURES[name](case)
         there = ac.run_isolated(name, "dev", "C1")
         assert {k: v for k, v in here.items() if k != "seconds"} == {k: v for k, v in there.items() if k != "seconds"}, name
@@ -234,7 +242,7 @@ def test_isolated_run_matches_in_process():
         assert "없는문항" in str(e) and "멈춥니다" in str(e)
     else:
         raise AssertionError("없는 문항인데 멈추지 않음")
-    assert len(ac.RESULT_NOTES) == 4 and "새 프로세스" in ac.RESULT_NOTES[1] and "_analyze" in ac.RESULT_NOTES[3]
+    assert len(ac.RESULT_NOTES) == 6 and "새 프로세스" in ac.RESULT_NOTES[1] and "_analyze" in ac.RESULT_NOTES[3]
 
 
 def test_holdout_placeholder_is_empty_schema():
@@ -244,6 +252,126 @@ def test_holdout_placeholder_is_empty_schema():
         return
     data = json.loads(ac.HOLDOUT.read_text(encoding="utf-8"))
     assert "cases" in data and isinstance(data["cases"], list)
+
+
+def test_supervised_intent_mapping():
+    # 3번: 막히면 blocked, 팀장이 되물으면 clarify, 나머지는 팀장 계획의 Turn 으로 구조 0 과 같게
+    from ai.supervisor import SupervisedTurn
+
+    p = ac.Probe()
+    p.guard = guardrail.GuardResult(True, "code", "공격", "지시 무시")
+    assert ac.supervised_intent(p, []) == "blocked"
+    p.guard = guardrail.PASS
+    assert ac.supervised_intent(p, []) == "no_turn"
+    assert ac.supervised_intent(p, [SupervisedTurn(intake.Turn(), [], question="무엇을 배우고 싶으신가요?")]) == "clarify"
+    assert ac.supervised_intent(p, [SupervisedTurn(intake.Turn(status="out_of_scope"), [])]) == "out_of_scope"
+    assert ac.supervised_intent(p, [SupervisedTurn(intake.Turn(status="ok", action="gap"), [])]) == "gap"
+    assert ac.SUPPORTED_INTENTS["3"] == ac.SUPPORTED_INTENTS["0"] and "3" not in ac.ASK_BACK_STRUCTURES
+
+
+def test_child_env_forces_local_tools():
+    # 하위 프로세스에는 Lambda 도구·비교 실험 설정이 늘 빈 값으로 간다(부모 환경에 값이 있어도)
+    old_run, seen = ac.subprocess.run, {}
+    old_env = {k: os.environ.get(k) for k in ac.LOCAL_ENV}
+    try:
+        os.environ.update({k: "x" for k in ac.LOCAL_ENV})
+        row = {"model_calls": 0, "mock_turns": 0}
+        ac.subprocess.run = lambda *a, env=None, **k: seen.update(env) or type(
+            "P", (), {"returncode": 0, "stdout": ac.ROW_MARK + json.dumps(row)})()
+        assert ac.run_isolated("3", "dev", "C1") == row
+        assert all(seen[k] == "" for k in ac.LOCAL_ENV)
+        assert set(ac.LOCAL_ENV) == {"SKILLPATH_DEMAND_FUNCTION", "SKILLPATH_RECOMMEND_FUNCTION",
+                                     "EXPERIMENT_MODELS", "AB_STRUCTURES"}
+        ac.subprocess.run = lambda *a, **k: type("P", (), {"returncode": ac.COUNT_MISMATCH_EXIT, "stdout": ""})()
+        try:
+            ac.run_isolated("3", "dev", "C1")
+        except ac.CountMismatch as e:
+            assert "C1" in str(e)
+        else:
+            raise AssertionError("대조 실패 종료 코드인데 멈추지 않음")
+    finally:
+        ac.subprocess.run = old_run
+        for k, v in old_env.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
+def test_probe_counts_and_budget_hold_under_threads():
+    # 스레드 여러 개가 동시에 불러도 수가 맞고, 한도를 넘는 호출은 일어나지 않는다
+    import threading
+
+    old_mock, saved = os.environ.get("BEDROCK_MOCK"), bedrock._call
+    calls = []
+    lock = threading.Lock()
+
+    def fake(*a, **k):
+        with lock:
+            calls.append(1)
+        return "{}", "end_turn", {"totalTokens": 2}
+
+    def hammer(n):
+        for _ in range(n):
+            try:
+                bedrock._call("s", [], 10, 0.0, "", "k", 1)
+            except ac.BudgetExceeded:
+                pass
+
+    try:
+        bedrock._call = fake
+        os.environ["BEDROCK_MOCK"] = "0"
+        with ac.Probe() as p:
+            threads = [threading.Thread(target=hammer, args=(50,)) for _ in range(4)]
+            [t.start() for t in threads]
+            [t.join() for t in threads]
+        assert (p.model_calls, p.tokens, len(calls)) == (200, 400, 200)
+        calls.clear()
+        os.environ[ac.MODEL_BUDGET_ENV] = "10"
+        with ac.Probe() as p:
+            threads = [threading.Thread(target=hammer, args=(10,)) for _ in range(4)]
+            [t.start() for t in threads]
+            [t.join() for t in threads]
+        assert (p.model_calls, len(calls)) == (10, 10)
+    finally:
+        bedrock._call = saved
+        os.environ.pop(ac.MODEL_BUDGET_ENV, None)
+        os.environ["BEDROCK_MOCK"] = old_mock or "1"
+
+
+def test_usage_records_are_cross_checked():
+    # bedrock 의 호출 기록과 Lambda 가 넘긴 호출 기록을 따로 센다. Probe 수와 다르거나 Lambda 기록이 있으면 멈춘다
+    from ai import usage
+
+    saved = (bedrock.record_usage, usage.record)
+    with ac.Probe() as p:
+        bedrock.record_usage("chat", 1, {}, False)
+        bedrock.record_usage("chat", 1, {}, True)
+        usage.record("recommend", 1, {}, False)
+    assert (bedrock.record_usage, usage.record) == saved  # 원래대로 돌아왔다
+    assert p.count_fields() == {"usage_records": 1, "mock_usage_records": 1, "remote_usage_records": 1}
+    ok = {"model_calls": 1, "mock_turns": 1, "usage_records": 1, "mock_usage_records": 1, "remote_usage_records": 0}
+    ac.check_counts(ok)
+    for bad in ({**ok, "usage_records": 0}, {**ok, "mock_usage_records": 2}, {**ok, "remote_usage_records": 1}):
+        try:
+            ac.check_counts(bad)
+        except ac.CountMismatch:
+            pass
+        else:
+            raise AssertionError(f"대조가 어긋났는데 멈추지 않음: {bad}")
+    ac.check_counts({"model_calls": 3, "mock_turns": 0})  # 대조 칸이 없는 옛 결과 행은 통과
+
+
+def test_holdout_lock_per_structure():
+    # 0·A 는 잠금 전에 끝낸 실행으로 잠겨 있고, 3 은 "완료" 줄을 남긴 뒤부터 잠긴다
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as d:
+        log = Path(d) / "holdout.log"
+        assert set(ac.holdout_done(["0", "A", "3"], log)) == {"0", "A"}
+        assert ac.holdout_done(["3"], log) == {}
+        log.write_text("2026-11-22 10:00:00 완료 mode=mock structure=3\n", encoding="utf-8")
+        assert ac.holdout_done(["3"], log) == {}  # 가짜 모드 기록은 막지 않는다
+        ac.mark_holdout_done(["3"], log)
+        assert set(ac.holdout_done(["3"], log)) == {"3"}
 
 
 if __name__ == "__main__":

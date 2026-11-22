@@ -96,6 +96,42 @@ def test_two_rounds_noise_and_effect():
     assert s["effect"]["changed"]["pairs"] == 3 and s["effect"]["labels"] == {"a": "0", "b": "A"}
 
 
+def _scored(s, c, rnd, h, g, ans=None):
+    return {"structure": s, "case_id": c, "round": rnd, "answer": ans or f"{s}-{c}",
+            "scores": {"helpful": h, "grounded": g}, "item_id": f"{s}{c}{rnd}"}
+
+
+# 세 쌍 비교를 넣기 전(11/22) summarize 가 아래 고정 입력에서 낸 결과 전체. 구조가 둘이면 이 결과가 그대로여야 한다
+TWO_STRUCTURE_SNAPSHOT = json.loads('{"by_structure": {"0": {"1": {"distribution": {"grounded": {"1": 0, "2": 0, "3": 1, "4": 2, "5": 0}, "helpful": {"1": 0, "2": 0, "3": 1, "4": 2, "5": 0}}, "failed": 0, "mean": {"grounded": 3.67, "helpful": 3.67}, "n": 3}, "2": {"distribution": {"grounded": {"1": 0, "2": 0, "3": 2, "4": 0, "5": 0}, "helpful": {"1": 0, "2": 0, "3": 1, "4": 1, "5": 0}}, "failed": 0, "mean": {"grounded": 3.0, "helpful": 3.5}, "n": 2}}, "A": {"1": {"distribution": {"grounded": {"1": 0, "2": 0, "3": 1, "4": 2, "5": 0}, "helpful": {"1": 0, "2": 1, "3": 0, "4": 1, "5": 1}}, "failed": 1, "mean": {"grounded": 3.67, "helpful": 3.67}, "n": 3}, "2": {"distribution": {"grounded": {"1": 0, "2": 0, "3": 1, "4": 1, "5": 0}, "helpful": {"1": 0, "2": 0, "3": 1, "4": 0, "5": 1}}, "failed": 0, "mean": {"grounded": 3.5, "helpful": 4.0}, "n": 2}}}, "effect": {"changed": {"higher": 1, "lower": 1, "pairs": 2, "same": 0}, "higher": 1, "identical": {"higher": 0, "lower": 0, "pairs": 1, "same": 1}, "labels": {"a": "0", "b": "A"}, "lower": 1, "noise": 0, "pairs": 3, "same": 1}, "noise": {"changed": {"higher": 0, "lower": 0, "pairs": 0, "same": 0}, "higher": 1, "identical": {"higher": 1, "lower": 1, "pairs": 4, "same": 2}, "lower": 1, "noise": 2, "pairs": 4, "same": 2}}')
+TWO_STRUCTURE_SCORED = [
+    _scored("0", "N1", 1, 4, 4), _scored("0", "N1", 2, 4, 3), _scored("A", "N1", 1, 5, 4), _scored("A", "N1", 2, 5, 4),
+    _scored("0", "C2", 1, 3, 3), _scored("0", "C2", 2, 3, 3), _scored("A", "C2", 1, 2, 3), _scored("A", "C2", 2, 3, 3),
+    _scored("0", "D1", 1, 4, 4), _scored("A", "D1", 1, 4, 4, ans="0-D1"), {**_scored("A", "O1", 1, 1, 1), "scores": None},
+]
+
+
+def test_two_structures_summary_unchanged():
+    # 구조가 둘이면 예전과 똑같다: effect 하나, effects 칸 없음
+    s = ja.summarize([dict(r) for r in TWO_STRUCTURE_SCORED])
+    # 결과 파일에 저장되는 모양(JSON, 회차 키는 문자열)으로 비교한다
+    assert json.loads(json.dumps(s)) == TWO_STRUCTURE_SNAPSHOT and "effects" not in s
+
+
+def test_three_structures_give_every_pair():
+    # 구조가 셋이면 0–3, 0–A, 3–A 세 쌍(이름 순서 a < b). 각 쌍은 그 두 구조만 넣고 돌린 effect 와 같다
+    three = [dict(r) for r in TWO_STRUCTURE_SCORED] + [
+        _scored("3", "N1", 1, 3, 3), _scored("3", "C2", 1, 5, 5), _scored("3", "D1", 1, 4, 4, ans="0-D1")]
+    s = ja.summarize(three)
+    assert s["effect"] is None
+    assert [(e["labels"]["a"], e["labels"]["b"]) for e in s["effects"]] == [("0", "3"), ("0", "A"), ("3", "A")]
+    for e in s["effects"]:
+        a, b = e["labels"]["a"], e["labels"]["b"]
+        only = ja.summarize([r for r in three if r["structure"] in (a, b)])["effect"]
+        assert e == only, (a, b)
+    zero_three = s["effects"][0]
+    assert (zero_three["higher"], zero_three["same"], zero_three["lower"]) == (1, 1, 1)  # C2 높음, D1 같음, N1 낮음
+
+
 def test_judge_model_must_differ():
     with mock.patch.dict(os.environ, {"JUDGE_MODEL_ID": "", "BEDROCK_MODEL_ID": "m-writer"}):
         _expect_error(ja.judge_model)

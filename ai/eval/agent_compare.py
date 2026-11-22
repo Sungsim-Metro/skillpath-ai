@@ -2,7 +2,7 @@
 
 실행 (저장소 루트에서)
   python -m ai.eval.agent_compare                       개선용 문항(data/eval/agent_cases.json), 구조 0, 가짜 모드
-  python -m ai.eval.agent_compare --structures 0 A      구조 0(화면 경로)과 A(상담 에이전트, 아직 없음)
+  python -m ai.eval.agent_compare --structures 0 A 3    구조 0(화면 경로), A(상담 에이전트), 3(팀장형)
   python -m ai.eval.agent_compare --bedrock             실제 모드(BEDROCK_MOCK=0 과 모델·가드레일·DynamoDB 설정 필요)
   python -m ai.eval.agent_compare --set holdout         보지 않은 문항. 숫자만 출력(문항 id·원문 없음). 채점 직전에 한 번만
   python -m ai.eval.agent_compare --judge <답 파일> [--rounds 2] [--human-sheet] [--bedrock --max-judge-calls N]
@@ -12,7 +12,10 @@
 구조
 - 0 화면 경로: backend.chat.handle_message(가드레일 → 발화 해석 → 코드 분기 → Gap 또는 검토 추천). 지금 화면이 쓰는 경로
 - A 상담 에이전트 + 추천 도구: ai.agent.chat(도구 호출 반복, 과정은 recommend_courses = 화면과 같은 검증 추천)
-- 세 구조 모두 입력 검사는 ai.guardrail.check_input 하나다. 가드레일 문항(regression)은 비교 점수에서 빼고 결과가 같은지만 본다
+- 3 팀장형(일현 구조): backend.chat.handle_message(architecture="supervised"). 화면의 --supervised 경로와 같다(app/main.py).
+  의도는 팀장 계획(ai.supervisor.interpret_turn)으로 정하고, 팀장이 되물으면 clarify 로 센다
+- 참고 문항(AI 엔지니어 R1·R2)은 구조 0·3 만 돌리고 점수에서는 뺀다
+- 모든 구조의 입력 검사는 ai.guardrail.check_input 하나다. 가드레일 문항(regression)은 비교 점수에서 빼고 결과가 같은지만 본다
 
 지표 (문항마다 기록하고 코드로 합친다)
 - 의도 정확도: 관찰한 의도(gap·demand·courses·out_of_scope·blocked 등)가 expect_intent 와 같은 비율(가드레일·참고 문항 제외).
@@ -29,6 +32,8 @@
 캐시: 추천(backend.api 의 추천 캐시)·수요(60초 캐시) 같은 메모리 캐시가 구조·문항 사이에 남으면 뒤에 도는 쪽의 호출 수와
 시간이 줄어 비교가 틀어진다. backend 에 캐시를 비우는 공개 함수가 없어(내부 변수는 건드리지 않는다), (구조, 문항)마다
 이 스크립트를 새 프로세스(--one)로 띄워 늘 빈 캐시에서 시작한다. 그만큼 DynamoDB 수요 조회가 문항마다 한 번씩 더 일어난다.
+하위 프로세스는 Lambda 도구와 비교 실험 설정(LOCAL_ENV)을 비워 로컬에서만 돈다. 문항마다 Probe 가 센 모델 호출 수와
+호출 기록(ai.usage) 수를 대조해 다르면 멈춘다. 보지 않은 문항은 구조마다 실제 모드 한 번만 돈다(outputs/eval/agent_holdout_runs.log).
 """
 from __future__ import annotations
 
@@ -39,6 +44,7 @@ import re
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -61,7 +67,10 @@ OUT_DIR = ROOT / "outputs" / "eval"
 INTENTS = ("gap", "demand", "courses", "out_of_scope", "blocked")
 # 구조마다 고를 수 있는 의도. 없는 의도를 기대하는 문항은 "해당 없음"으로 따로 세고 의도 정확도 분모에서 뺀다.
 # 구조 0(화면 경로)의 해석 action 에는 "기술 하나 수요"(demand)가 없다(gap·courses·note·summary)
-SUPPORTED_INTENTS = {"0": {"gap", "courses", "out_of_scope", "blocked"}}
+SUPPORTED_INTENTS = {"0": {"gap", "courses", "out_of_scope", "blocked"},
+                     "3": {"gap", "courses", "out_of_scope", "blocked"}}  # 3번도 화면 경로의 해석 action 을 쓴다
+# 참고 문항(AI 엔지니어 R1·R2)을 돌리는 구조. 점수(summarize)에서는 늘 뺀다
+REFERENCE_STRUCTURES = {"0", "3"}
 # 사전에 없는 기술 표기를 되묻는 기능이 있는 구조. 구조 0(화면 경로)은 없다: backend/chat.py 의 _skill 이 모르는 표기를
 # 그대로 두고, ai/chat.py 의 status(clarify_role·incomplete)는 직무·미완성 입력 확인이지 기술 표기 되묻기가 아니다(11/19 확인).
 # 없는 구조는 표기 애매 문항의 되묻기를 "해당 없음"으로 따로 세고 분모에서 뺀다
@@ -71,7 +80,17 @@ RESULT_NOTES = [
     "구조·문항마다 새 프로세스로 실행해 캐시가 비어 있음, DynamoDB 수요 조회가 문항마다 한 번씩 더 일어남",
     "KB Retrieve(과정 검색)·임베딩 호출은 상한 없이 개수만 기록함(kb_retrieve_calls, embedding_calls)",
     "구조 0은 이름 댄 기술 대신 상위 부족 기술을 추천함(backend/chat.py _analyze). 구조 A 는 이름 댄 기술을 먼저 추천함(수요에 없으면 공고 수 정보 없음)",
+    "Lambda 도구 호출(SKILLPATH_*_FUNCTION)과 비교 실험(EXPERIMENT_MODELS·AB_STRUCTURES)은 끄고 로컬에서 돌림(11/22부터)",
+    "문항마다 Probe 가 센 모델 호출 수와 호출 기록(usage) 수가 같은지 대조하고, 다르면 멈춤(11/22부터)",
 ]
+# 하위 프로세스에서 강제로 비우는 환경 변수. Lambda 로 가면 그 안의 모델 호출을 Probe 가 세지도, 한도로 막지도 못한다
+LOCAL_ENV = {"SKILLPATH_DEMAND_FUNCTION": "", "SKILLPATH_RECOMMEND_FUNCTION": "",
+             "EXPERIMENT_MODELS": "", "AB_STRUCTURES": ""}
+COUNT_MISMATCH_EXIT = 4            # 호출 수 대조가 어긋난 하위 프로세스의 종료 코드
+# 보지 않은 문항 실제 실행 기록. 구조마다 "완료" 줄이 있으면 다시 돌리지 않는다
+HOLDOUT_LOG = OUT_DIR / "agent_holdout_runs.log"
+HOLDOUT_DONE_BEFORE = {"0": "agent_compare_holdout_bedrock_20261121-222945.json",  # 잠금을 만들기 전에 끝낸 실행
+                       "A": "agent_compare_holdout_bedrock_20261121-222945.json"}
 ROW_MARK = "AGENT_COMPARE_ROW "  # 하위 프로세스가 결과 한 줄 앞에 붙이는 표시(다른 출력과 섞이지 않게)
 CHILD_TIMEOUT = 600                # 문항 하나의 하위 프로세스 시간 한도(초)
 # 호출 한도: 부모가 남은 한도를 하위 프로세스에 환경 변수로 넘기고, 하위 프로세스는 호출 직전에 한도를 넘으면 멈춘다
@@ -86,6 +105,10 @@ class BudgetExceeded(BaseException):
 
 class LimitReached(RuntimeError):
     """부모: 호출 한도에 걸려 측정을 멈춤(그때까지의 결과만 저장)."""
+
+
+class CountMismatch(RuntimeError):
+    """Probe 가 센 모델 호출 수와 호출 기록 수가 다르거나, Lambda 쪽 호출 기록이 있음."""
 # 답에 되묻기가 있는지(표기 애매 문항). 상담 에이전트의 보충 문장 "OO는 XX를 말씀하신 건가요?" 와 같은 꼴
 ASK_BACK = re.compile(r"말씀하신\s*건가요|무엇을\s*말씀|어떤\s*기술을\s*말씀|맞나요\?")
 EVIDENCE_MAX = 6000  # 근거 자료 요약 글자 수 상한(채점 입력이 너무 길어지지 않게)
@@ -111,8 +134,15 @@ class Probe:
         self.guardrail_calls = 0   # 실제 ApplyGuardrail 호출(모델 호출 수와 따로 셈)
         self.kb_retrieve_calls = 0  # 과정 검색의 KB Retrieve 호출(상한 없음, 개수만)
         self.embedding_calls = 0    # 임베딩 호출(상한 없음, 개수만. 캐시에 있으면 부르지 않음)
+        self.usage_records = 0         # 실제 모델 응답의 호출 기록(ai.bedrock → ai.usage). model_calls 와 같아야 한다
+        self.mock_usage_records = 0    # 가짜 대본 차례의 호출 기록. mock_turns 와 같아야 한다
+        self.remote_usage_records = 0  # Lambda 가 돌려준 호출 기록(usage.record). 로컬로 돌리므로 0 이어야 한다
         self._embed_before = 0
         self._saved = None
+        # 카운터와 한도 검사를 한 덩어리로 묶는다. 스레드로 동시에 불려도 수가 맞고 한도를 넘지 않게
+        # (한도는 호출 전에 자리를 잡아 두는 _reserved 로 보고, 수는 응답을 받은 뒤 센다)
+        self._lock = threading.Lock()
+        self._reserved = {"model": 0, "guardrail": 0}
 
     @staticmethod
     def _budget(name: str):
@@ -137,11 +167,17 @@ class Probe:
         search._kb_scores = counted_kb
         model_budget, guard_budget = self._budget(MODEL_BUDGET_ENV), self._budget(GUARDRAIL_BUDGET_ENV)
 
+        def reserve(kind: str, budget: int | None, label: str) -> None:
+            with self._lock:
+                if budget is not None and self._reserved[kind] >= budget:
+                    raise BudgetExceeded(label)  # 호출하기 전에 멈춘다
+                self._reserved[kind] += 1
+
         def watched_assess(text, source):
             if not bedrock.is_mock() and guardrail._guardrails_enabled(source):
-                if guard_budget is not None and self.guardrail_calls >= guard_budget:
-                    raise BudgetExceeded("ApplyGuardrail 호출 한도")
-                self.guardrail_calls += 1
+                reserve("guardrail", guard_budget, "ApplyGuardrail 호출 한도")
+                with self._lock:
+                    self.guardrail_calls += 1
             return assess(text, source)
 
         def watched_check(text):
@@ -154,30 +190,72 @@ class Probe:
 
         def counted(fn):
             def wrapper(*a, **k):
-                if not bedrock.is_mock() and model_budget is not None and self.model_calls >= model_budget:
-                    raise BudgetExceeded("모델 호출 한도")  # 호출하기 전에 멈춘다
+                mock = bedrock.is_mock()
+                if not mock:
+                    reserve("model", model_budget, "모델 호출 한도")
                 result = fn(*a, **k)
-                if bedrock.is_mock():
-                    self.mock_turns += 1
-                else:
-                    self.model_calls += 1
-                    usage = result[2] or {}
-                    self.tokens += usage.get("totalTokens", usage.get("inputTokens", 0) + usage.get("outputTokens", 0))
+                with self._lock:
+                    if mock:
+                        self.mock_turns += 1
+                    else:
+                        self.model_calls += 1
+                        usage = result[2] or {}
+                        self.tokens += usage.get("totalTokens", usage.get("inputTokens", 0) + usage.get("outputTokens", 0))
                 return result
             return wrapper
+
+        # 호출 기록 대조: ai.bedrock 은 응답마다 record_usage 를 부르고, Lambda 도구는 usage.record 로 기록을 넘긴다
+        from ai import usage as usage_log
+
+        self._usage_log = usage_log
+        local_record, remote_record = bedrock.record_usage, usage_log.record
+        self._saved_records = (local_record, remote_record)
+
+        def watched_local_record(stage, attempt, call_usage, mock, **k):
+            with self._lock:
+                if mock:
+                    self.mock_usage_records += 1
+                else:
+                    self.usage_records += 1
+            return local_record(stage, attempt, call_usage, mock, **k)
+
+        def watched_remote_record(*a, **k):
+            with self._lock:
+                self.remote_usage_records += 1
+            return remote_record(*a, **k)
 
         guardrail.check_input = watched_check
         intake.interpret = watched_interpret
         bedrock._call, bedrock._call_tools = counted(call), counted(call_tools)
         guardrail.bedrock_assess = watched_assess
+        bedrock.record_usage, usage_log.record = watched_local_record, watched_remote_record
         return self
 
     def __exit__(self, *exc):
         (guardrail.check_input, intake.interpret, bedrock._call, bedrock._call_tools,
          guardrail.bedrock_assess) = self._saved
+        bedrock.record_usage, self._usage_log.record = self._saved_records
         self._search._kb_scores = self._saved_kb
         self.embedding_calls = self._embed.usage()["calls"] - self._embed_before
         return False
+
+    def count_fields(self) -> dict:
+        """결과 행에 남길 호출 수 대조 칸."""
+        return {"usage_records": self.usage_records, "mock_usage_records": self.mock_usage_records,
+                "remote_usage_records": self.remote_usage_records}
+
+
+def check_counts(row: dict) -> None:
+    """Probe 가 센 수와 호출 기록 수가 같은지 본다. 다르면 CountMismatch(어느 칸이 다른지만, 내용 없음)."""
+    wrong = []
+    if row.get("usage_records", row["model_calls"]) != row["model_calls"]:
+        wrong.append(f"모델 호출 {row['model_calls']} ≠ 호출 기록 {row['usage_records']}")
+    if row.get("mock_usage_records", row["mock_turns"]) != row["mock_turns"]:
+        wrong.append(f"가짜 차례 {row['mock_turns']} ≠ 가짜 기록 {row['mock_usage_records']}")
+    if row.get("remote_usage_records", 0):
+        wrong.append(f"Lambda 호출 기록 {row['remote_usage_records']}건(로컬로 돌려야 함)")
+    if wrong:
+        raise CountMismatch("호출 수 대조 실패: " + ", ".join(wrong))
 
 
 def guard_kind(result) -> str:
@@ -201,29 +279,58 @@ def screen_intent(probe: Probe) -> str:
     return turn.action      # gap, courses, note, summary(구조 0 에는 demand 가 따로 없다)
 
 
+def supervised_intent(probe: Probe, plans: list) -> str:
+    """구조 3 이 고른 의도. 막히면 blocked, 팀장이 되물으면 clarify, 나머지는 팀장 계획의 Turn 으로 구조 0 과 같게 정한다."""
+    kind = guard_kind(probe.guard)
+    if kind in ("blocked", "check_failed"):
+        return kind
+    if not plans:
+        return "no_turn"
+    plan = plans[-1]
+    if plan.question:
+        return "clarify"
+    turn = plan.turn
+    return turn.status if turn.status != "ok" else turn.action
+
+
 def run_screen(case: dict) -> dict:
     """구조 0: 화면 경로 handle_message. 문항마다 새 대화."""
+    return _run_chat(case, "screen")
+
+
+def run_supervised(case: dict) -> dict:
+    """구조 3(팀장형): 화면의 --supervised 경로(app/main.py)와 같은 handle_message(architecture="supervised"). 문항마다 새 대화."""
+    return _run_chat(case, "supervised")
+
+
+def _run_chat(case: dict, architecture: str) -> dict:
+    from ai import supervisor
+    from backend import api
     from backend import chat as screen
 
-    from backend import api
-
     state = screen.Conversation()
-    gaps = []
-    original_gap = api.get_gap
+    gaps, plans = [], []
+    original_gap, original_plan = api.get_gap, supervisor.interpret_turn
 
     def watched_gap(*a, **k):
         rows = original_gap(*a, **k)
         gaps.append(rows)
         return rows
 
-    api.get_gap = watched_gap
+    def watched_plan(*a, **k):  # backend/chat.py 가 부를 때 supervisor 모듈에서 이 이름을 찾는다
+        plan = original_plan(*a, **k)
+        plans.append(plan)
+        return plan
+
+    api.get_gap, supervisor.interpret_turn = watched_gap, watched_plan
     try:
         with Probe() as probe:
             start = time.perf_counter()
-            reply = screen.handle_message(state, case["text"], job=case["job"], sidebar_skills=[])
+            reply = screen.handle_message(state, case["text"], job=case["job"], sidebar_skills=[],
+                                          architecture=architecture)
             seconds = time.perf_counter() - start
     finally:
-        api.get_gap = original_gap
+        api.get_gap, supervisor.interpret_turn = original_gap, original_plan
     courses = reply.courses or []
     gap_keys = ("skill", "owned", "postings", "of", "required_pct", "user_level", "required_level")
     evidence = {
@@ -232,7 +339,8 @@ def run_screen(case: dict) -> dict:
     }
     return {
         "guard": guard_kind(probe.guard),
-        "intent": screen_intent(probe),
+        "intent": supervised_intent(probe, plans) if architecture == "supervised" else screen_intent(probe),
+        "decisions": list(reply.supervisor_decisions),  # 3번 팀장 판정 코드(continue·clarify·result_approved 등). 0번은 빈 목록
         "ask_back": bool(ASK_BACK.search(reply.text)),
         "courses": len(courses),
         "uncertain_courses": sum(1 for c in courses if c.get("match") == "uncertain"),
@@ -241,6 +349,7 @@ def run_screen(case: dict) -> dict:
         "guardrail_calls": probe.guardrail_calls,
         "kb_retrieve_calls": probe.kb_retrieve_calls,
         "embedding_calls": probe.embedding_calls,
+        **probe.count_fields(),
         "tokens": probe.tokens,
         "seconds": round(seconds, 3),
         "answer_chars": len(reply.text),
@@ -311,6 +420,7 @@ def run_agent(case: dict) -> dict:
         "guardrail_calls": probe.guardrail_calls,
         "kb_retrieve_calls": probe.kb_retrieve_calls,
         "embedding_calls": probe.embedding_calls,
+        **probe.count_fields(),
         "tokens": probe.tokens,
         "seconds": round(seconds, 3),
         "answer_chars": len(result["answer"]),
@@ -322,7 +432,7 @@ def run_agent(case: dict) -> dict:
     }
 
 
-STRUCTURES = {"0": run_screen, "A": run_agent}
+STRUCTURES = {"0": run_screen, "A": run_agent, "3": run_supervised}
 
 
 def summarize(cases: list[dict], rows: dict[str, dict], structure: str = "") -> dict:
@@ -369,10 +479,13 @@ def run_isolated(structure: str, case_set: str, case_id: str, budgets: dict | No
     오류 원문은 문항 내용이 섞일 수 있어 출력하지 않고 종료 코드만 알린다.
     """
     cmd = [sys.executable, "-m", "ai.eval.agent_compare", "--one", structure, case_id, "--set", case_set]
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8", **{k: str(v) for k, v in (budgets or {}).items() if v is not None}}
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", **LOCAL_ENV,
+           **{k: str(v) for k, v in (budgets or {}).items() if v is not None}}
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", env=env, timeout=CHILD_TIMEOUT)
     if proc.returncode == LIMIT_EXIT:
         raise LimitReached(f"구조 {structure} 문항 {case_id} 에서 호출 한도에 걸려 멈췄습니다")
+    if proc.returncode == COUNT_MISMATCH_EXIT:
+        raise CountMismatch(f"구조 {structure} 문항 {case_id} 에서 호출 수 대조가 어긋나 멈춥니다")
     rows = [line[len(ROW_MARK):] for line in proc.stdout.splitlines() if line.startswith(ROW_MARK)]
     if proc.returncode != 0 or len(rows) != 1:
         raise RuntimeError(f"구조 {structure} 문항 {case_id} 하위 프로세스 실패(종료 코드 {proc.returncode}). 멈춥니다")
@@ -391,7 +504,7 @@ def evaluate(cases: list[dict], structures: list[str], isolate: bool = False, ca
     used = {"model": 0, "guardrail": 0}
     partial = {} if partial is None else partial
     for name in structures:
-        mine = [c for c in cases if not c.get("reference") or name == "0"]  # 참고 문항(AI 엔지니어)은 구조 0 만
+        mine = [c for c in cases if not c.get("reference") or name in REFERENCE_STRUCTURES]  # 참고 문항은 0·3 만
         rows = partial.setdefault(name, {})
         for c in mine:
             if isolate:
@@ -400,6 +513,7 @@ def evaluate(cases: list[dict], structures: list[str], isolate: bool = False, ca
                 rows[c["id"]] = run_isolated(name, case_set, c["id"], budgets)
             else:
                 rows[c["id"]] = STRUCTURES[name](c)
+                check_counts(rows[c["id"]])
             used["model"] += rows[c["id"]]["model_calls"]
             used["guardrail"] += rows[c["id"]].get("guardrail_calls", 0)
         out[name] = {"summary": summarize(mine, rows, name), "rows": rows}
@@ -412,13 +526,38 @@ def run_one(structure: str, case_set: str, case_id: str) -> int:
     case = next((c for c in json.loads(path.read_text(encoding="utf-8"))["cases"] if c["id"] == case_id), None)
     if case is None or structure not in STRUCTURES:
         return 2
+    os.environ.update(LOCAL_ENV)  # 부모가 넘겼더라도 한 번 더: Lambda·비교 실험을 끄고 로컬에서만 돈다
     try:
         row = STRUCTURES[structure](case)
+        check_counts(row)
     except BudgetExceeded as e:
         print(f"호출 한도에 걸려 멈춥니다: {e}")
         return LIMIT_EXIT
+    except CountMismatch as e:
+        print(str(e))
+        return COUNT_MISMATCH_EXIT
     print(ROW_MARK + json.dumps(row, ensure_ascii=False))
     return 0
+
+
+def holdout_done(structures: list[str], log: Path = HOLDOUT_LOG) -> dict[str, str]:
+    """보지 않은 문항을 실제 모드로 이미 끝낸 구조 → 근거(기록 줄 또는 잠금 전 결과 파일)."""
+    done = {s: f"잠금 전 실행 {HOLDOUT_DONE_BEFORE[s]}" for s in structures if s in HOLDOUT_DONE_BEFORE}
+    if log.exists():
+        for line in log.read_text(encoding="utf-8").splitlines():
+            words = line.split()
+            if len(words) >= 5 and words[2] == "완료" and words[3] == "mode=bedrock" and words[4].startswith("structure="):
+                name = words[4].split("=", 1)[1]
+                if name in structures:
+                    done[name] = line.strip()
+    return done
+
+
+def mark_holdout_done(structures: list[str], log: Path = HOLDOUT_LOG) -> None:
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8") as f:
+        for name in structures:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 완료 mode=bedrock structure={name}\n")
 
 
 def split_answers(rows_by_structure: dict) -> dict:
@@ -475,8 +614,7 @@ def run_judge(args) -> int:
     noise, effect = result["summary"].get("noise"), result["summary"].get("effect")
     if noise:
         print(f"  채점 잡음(같은 답 두 번): 쌍 {noise['identical']['pairs']}개 중 합계가 달라진 쌍 {noise['noise']}개")
-    if effect:
-        e = effect
+    for e in ([effect] if effect else []) + result["summary"].get("effects", []):
         print(f"  구조 차이(1회차, 같은 질문): {e['labels']['b']} 가 {e['labels']['a']} 보다 높음 {e['higher']}·같음 {e['same']}·낮음 {e['lower']}")
     print(f"저장: {out.relative_to(ROOT).as_posix()}" + ("  (사람 채점 양식도 같은 폴더)" if args.human_sheet else ""))
     return 0
@@ -502,7 +640,7 @@ def run_agreement(judge_path: str, human_csv: str) -> int:
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="상담 구조 비교 코드 지표")
-    ap.add_argument("--structures", nargs="+", default=["0"], help="비교할 구조(0, A)")
+    ap.add_argument("--structures", nargs="+", default=["0"], help="비교할 구조(0, A, 3)")
     ap.add_argument("--set", choices=("dev", "holdout"), default="dev")
     ap.add_argument("--bedrock", action="store_true", help="실제 모드(BEDROCK_MOCK=0 이어야 함)")
     ap.add_argument("--max-model-calls", type=int, help="이번 실행 전체의 모델 호출 한도(넘기 직전에 멈춤)")
@@ -540,6 +678,13 @@ def main() -> int:
     if args.bedrock and (args.max_model_calls is None or args.max_guardrail_calls is None):
         print("실제 모드는 --max-model-calls 와 --max-guardrail-calls 를 함께 줘야 합니다. 멈춥니다.")
         return 1
+    if args.bedrock and args.set == "holdout":
+        done = holdout_done(structures)
+        if done:
+            for name, why in done.items():
+                print(f"구조 {name} 는 보지 않은 문항을 이미 실제 모드로 돌렸습니다: {why}")
+            print("보지 않은 문항은 구조마다 한 번만 돌립니다. 다시 하려면 기록 줄을 직접 지우고 이유를 남기세요. 멈춥니다.")
+            return 1
     partial: dict = {}
     try:
         result = evaluate(cases, structures, isolate=True, case_set=args.set, max_model_calls=args.max_model_calls,
@@ -559,6 +704,8 @@ def main() -> int:
                                   ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"멈출 때까지의 결과: {out.relative_to(ROOT).as_posix()}")
         return LIMIT_EXIT
+    if args.bedrock and args.set == "holdout":
+        mark_holdout_done(structures)  # 숫자를 화면에 찍기 전에 잠근다
     answers = split_answers({name: r["rows"] for name, r in result.items()})
     for name, r in result.items():
         s = r["summary"]

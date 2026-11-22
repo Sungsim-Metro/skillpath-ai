@@ -122,6 +122,14 @@ def summarize(scored: list[dict]) -> dict:
                      if len(structures) == 2 else None)
     if out["effect"] is not None:
         out["effect"]["labels"] = {"a": structures[0], "b": structures[1]}  # higher = b 가 a 보다 합계가 높은 문항 수
+    if len(structures) >= 3:
+        # 구조가 셋 이상이면 모든 쌍을 같은 방식으로 낸다(이름 순서 a < b, 예: 0–3, 0–A, 3–A). 둘일 때는 위 effect 만 둔다
+        out["effects"] = []
+        for i, a in enumerate(structures):
+            for b in structures[i + 1:]:
+                pair = ag.paired_change(first, ("case_id",), "structure", a, b, ("answer",), crit)
+                if pair is not None:
+                    out["effects"].append({**pair, "labels": {"a": a, "b": b}})
     return out
 
 
