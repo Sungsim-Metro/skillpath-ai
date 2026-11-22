@@ -5,7 +5,7 @@ import copy
 import random
 from dataclasses import dataclass, field, replace
 from itertools import groupby
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -596,13 +596,16 @@ def handle_message(state: Conversation, message: str, *, job: str, sidebar_skill
     with track_session(state.usage), use_model(model), lambda_tools.track_turn(turn_id):
         used = "" if api.is_mock() else current_model()
         try:
-            reply = None
+            reply, by_agent = None, False
             if agent_mode:
                 from backend import agent_screen
 
-                reply = agent_screen.reply_for(state, message, job, sidebar_skills)  # None 이면 구조 0 으로
+                # None 이면 구조 0 으로. by_agent 는 구조 A 가 답했는지(아니면 구조 0 이 처리한 턴)
+                reply, by_agent = agent_screen.reply_for(state, message, job, sidebar_skills, sidebar_levels)
             if reply is None:
                 reply = _handle_turn(state, message, job, sidebar_skills, sidebar_levels, supervised=supervised)
+            if agent_mode and not by_agent:
+                agent_screen.remember_screen_turn(state, message, reply)  # 구조 0 이 처리한 턴도 A 의 이전 대화에
         except Exception:
             if not quiet:
                 _record_turn(state, turn_id, job, used, before, failed=True)
@@ -666,7 +669,10 @@ def _record_turn(state: Conversation, turn_id: str, job: str, model: str, before
 
 
 def _handle_turn(state: Conversation, message: str, job: str, sidebar_skills: list[str],
-                 sidebar_levels: dict[str, int] | None, *, supervised: bool = False) -> Reply:
+                 sidebar_levels: dict[str, int] | None, *, supervised: bool = False,
+                 agent_gate: Callable[[intake.Turn, dict], bool] | None = None) -> Reply | None:
+    """agent_gate(구조 A 모드, backend/agent_screen.py): 해석한 턴을 구조 0 이 처리할지 묻는다. False 거나 해석에 실패하면
+    답을 만들지 않고 None 을 돌려준다(그 턴은 구조 A 가 처리한다). 해석은 한 번만 한다."""
     if not message.strip():
         return Reply("이어서 말씀해 주세요.")
     try:
@@ -723,7 +729,11 @@ def _handle_turn(state: Conversation, message: str, job: str, sidebar_skills: li
         if plan is not None:
             plan.turn = turn
     except intake.ChatIntakeError:
+        if agent_gate is not None:
+            return None
         return Reply("메시지를 해석하지 못했습니다. 요청을 다시 말씀해 주세요.", action="intake", failed=True)
+    if agent_gate is not None and not agent_gate(turn, context):
+        return None
     if (not supervised and state.offered_gap and turn.status == "ok" and turn.action == "note"
             and message.strip().rstrip(".!").strip() in {"네", "예", "응", "좋아요", "비교해줘", "비교해 주세요"}):
         turn.action = "gap"
