@@ -44,6 +44,7 @@ class Conversation:
     last_gap_job: str | None = None
     last_course_job: str | None = None
     last_course_levels: dict[str, list[str]] = field(default_factory=dict)
+    agent_history: list[dict] = field(default_factory=list)  # 구조 A(CHAT_ARCHITECTURE=agent)에 넘길 이전 대화
 
 
 @dataclass
@@ -66,6 +67,12 @@ class Reply:
     supervisor_decisions: list[str] = field(default_factory=list)
     gap_skills: list[str] = field(default_factory=list)
     course_targets: list[str] = field(default_factory=list)
+
+
+# 입력 검사 안내. 구조 A 화면 경로(backend/agent_screen.py)도 같은 문구를 쓴다
+CHECK_FAILED_TEXT = "요청의 가드레일 점검을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."
+BLOCKED_TEXT = ("이 요청은 학습 상담 범위에서 처리할 수 없습니다. 본인 상황(전공·학력 등)은 말씀하셔도 괜찮아요. "
+                "공부 방법이나 준비 과정으로 다시 물어봐 주세요.")
 
 
 def _skill(name: str) -> str:
@@ -570,30 +577,38 @@ def handle_message(state: Conversation, message: str, *, job: str, sidebar_skill
                    session: chat_profiles.ProfileSession | None = None,
                    sidebar_levels: dict[str, int] | None = None, architecture: str = "screen") -> Reply:
     """새 메시지 한 건을 처리한다. 화면 재표시는 이 진입점을 호출하지 않는다."""
-    if architecture not in {"screen", "supervised"}:
+    if architecture not in {"screen", "supervised", "agent"}:
         raise ValueError("지원하지 않는 상담 구조입니다.")
     supervised = architecture == "supervised"
+    agent_mode = architecture == "agent"  # 구조 A. 클라우드가 아닌 직무나 A 예외인 턴은 구조 0 이 대신 처리한다
+    quiet = supervised or agent_mode  # 비교 실험(모델·구조)을 쓰지 않고 실험 기록도 남기지 않는다
     previous = getattr(state, "session", None)
     # Open connections may still hold the pre-authentication Conversation type.
     legacy_nickname = vars(state).pop("nickname", "")
     if legacy_nickname or (previous is not None and session is not previous):
         Conversation.__init__(state)
     state.session = session
-    model = None if supervised else experiments.pick_model()
+    model = None if quiet else experiments.pick_model()
     turn_id = uuid4().hex
     before = (state.usage.input_tokens, state.usage.output_tokens)
-    rival = None if supervised else experiments.chat_rival()
+    rival = None if quiet else experiments.chat_rival()
     snapshot = copy.deepcopy(state) if rival else None  # 비교용 구조는 이 턴 전의 상태에서 같은 메시지를 다시 처리한다
     with track_session(state.usage), use_model(model), lambda_tools.track_turn(turn_id):
         used = "" if api.is_mock() else current_model()
         try:
-            reply = _handle_turn(state, message, job, sidebar_skills, sidebar_levels, supervised=supervised)
+            reply = None
+            if agent_mode:
+                from backend import agent_screen
+
+                reply = agent_screen.reply_for(state, message, job, sidebar_skills)  # None 이면 구조 0 으로
+            if reply is None:
+                reply = _handle_turn(state, message, job, sidebar_skills, sidebar_levels, supervised=supervised)
         except Exception:
-            if not supervised:
+            if not quiet:
                 _record_turn(state, turn_id, job, used, before, failed=True)
             raise
     reply.turn_id, reply.model = turn_id, used
-    if not supervised:
+    if not quiet:
         _record_turn(state, turn_id, job, used, before, action=reply.action, failed=reply.failed)
     if rival and reply.action == "courses" and reply.courses and not reply.alternatives and not reply.failed:
         reply.alternatives = _compare_chat_structures(state, snapshot, rival, message, job, sidebar_skills,
@@ -657,9 +672,9 @@ def _handle_turn(state: Conversation, message: str, job: str, sidebar_skills: li
     try:
         allowed = intake.guard_input(message)
     except intake.ChatIntakeError:
-        return Reply("요청의 가드레일 점검을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.", action="intake", failed=True)
+        return Reply(CHECK_FAILED_TEXT, action="intake", failed=True)
     if not allowed:
-        return Reply("이 요청은 학습 상담 범위에서 처리할 수 없습니다. 본인 상황(전공·학력 등)은 말씀하셔도 괜찮아요. 공부 방법이나 준비 과정으로 다시 물어봐 주세요.", action="blocked")
+        return Reply(BLOCKED_TEXT, action="blocked")
     read_failed = False
     if state.session is not None and state.profile is None:
         try:
