@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import re
 import tempfile
 import zipfile
 
@@ -54,9 +55,6 @@ BATCH = (
     "ai/evidence.py",
     "ai/sections.py",
     "ai/prompts/__init__.py",
-    "ai/prompts/extract_v1.py",
-    "ai/prompts/extract_v2.py",
-    "ai/prompts/extract_v2_1.py",
     "backend/demand.py",
     "pipeline/serverless_batch.py",
     "pipeline/extraction_batch.py",
@@ -81,6 +79,12 @@ BATCH = (
 def build(stage: str, destination: Path) -> str:
     """Write a ZIP atomically; its digest identifies the S3 object used by CloudFormation."""
     files = COMMON + (BATCH if stage == "preprocessing" else TOOLS)
+    if stage == "preprocessing":
+        files += tuple(
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "ai/prompts").glob("extract_v*.py")
+            if re.fullmatch(r"extract_v[0-9]+(?:_[0-9]+)*\.py", path.name)
+        )
     if stage == "recommend":
         files += RECOMMEND
     if stage != "preprocessing" and (ROOT / "data/required_levels_ai_engineer.json").is_file():
