@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Stage 3 of the SkillPath migration. Serve course recommendations with the
+  existing demand snapshot, course Knowledge Base, and approved Bedrock models.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+  ArtifactKey:
+    Type: String
+    Description: Content-addressed application ZIP key in the deployment Region.
+  FunctionName:
+    Type: String
+    Default: skillpath-recommend-tool
+    AllowedPattern: '[a-zA-Z0-9_-]{1,64}'
+  DemandTable:
+    Type: String
+    Default: skillpath-demand
+  ExtractionsTable:
+    Type: String
+    Default: skillpath-posting-extractions
+  KnowledgeBaseId:
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9]{10}'
+  ModelId:
+    Type: String
+  ModelResources:
+    Type: CommaDelimitedList
+    Description: Exact Bedrock model and inference-profile ARNs for the default and optional experiment models.
+    AllowedPattern: 'arn:[a-z0-9-]+:bedrock:[a-z0-9-]*:([0-9]{12})?:(foundation-model|inference-profile|application-inference-profile)/[a-zA-Z0-9.:-]+'
+  RecommendTimeout:
+    Type: Number
+    Default: 300
+    MinValue: 1
+    MaxValue: 900
+  AppRoleName:
+    Type: String
+    Default: ''
+    AllowedPattern: '[\w+=,.@-]{0,64}'
+    Description: Optional existing Streamlit execution role to grant invocation.
+
+Conditions:
+  AttachToApp: !Not [!Equals [!Ref AppRoleName, '']]
+
+Resources:
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Metadata:
+      com.aws.cloudformation.Context: {why: Keep runtime errors for two weeks.}
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${FunctionName}'
+      RetentionInDays: 14
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Read the published demand and course corpus and invoke the selected Bedrock models.
+        must: [Do not grant write access to course or user data.]
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RecommendCourses
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DemandTable}'
+              - Effect: Allow
+                Action: bedrock:Retrieve
+                Resource: !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}'
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Ref ModelResources
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt Logs.Arn
+  Function:
+    Type: AWS::Lambda::Function
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Run course retrieval, ranking and optional recommendation review within one tool call.
+    Properties:
+      FunctionName: !Ref FunctionName
+      Handler: backend.lambda_tools.recommend_handler
+      Runtime: python3.11
+      Role: !GetAtt ExecutionRole.Arn
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Timeout: !Ref RecommendTimeout
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BEDROCK_MOCK: '0'
+          USAGE_LOG: 'off'
+          BEDROCK_MODEL_ID: !Ref ModelId
+          BEDROCK_KB_ID: !Ref KnowledgeBaseId
+          DYNAMODB_DEMAND_TABLE: !Ref DemandTable
+          DYNAMODB_EXTRACTIONS_TABLE: !Ref ExtractionsTable
+  InvokePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Limit the application role to direct invocation of this function.
+    Properties:
+      Roles: !If [AttachToApp, [!Ref AppRoleName], !Ref 'AWS::NoValue']
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !GetAtt Function.Arn
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  InvokePolicyArn:
+    Value: !Ref InvokePolicy

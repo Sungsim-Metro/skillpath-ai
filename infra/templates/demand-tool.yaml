@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Stage 1 of the SkillPath migration. Serve read-only demand and gap requests
+  directly from the application, using the existing published demand table.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+  ArtifactKey:
+    Type: String
+    Description: Content-addressed application ZIP key in the deployment Region.
+  FunctionName:
+    Type: String
+    Default: skillpath-demand-tool
+    AllowedPattern: '[a-zA-Z0-9_-]{1,64}'
+  DemandTable:
+    Type: String
+    Default: skillpath-demand
+  ExtractionsTable:
+    Type: String
+    Default: skillpath-posting-extractions
+  AppRoleName:
+    Type: String
+    Default: ''
+    AllowedPattern: '[\w+=,.@-]{0,64}'
+    Description: Optional existing Streamlit execution role to grant invocation.
+
+Conditions:
+  AttachToApp: !Not [!Equals [!Ref AppRoleName, '']]
+
+Resources:
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Metadata:
+      com.aws.cloudformation.Context: {why: Keep runtime errors for two weeks.}
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${FunctionName}'
+      RetentionInDays: 14
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Only the published demand snapshot is needed by either operation.
+        must: [Keep profile and extraction data inaccessible to this tool.]
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadDemand
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DemandTable}'
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt Logs.Arn
+  Function:
+    Type: AWS::Lambda::Function
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Preserve the demand and gap contracts at the application's tool boundary.
+    Properties:
+      FunctionName: !Ref FunctionName
+      Handler: backend.lambda_tools.demand_handler
+      Runtime: python3.11
+      Role: !GetAtt ExecutionRole.Arn
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          BEDROCK_MOCK: '0'
+          USAGE_LOG: 'off'
+          DYNAMODB_DEMAND_TABLE: !Ref DemandTable
+          DYNAMODB_EXTRACTIONS_TABLE: !Ref ExtractionsTable
+  InvokePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Allow the application to invoke this specific function by IAM-authenticated SDK call.
+    Properties:
+      Roles: !If [AttachToApp, [!Ref AppRoleName], !Ref 'AWS::NoValue']
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !GetAtt Function.Arn
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  InvokePolicyArn:
+    Value: !Ref InvokePolicy
