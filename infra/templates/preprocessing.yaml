@@ -1,0 +1,309 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Stage 2 of the SkillPath migration. Process an explicitly selected S3 manifest
+  with bounded concurrency, then publish a complete DynamoDB demand snapshot.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+  ArtifactKey:
+    Type: String
+    Description: Content-addressed application ZIP key in the deployment Region.
+  DataBucket:
+    Type: String
+    Description: Existing bucket containing manifests and processed posting objects.
+  RocketPunchPrefix:
+    Type: String
+    Default: skillpath/rocketpunch
+    AllowedPattern: '[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*'
+  DemandTable:
+    Type: String
+    Default: skillpath-demand
+  ExtractionsTable:
+    Type: String
+    Default: skillpath-posting-extractions
+  ModelId:
+    Type: String
+  ModelResources:
+    Type: CommaDelimitedList
+    Description: Exact Bedrock model and inference-profile ARNs for extraction.
+    AllowedPattern: 'arn:[a-z0-9-]+:bedrock:[a-z0-9-]*:([0-9]{12})?:(foundation-model|inference-profile|application-inference-profile)/[a-zA-Z0-9.:-]+'
+
+Resources:
+  PrepareLogs:
+    Type: AWS::Logs::LogGroup
+    Metadata:
+      com.aws.cloudformation.Context: {why: Bound preparation log retention.}
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-prepare'
+      RetentionInDays: 14
+  WorkerLogs:
+    Type: AWS::Logs::LogGroup
+    Metadata:
+      com.aws.cloudformation.Context: {why: Bound extraction log retention.}
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-worker'
+      RetentionInDays: 14
+  FinalizeLogs:
+    Type: AWS::Logs::LogGroup
+    Metadata:
+      com.aws.cloudformation.Context: {why: Bound publication log retention.}
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-finalize'
+      RetentionInDays: 14
+
+  PrepareRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Verify the selected manifest and base snapshot.
+        must: [Preparation has no write privileges.]
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadBatchInputs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${DataBucket}/skillpath/batch/manifests/*'
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DemandTable}'
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt PrepareLogs.Arn
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Workers read fixed inputs and stage only their own extraction rows.
+        must: [Workers cannot change published demand.]
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StageExtractions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${DataBucket}/skillpath/batch/manifests/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${DataBucket}/${RocketPunchPrefix}/processed/postings/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${DataBucket}/skillpath/wanted-dataset/processed/postings/*'
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DemandTable}'
+                  - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExtractionsTable}'
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExtractionsTable}'
+                Condition:
+                  ForAllValues:StringLike: {'dynamodb:LeadingKeys': ['run#*']}
+                  'Null': {'dynamodb:LeadingKeys': 'false'}
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Ref ModelResources
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt WorkerLogs.Arn
+  FinalizeRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Verify staged rows and conditionally publish one complete snapshot per job.
+        must: [Finalization cannot mutate staged rows or invoke Bedrock.]
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PublishSnapshot
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${DataBucket}/skillpath/batch/manifests/*'
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:Query]
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExtractionsTable}'
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem]
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DemandTable}'
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt FinalizeLogs.Arn
+
+  Prepare:
+    Type: AWS::Lambda::Function
+    Metadata:
+      com.aws.cloudformation.Context: {why: Validate the manifest before scheduling worker chunks.}
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-prepare'
+      Handler: pipeline.serverless_batch.prepare
+      Runtime: python3.11
+      Role: !GetAtt PrepareRole.Arn
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          BEDROCK_MOCK: '0'
+          USAGE_LOG: 'off'
+          BEDROCK_MODEL_ID: !Ref ModelId
+          ROCKETPUNCH_S3_BUCKET: !Ref DataBucket
+          ROCKETPUNCH_S3_PREFIX: !Ref RocketPunchPrefix
+          DYNAMODB_DEMAND_TABLE: !Ref DemandTable
+          DYNAMODB_EXTRACTIONS_TABLE: !Ref ExtractionsTable
+  Worker:
+    Type: AWS::Lambda::Function
+    Metadata:
+      com.aws.cloudformation.Context: {why: Bound the runtime for a chunk of postings and reuse valid results.}
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-worker'
+      Handler: pipeline.serverless_batch.worker
+      Runtime: python3.11
+      Role: !GetAtt WorkerRole.Arn
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Timeout: 900
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BEDROCK_MOCK: '0'
+          USAGE_LOG: 'off'
+          BEDROCK_MODEL_ID: !Ref ModelId
+          ROCKETPUNCH_S3_BUCKET: !Ref DataBucket
+          ROCKETPUNCH_S3_PREFIX: !Ref RocketPunchPrefix
+          DYNAMODB_DEMAND_TABLE: !Ref DemandTable
+          DYNAMODB_EXTRACTIONS_TABLE: !Ref ExtractionsTable
+  Finalize:
+    Type: AWS::Lambda::Function
+    Metadata:
+      com.aws.cloudformation.Context: {why: Check the full selection before publishing demand.}
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-finalize'
+      Handler: pipeline.serverless_batch.finalize
+      Runtime: python3.11
+      Role: !GetAtt FinalizeRole.Arn
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BEDROCK_MOCK: '0'
+          USAGE_LOG: 'off'
+          BEDROCK_MODEL_ID: !Ref ModelId
+          ROCKETPUNCH_S3_BUCKET: !Ref DataBucket
+          ROCKETPUNCH_S3_PREFIX: !Ref RocketPunchPrefix
+          DYNAMODB_DEMAND_TABLE: !Ref DemandTable
+          DYNAMODB_EXTRACTIONS_TABLE: !Ref ExtractionsTable
+  WorkflowRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context: {why: The state machine only dispatches its three functions.}
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: states.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: {'aws:SourceAccount': !Ref 'AWS::AccountId'}
+              ArnEquals:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AWS::StackName}'
+      Policies:
+        - PolicyName: InvokeBatchFunctions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: [!GetAtt Prepare.Arn, !GetAtt Worker.Arn, !GetAtt Finalize.Arn]
+  Workflow:
+    Type: AWS::StepFunctions::StateMachine
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Finish all bounded worker calls before performing the publication check.
+        must: [Pass object keys only and discard worker results from the workflow payload.]
+    Properties:
+      StateMachineName: !Ref AWS::StackName
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt WorkflowRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "Prepare",
+          "States": {
+            "Prepare": {
+              "Type": "Task",
+              "Resource": "${Prepare.Arn}",
+              "Retry": [{
+                "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+                "IntervalSeconds": 2, "BackoffRate": 2, "MaxAttempts": 3
+              }],
+              "Next": "ProcessChunks"
+            },
+            "ProcessChunks": {
+              "Type": "Map",
+              "ItemsPath": "$.chunks",
+              "MaxConcurrency": 2,
+              "ItemSelector": {
+                "manifest_key.$": "$.manifest_key",
+                "expected_base_snapshot.$": "$.expected_base_snapshot",
+                "verify_only.$": "$.verify_only",
+                "run_id.$": "$.run_id",
+                "chunk.$": "$$.Map.Item.Value"
+              },
+              "ItemProcessor": {
+                "ProcessorConfig": {"Mode": "INLINE"},
+                "StartAt": "Process",
+                "States": {
+                  "Process": {
+                    "Type": "Task",
+                    "Resource": "${Worker.Arn}",
+                    "Retry": [{
+                      "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+                      "IntervalSeconds": 2, "BackoffRate": 2, "MaxAttempts": 3
+                    }],
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": null,
+              "Next": "Finalize"
+            },
+            "Finalize": {
+              "Type": "Task",
+              "Resource": "${Finalize.Arn}",
+              "Retry": [{
+                "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+                "IntervalSeconds": 2, "BackoffRate": 2, "MaxAttempts": 3
+              }],
+              "End": true
+            }
+          }
+        }
+
+Outputs:
+  StateMachineArn:
+    Value: !Ref Workflow
