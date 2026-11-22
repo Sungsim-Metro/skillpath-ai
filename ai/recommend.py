@@ -76,6 +76,14 @@ def _foundation_ids() -> dict[str, list[str]]:
     return json.loads(FOUNDATION_FILE.read_text(encoding="utf-8"))["courses"]
 
 
+# 철자 규칙과 읽는 소리가 다른 기술 이름(받침 있음 True). 11/22 별칭 사전 대표명 133개에 규칙을 돌려 어긋난 10개.
+# 전체 이름을 먼저 보고, 없으면 마지막 단어를 본다("GitLab CI" 처럼 끝 단어로 정해지는 이름은 규칙이 맡는다)
+_BATCHIM_EXCEPTIONS = {
+    "Git": True, "GitLab": True, "Ansible": True, "Hadoop": True, "Datadog": True, "Pinecone": True,
+    "Rundeck": True, "CloudStack": True, "Stack": True, "Bedrock": True,
+}
+
+
 def _has_batchim(word: str) -> bool:
     """기술 이름을 읽었을 때 끝소리에 받침이 있는가(조사 고르기용, 규칙 기반).
 
@@ -83,11 +91,15 @@ def _has_batchim(word: str) -> bool:
     - 숫자: 읽는 소리(일·삼·육·칠·팔·영은 받침 있음)
     - 영어 대문자 약어(AWS, SQL): 마지막 글자 이름(엘·엠·엔·알만 받침 있음)
     - 그 밖의 영어 단어: m·n·l·ng 로 끝나면 받침 있음(Terraform, Python)
-    한계: 사전이 아니라 철자 규칙이라 읽는 소리와 다른 경우가 있다(예: Git 은 "깃"인데 받침 없음으로 본다).
+    - 규칙과 읽는 소리가 다른 이름은 _BATCHIM_EXCEPTIONS 로 고친다(Git → 깃, Ansible → 앤서블)
+    한계: 예외 사전에 없는 새 이름은 철자 규칙을 따르므로 읽는 소리와 다를 수 있다.
     """
     w = (word or "").strip()
     if not w:
         return False
+    for key in (w, w.split()[-1]):
+        if key in _BATCHIM_EXCEPTIONS:
+            return _BATCHIM_EXCEPTIONS[key]
     ch = w[-1]
     if "가" <= ch <= "힣":
         return (ord(ch) - 0xAC00) % 28 != 0
