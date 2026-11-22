@@ -39,11 +39,15 @@ def test_switch_default_is_screen_and_agent_turns_off_experiments():
         with patch.dict(os.environ, {"CHAT_ARCHITECTURE": "agent"}):
             assert experiments.chat_architecture() == "agent"
             assert experiments.agent_mode()
+            # 모델 실험과 상담 구조 비교(3)는 끈다. 이 설정에는 과정 추천 구조가 하나(reviewed)뿐이라 A/B 도 없다
             assert (experiments.models(), experiments.structures(), experiments.chat_rival()) == ([], [], None)
             assert experiments.pick_model() is None and experiments.pick_pair() is None
-            assert not experiments.active()  # 화면의 평가 버튼도 안 보인다
+            assert not experiments.active()
         with patch.dict(os.environ, {"CHAT_ARCHITECTURE": ""}):
             assert experiments.chat_architecture() == "screen"  # 비우면 바로 구조 0
+    with patch.dict(os.environ, {"CHAT_ARCHITECTURE": "agent", "AB_STRUCTURES": "single,reviewed"}):
+        assert experiments.structures() == ["single", "reviewed"]  # 과정 추천 A/B 는 A 모드에서도 켠다
+        assert set(experiments.pick_pair()) == {"single", "reviewed"} and experiments.active()
 
 
 def test_agent_turn_returns_screen_reply_with_card_fields_and_assessment():
@@ -216,6 +220,75 @@ def test_agent_save_claim_gets_fixed_note_and_nothing_is_saved():
     assert state.agent_history[-1]["content"] == reply.text  # 다음 턴에도 안내가 붙은 답을 넘긴다
     with patch.object(agent, "chat", return_value=fake_result(answer="S3에 데이터를 저장하는 방법을 배워 보세요.")):
         assert send(chat.Conversation(), PLAIN).text == "S3에 데이터를 저장하는 방법을 배워 보세요."
+
+
+AB_ON = {"CHAT_ARCHITECTURE": "agent", "AB_STRUCTURES": "single,reviewed"}
+
+
+def _watch(module, name):
+    """함수를 감싸 부를 때마다 (인자, 키워드)를 적는다."""
+    calls, original = [], getattr(module, name)
+
+    def wrapper(*a, **k):
+        calls.append((a, k))
+        return original(*a, **k)
+    return patch.object(module, name, wrapper), calls
+
+
+def test_agent_course_turn_shows_reviewed_and_single_side_by_side():
+    agent_screen._other_cache.clear()
+    single_patch, single = _watch(experiments, "recommend_with")
+    review_patch, reviews = _watch(agent.api, "get_recommendations")
+    with patch.dict(os.environ, AB_ON), single_patch, review_patch:
+        reply = send(chat.Conversation(), QUESTION)
+    assert len(reply.alternatives) == 2
+    sides = {side["structure"]: side for side in reply.alternatives}
+    assert set(sides) == {"single", "reviewed"}
+    assert sides["reviewed"]["courses"] == reply.courses  # A 의 검토 추천을 그대로 쓴다
+    assert sides["single"]["courses"] and all({"url", "gap_skill", "reason"} <= set(c) for c in sides["single"]["courses"])
+    assert len(reviews) == 1 and reviews[0][1].get("review") is True  # 검토 추천은 A 안에서 한 번만
+    assert [(a[0], a[2]) for a, _ in single] == [("single", list(dict.fromkeys(c["gap_skill"] for c in reply.courses)))]
+    assert reply.text.endswith(agent_screen.AB_TEXT)
+    assert not any(card["title"] in reply.text for card in reply.courses)  # 답 글이 한쪽 카드의 과정 이름을 말하지 않는다
+    assert all(set(side["tokens"]) == {"input", "output"} for side in reply.alternatives)
+
+
+def test_other_structure_result_is_cached():
+    agent_screen._other_cache.clear()
+    single_patch, single = _watch(experiments, "recommend_with")
+    with patch.dict(os.environ, AB_ON), single_patch:
+        first = send(chat.Conversation(), QUESTION)
+        second = send(chat.Conversation(), QUESTION)
+    assert len(single) == 1  # 같은 입력 두 번째는 다시 부르지 않는다
+    assert len(second.alternatives) == 2
+    pick = lambda r: next(s["courses"] for s in r.alternatives if s["structure"] == "single")  # noqa: E731
+    assert pick(first) == pick(second)
+    assert len(agent_screen._other_cache) <= agent_screen.OTHER_CACHE_MAX
+
+
+def test_no_ab_when_experiment_off_or_other_side_fails():
+    agent_screen._other_cache.clear()
+    single_patch, single = _watch(experiments, "recommend_with")
+    with patch.dict(os.environ, {"CHAT_ARCHITECTURE": "agent"}), single_patch:
+        off = send(chat.Conversation(), QUESTION)
+    assert off.alternatives == [] and off.courses and not single  # 실험이 꺼져 있으면 추가 호출 0번
+    assert not off.text.endswith(agent_screen.AB_TEXT)
+    with patch.dict(os.environ, AB_ON), patch.object(experiments, "recommend_with", side_effect=RuntimeError("x")):
+        failed = send(chat.Conversation(), QUESTION)
+    assert failed.alternatives == [] and failed.courses and not failed.failed  # A 의 추천은 그대로
+
+
+def test_agent_turns_are_recorded_when_experiment_is_on():
+    saved = []
+    with patch.dict(os.environ, AB_ON), patch.object(experiments, "save_feedback", lambda *a, **k: saved.append(k)), \
+            patch.object(agent, "chat", return_value=fake_result()):
+        send(chat.Conversation(), PLAIN)
+    assert saved and saved[0]["action"] == "gap" and saved[0]["model"] is None  # 가짜 모드라 모델 이름은 비어 있다
+
+
+def test_drop_course_sentences_keeps_skill_and_demand_sentences():
+    text = "AWS는 공고 40건 중 31건이 요구합니다. 「EC2 기초」 과정을 먼저 들으세요.\nDocker도 함께 보세요. 이어서 ec2 기초를 복습하세요."
+    assert agent_screen.drop_course_sentences(text, ["EC2 기초"]) == "AWS는 공고 40건 중 31건이 요구합니다.\nDocker도 함께 보세요."
 
 
 def test_unknown_architecture_still_rejected():

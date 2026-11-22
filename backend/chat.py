@@ -601,7 +601,9 @@ def handle_message(state: Conversation, message: str, *, job: str, sidebar_skill
         raise ValueError("지원하지 않는 상담 구조입니다.")
     supervised = architecture == "supervised"
     agent_mode = architecture == "agent"  # 구조 A. 클라우드가 아닌 직무나 A 예외인 턴은 구조 0 이 대신 처리한다
-    quiet = supervised or agent_mode  # 비교 실험(모델·구조)을 쓰지 않고 실험 기록도 남기지 않는다
+    # 팀장 구조(3)는 비교 실험을 쓰지 않고 실험 기록도 남기지 않는다. A 모드의 모델 실험·구조 3 비교는 experiments 가 끄고,
+    # 과정 추천 A/B 와 턴 기록은 실험이 켜져 있으면 남긴다(A/B 선택을 턴별 비용과 함께 집계하도록)
+    quiet = supervised
     previous = getattr(state, "session", None)
     # Open connections may still hold the pre-authentication Conversation type.
     legacy_nickname = vars(state).pop("nickname", "")

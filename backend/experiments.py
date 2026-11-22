@@ -35,8 +35,8 @@ def _names(variable: str) -> list[str]:
 
 
 def agent_mode() -> bool:
-    """CHAT_ARCHITECTURE=agent 이면 화면 상담을 구조 A(ai/agent.py)로 처리하고 비교 실험은 모두 끈다.
-    값을 비우면(기본) 지금과 같다. 시연 중 문제가 생기면 값을 지우고 앱을 다시 켜면 구조 0 으로 돌아간다."""
+    """CHAT_ARCHITECTURE=agent 이면 화면 상담을 구조 A(ai/agent.py)로 처리하고 모델 실험과 상담 구조 비교(3번)는 끈다.
+    과정 추천 A/B(structures)는 그대로 쓴다(A 의 검토 추천을 reviewed 쪽으로, backend/agent_screen.py). 값을 비우면(기본) 지금과 같다. 시연 중 문제가 생기면 값을 지우고 앱을 다시 켜면 구조 0 으로 돌아간다."""
     return os.getenv("CHAT_ARCHITECTURE", "").strip().lower() == "agent"
 
 
@@ -102,8 +102,6 @@ def chat_rival() -> str | None:
 
 def structures() -> list[str]:
     """과정 카드 A/B에 쓸 추천 구조 이름. 두 개 이상 등록되어야 투표를 연다."""
-    if agent_mode():
-        return []
     names = [name for name in _names("AB_STRUCTURES") if name in STRUCTURES]
     return names if len(names) >= 2 else []
 

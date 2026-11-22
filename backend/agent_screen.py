@@ -13,15 +13,22 @@ backend/chat.handle_message 가 부른다. 화면(app/)은 고치지 않는다: 
     해석이 그 밖이거나 실패하면 A 가 처리한다
   · A 실행 중 예외가 난 턴. 가드레일 차단은 예외가 아니라 대신 처리하지 않는다. 예외는 종류만 로그에 남긴다(원문 없음)
 - 저장 완료 표현: A 에는 저장 도구가 없어, A 의 답에 "저장했어요" 같은 표현이 있으면 저장되지 않았다는 고정 안내를 붙인다(SAVE_CLAIM)
+- 추천 A/B(AB_STRUCTURES 에 reviewed 와 다른 구조가 함께 있을 때): A 가 recommend_courses 로 만든 검토 추천을 reviewed 쪽
+  카드로 그대로 쓰고, 다른 쪽만 같은 기술로 experiments.recommend_with 를 부른다(검토를 다시 하지 않음). 그쪽 결과는 메모리에
+  캐시한다(최대 32개, 앱을 다시 켜면 비워짐). 두 쪽 모두 과정이 있을 때만 Reply.alternatives 로 나란히 보이고, 답 글에서
+  reviewed 카드 제목이 들어간 문장을 빼고 고정 문장을 붙인다(두 카드와 어긋나지 않게)
 - 이전 대화: A 와 구조 0 이 처리한 턴을 모두 Conversation.agent_history 에 쌓아 A 에 넘긴다(막힘·범위 밖·실패 턴 제외)
 """
 from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
+from copy import deepcopy
+from threading import Lock
 from typing import TYPE_CHECKING
 
-from backend import chat_profiles
+from backend import api, chat_profiles, experiments
 from backend.jobs import JOBS
 from pipeline.aliases import normalize_skills
 
@@ -30,6 +37,11 @@ if TYPE_CHECKING:
     from backend.chat import Conversation, Reply
 
 logger = logging.getLogger(__name__)
+AB_TEXT = "두 가지 방식으로 교육과정을 추천했습니다. 더 도움이 되는 쪽을 골라 주세요."  # 구조 0 의 A/B 안내와 같은 문장
+OTHER_CACHE_MAX = 32  # backend.api 의 추천 캐시와 같은 크기. 가장 오래 안 쓴 것부터 버린다
+_other_cache: OrderedDict[tuple, list[dict]] = OrderedDict()
+_other_cache_lock = Lock()
+_SENTENCE_END = re.compile(r"(?<=[.!?。])\s+")
 HISTORY_TURNS = 6  # A 에 넘기는 이전 대화(질문·답 쌍) 수. 대화가 길어져도 입력 토큰이 끝없이 늘지 않게
 # 직무 바꾸기·저장 요청일 수 있는 낱말. 걸린 턴만 구조 0 의 해석을 부른다(걸리지 않으면 모델 호출이 늘지 않는다)
 SCREEN_CUES = re.compile("|".join([*(re.escape(name) for name in JOBS.values()),
@@ -92,6 +104,70 @@ def with_save_note(answer: str) -> str:
     return f"{answer}\n\n{NOT_SAVED_NOTE}" if SAVE_CLAIM.search(answer) else answer
 
 
+def _other_recs(structure: str, job: str, skills: list[str], evidence: dict[str, dict]) -> list[dict]:
+    """비교할 구조의 추천. (구조, 직무, 기술 목록, 수요 근거)가 같으면 메모리 캐시를 쓴다(오류는 캐시하지 않음)."""
+    key = (structure, job, tuple(skills), tuple((s, tuple(sorted(evidence[s].items()))) for s in skills))
+    with _other_cache_lock:
+        cached = _other_cache.get(key)
+        if cached is not None:
+            _other_cache.move_to_end(key)
+            return deepcopy(cached)
+    recs = experiments.recommend_with(structure, job, list(skills), evidence=evidence)
+    with _other_cache_lock:
+        _other_cache[key] = deepcopy(recs)
+        _other_cache.move_to_end(key)
+        while len(_other_cache) > OTHER_CACHE_MAX:
+            _other_cache.popitem(last=False)
+    return recs
+
+
+def drop_course_sentences(answer: str, titles: list[str]) -> str:
+    """과정 제목이 그대로 들어간 문장을 뺀다(줄 단위로 나눈 뒤 문장 단위). 기술·수요 문장은 남는다."""
+    names = [t.casefold() for t in titles if t.strip()]
+    lines = []
+    for line in answer.split("\n"):
+        kept = [part for part in _SENTENCE_END.split(line) if not any(n in part.casefold() for n in names)]
+        if kept or not line.strip():
+            lines.append(" ".join(kept))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _sessions_tokens() -> tuple[int, int]:
+    from ai.usage import current_session
+
+    usage = current_session()
+    return (usage.input_tokens, usage.output_tokens) if usage else (0, 0)
+
+
+def compare_courses(job: str, courses: list[dict], reviewed_tokens: dict) -> list[dict]:
+    """A 의 검토 카드(reviewed)와 다른 구조의 카드를 A/B 로. 실험이 꺼졌거나 한쪽이 비면 빈 목록(A 카드만 보인다)."""
+    pair = experiments.pick_pair()
+    if not pair or experiments.DEFAULT_STRUCTURE not in pair or not courses:
+        return []
+    other = next(name for name in pair if name != experiments.DEFAULT_STRUCTURE)
+    demand = {row["skill"] for row in api.get_demand(job)["skills"]}
+    skills = [s for s in dict.fromkeys(card["gap_skill"] for card in courses) if s in demand]  # 수요 근거가 있는 기술만
+    if not skills:
+        return []
+    from backend import chat
+
+    before = _sessions_tokens()
+    try:
+        recs = _other_recs(other, job, skills, dict(api.demand_pairs(job, skills)))
+        cards = [card for rec in recs for card in chat._verified_course_cards(rec["gap_skill"], rec["courses"])]
+    except Exception as e:  # 비교 쪽이 실패해도 A 의 답은 그대로 보인다
+        logger.warning("추천 비교(%s) 실패(%s). A 의 추천만 보여 줍니다", other, type(e).__name__)
+        return []
+    after = _sessions_tokens()
+    if not cards:
+        return []
+    sides = {experiments.DEFAULT_STRUCTURE: {"structure": experiments.DEFAULT_STRUCTURE, "courses": courses,
+                                             "tokens": reviewed_tokens},
+             other: {"structure": other, "courses": cards,
+                     "tokens": {"input": after[0] - before[0], "output": after[1] - before[1]}}}
+    return [sides[name] for name in pair]  # pick_pair 가 정한 무작위 순서(왼쪽, 오른쪽)
+
+
 def _remember(state: Conversation, message: str, text: str) -> None:
     state.agent_history = [*state.agent_history, {"role": "user", "content": message},
                            {"role": "assistant", "content": text}][-HISTORY_TURNS * 2:]
@@ -126,7 +202,9 @@ def reply_for(state: Conversation, message: str, job: str, sidebar_skills: list[
         if screened is not None:
             return screened, False  # 직무 바꾸기·저장 등, 또는 입력 검사에서 막힘
     try:
+        before = _sessions_tokens()
         result = agent.chat(message, state.agent_history[-HISTORY_TURNS * 2:], base_skills=skills)
+        after = _sessions_tokens()
         if result["guard"] == "blocked":
             return chat.Reply(chat.BLOCKED_TEXT, action="blocked"), True
         if result["guard"] == "check_failed":
@@ -139,9 +217,17 @@ def reply_for(state: Conversation, message: str, job: str, sidebar_skills: list[
     except Exception as e:  # 시연 중 화면이 깨지지 않게 이 턴만 구조 0 으로
         logger.warning("상담 구조 A 처리 실패(%s). 이 턴은 구조 0 으로 처리합니다", type(e).__name__)
         return None, False
+    # reviewed 쪽 토큰: A 실행 중 늘어난 세션 토큰에서 A 의 도구 고르기·답 쓰기 호출을 뺀 것(추천 작성·검토 몫)
+    loop = result.get("usage") or {}
+    reviewed_tokens = {"input": after[0] - before[0] - loop.get("inputTokens", 0),
+                       "output": after[1] - before[1] - loop.get("outputTokens", 0)}
+    alternatives = compare_courses(agent.JOB, courses, reviewed_tokens) if action == "courses" else []
+    if alternatives:  # 답 글이 한쪽 카드의 과정 이름을 말하지 않게
+        titles = [card["title"] for card in courses]
+        answer = "\n\n".join(part for part in (drop_course_sentences(answer, titles), AB_TEXT) if part)
     if action not in UNREMEMBERED:
         _remember(state, message, answer)
-    reply = chat.Reply(answer, courses=courses, action=action, assessment_skills=assessed)
+    reply = chat.Reply(answer, courses=courses, action=action, assessment_skills=assessed, alternatives=alternatives)
     if assessed:
         reply.assessment_job = agent.JOB
     return reply, True
