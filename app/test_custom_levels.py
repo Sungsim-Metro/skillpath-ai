@@ -77,7 +77,7 @@ class CustomLevelTest(unittest.TestCase):
 
     def test_chat_keeps_only_qualifying_direct_ratings_when_demand_is_unavailable(self):
         at = AppTest.from_function(sidebar).run()
-        at.session_state["levels"] = {"custom:Compiler Design": 3, "custom:OpenTofu": 2, "C1-4": 5}
+        at.session_state["levels"] = {"custom:Compiler Design": 4, "custom:OpenTofu": 3, "C1-4": 5}
         at.session_state["levels_example"] = False
         with patch("backend.api.get_demand", side_effect=LookupError("no market snapshot")):
             at.run()

@@ -12,6 +12,7 @@ import streamlit as st
 
 from app.common import ACCENT, MARKET_SUPPLY, load
 from backend import api
+from backend.levels import DEFAULT_REQUIRED_LEVEL, job_guide
 
 TOP = 5  # 가장 높은 단계
 MINE, NEED = "내 단계", "기준 단계"
@@ -74,6 +75,7 @@ def render_level_radar(job: str, levels: dict[str, int]) -> None:
             x=x, y=y, text="번호:N", tooltip=tip),
     ]
     st.altair_chart(alt.layer(*layers).properties(height=250).configure_view(stroke=None), width="stretch")
+    default_name = job_guide(job)["level_names"][str(DEFAULT_REQUIRED_LEVEL)]
     st.caption("번호: " + " · ".join(f"{i} {r['area']}" for i, r in enumerate(rows, start=1))
                + ". 진한 면이 내 단계, 옅은 점선이 기준 단계입니다. 점이나 번호에 마우스를 올리면 그 영역의 기술이 보입니다. "
-               "기준 단계가 아직 정해지지 않은 기술은 3단계(팀 결정값)로 봅니다.")
+               f"공고 근거가 부족한 기술에는 팀의 기본 보유 기준인 {DEFAULT_REQUIRED_LEVEL}단계({default_name})를 적용합니다.")

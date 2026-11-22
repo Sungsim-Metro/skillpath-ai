@@ -185,7 +185,7 @@ def _render_priorities(missing: list[dict]) -> None:
             if r.get("area"):  # 처음 보는 기술 이름이어도 어느 분야인지 알 수 있게 영역을 함께 적는다(설문 2026-11-20)
                 st.caption(md_escape(r["area"]))
             st.markdown(f"공고 {r['of']}건 중 **{r['postings']}건**이 요구 · 그중 필수 {r['required_ratio']:.0%}")
-            st.markdown(f"지금 **{r['user_level']}단계** → 공고가 바라는 수준 **{r['required_level']}단계**{guessed}")
+            st.markdown(f"지금 **{r['user_level']}단계** → 보유 기준 **{r['required_level']}단계**{guessed}")
             st.button("공고 근거 보기", key=f"evidence_{number}", on_click=ui.go, args=("demand",),
                       kwargs={"evidence_skill": r["skill"]}, icon=":material/format_quote:", width="stretch",
                       help="이 기술을 요구한 공고 문장을 시장 수요 화면에서 봅니다.")
@@ -211,8 +211,8 @@ def _render_gap(ctx: Ctx):
     guessed = [r for r in gap_rows if r["required_level_confidence"] == "uncertain"]
     if guessed:
         st.caption(
-            f":material/info: 주요 요구 기술 {len(gap_rows)}개 중 {len(guessed)}개는 공고로 기준 단계를 정하지 못해 "
-            "추정값(3단계)으로 판정했습니다. '불확실'로 표시하며 참고용입니다."
+            f":material/info: 주요 요구 기술 {len(gap_rows)}개 중 {len(guessed)}개는 요구 단계를 추정할 공고 근거가 부족해 "
+            f"팀이 정한 기본 보유 기준({guessed[0]['required_level']}단계)을 적용했습니다. 이 기준은 '불확실'로 표시합니다."
         )
 
     with st.container(border=True):
@@ -252,7 +252,8 @@ def _render_gap(ctx: Ctx):
                 },
             )
             st.caption(
-                "내 단계는 '수준 진단 설문'의 답, 기준 단계는 공고 문장으로 정한 값입니다. "
+                "내 단계는 기술별로 직접 입력한 값을 우선하고, 없으면 설문 응답으로 계산합니다. "
+                "기준 단계는 공고 문장으로 추정하며, 근거가 부족하면 팀의 기본 보유 기준을 적용합니다. "
                 "충족도 = 필수 비중 × (기준 이상이면 1) + 우대 비중 × 내 단계/5."
             )
 

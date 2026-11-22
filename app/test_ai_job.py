@@ -22,6 +22,9 @@ class AiJobScreenTest(unittest.TestCase):
         captions = " ".join(c.value for c in at.sidebar.caption)
         self.assertIn("생성형 AI·프롬프트", captions)      # 사이드바의 보유 수준이 AI 영역
         self.assertIn("(내 단계/기준 단계, 0~5)", captions)
+        self.assertIn("기본 보유 기준인 4단계", captions)
+        self.assertTrue(any("기본 보유 기준(4단계)" in c.value and "불확실" in c.value for c in at.main.caption))
+        self.assertTrue(any("보유 기준 **4단계** (불확실)" in m.value for m in at.main.markdown))
         self.assertEqual(len(at.sidebar.get("vega_lite_chart")), 1)  # 마이페이지의 레이더 차트
         self.assertNotIn("컴퓨팅·서버", captions)
         self.assertTrue(any("'마친 뒤'는" in c.value for c in at.caption))  # 레이더가 그려진다(AI 영역 4개)

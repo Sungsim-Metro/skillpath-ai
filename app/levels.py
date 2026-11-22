@@ -203,7 +203,7 @@ def chat_questions(job: str, questions: dict[str, list[str]], answers: dict[str,
             if sid.startswith(CUSTOM_PREFIX):
                 title = f"{names[0]} 직접 입력"
                 examples = guide["level_names"]
-                help_text = f"공고의 {names[0]} 요구 수준과 비교할 때 이 기술의 직접 입력값을 우선합니다."
+                help_text = f"{names[0]}의 보유 기준과 비교할 때는 이 기술에 직접 입력한 단계를 우선합니다."
             else:
                 row = guide["subskills"][sid]
                 title = f"{row['name']} ({', '.join(names)})"
