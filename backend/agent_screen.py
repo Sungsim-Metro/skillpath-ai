@@ -12,6 +12,7 @@ backend/chat.handle_message 가 부른다. 화면(app/)은 고치지 않는다: 
     지원하지 않는 직무·직무 확인이면 그 턴은 구조 0 이 처리한다(해석은 한 번만, backend.chat._handle_turn 의 agent_gate).
     해석이 그 밖이거나 실패하면 A 가 처리한다
   · A 실행 중 예외가 난 턴. 가드레일 차단은 예외가 아니라 대신 처리하지 않는다. 예외는 종류만 로그에 남긴다(원문 없음)
+- 저장 완료 표현: A 에는 저장 도구가 없어, A 의 답에 "저장했어요" 같은 표현이 있으면 저장되지 않았다는 고정 안내를 붙인다(SAVE_CLAIM)
 - 이전 대화: A 와 구조 0 이 처리한 턴을 모두 Conversation.agent_history 에 쌓아 A 에 넘긴다(막힘·범위 밖·실패 턴 제외)
 """
 from __future__ import annotations
@@ -35,6 +36,12 @@ SCREEN_CUES = re.compile("|".join([*(re.escape(name) for name in JOBS.values()),
                                    r"직무", r"목표", r"(?<![a-z])AI(?![a-z])", r"인공지능", r"저장", r"프로필", r"기억해"]),
                          re.I)  # "AI" 는 영어 낱말 속(Airflow 등)에서는 걸지 않는다
 UNREMEMBERED = {"blocked", "out_of_scope"}
+# A 에는 저장 도구가 없다. A 의 답에 저장을 마쳤다는 표현이 있으면 코드가 끝에 고정 안내를 붙인다(프롬프트는 그대로).
+# "저장하는 방법", "저장했던 경험", "저장되었는지" 같은 설명·조건 문장은 걸지 않는다
+SAVE_CLAIM = re.compile(r"(?:저장(?:했|해\s*(?:두었|뒀|놓았|드렸)|되었|됐)|프로필에\s*(?:추가|반영|등록)(?:했|해\s*(?:두었|뒀|드렸)|되었|됐))"
+                        r"(?!던|다면|는지|을\s*때|으면)")
+NOT_SAVED_NOTE = ("이 대화에서는 프로필에 저장되지 않았어요. 저장하려면 'Docker로 API 배포한 경험을 저장해 줘'처럼 "
+                  "한 문장으로 말해 주세요.")
 
 
 def base_skills(state: Conversation, sidebar_skills: list[str]) -> list[str]:
@@ -73,6 +80,11 @@ def said_skills(result: dict) -> list[str]:
             for s in (c.get("input") or {}).get("user_skills", [])]
     known, _ = normalize_skills(raws)
     return list(dict.fromkeys(known))
+
+
+def with_save_note(answer: str) -> str:
+    """A 의 답이 저장을 마쳤다고 말하면 저장되지 않았다는 고정 안내를 끝에 붙인다."""
+    return f"{answer}\n\n{NOT_SAVED_NOTE}" if SAVE_CLAIM.search(answer) else answer
 
 
 def _remember(state: Conversation, message: str, text: str) -> None:
@@ -118,12 +130,13 @@ def reply_for(state: Conversation, message: str, job: str, sidebar_skills: list[
                    for card in chat._verified_course_cards(row["gap_skill"], row["courses"])]
         action = _action(result, courses)
         assessed = said_skills(result)
+        answer = with_save_note(result["answer"])
     except Exception as e:  # 시연 중 화면이 깨지지 않게 이 턴만 구조 0 으로
         logger.warning("상담 구조 A 처리 실패(%s). 이 턴은 구조 0 으로 처리합니다", type(e).__name__)
         return None, False
     if action not in UNREMEMBERED:
-        _remember(state, message, result["answer"])
-    reply = chat.Reply(result["answer"], courses=courses, action=action, assessment_skills=assessed)
+        _remember(state, message, answer)
+    reply = chat.Reply(answer, courses=courses, action=action, assessment_skills=assessed)
     if assessed:
         reply.assessment_job = agent.JOB
     return reply, True

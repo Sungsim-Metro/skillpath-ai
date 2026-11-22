@@ -15,7 +15,7 @@ from unittest.mock import patch  # noqa: E402
 
 from ai import agent, guardrail  # noqa: E402
 from ai import chat as intake  # noqa: E402
-from backend import agent_screen, chat, experiments  # noqa: E402
+from backend import agent_screen, chat, chat_profiles, experiments  # noqa: E402
 
 QUESTION = "Python, Docker 해봤는데 클라우드 엔지니어 되려면 뭐부터 공부해요?"  # 상담 에이전트 가짜 대본에 있는 질문(직무 낱말 있음)
 PLAIN = "다음엔 뭘 배우면 좋을까요?"  # 직무·저장 낱말이 없는 질문
@@ -185,6 +185,33 @@ def test_cues():
         assert agent_screen.SCREEN_CUES.search(text), text
     for text in (PLAIN, "Airflow 써 봤어요", "Docker 와 Linux 해 봤어요"):
         assert not agent_screen.SCREEN_CUES.search(text), text
+
+
+def test_save_claim_patterns():
+    claims = ["말씀하신 경험을 프로필에 저장했습니다.", "Docker 경험을 저장해 두었어요.", "기술을 저장해드렸어요.",
+              "프로필에 추가했어요.", "보유 기술이 저장됐습니다.", "경험이 저장되었습니다.", "프로필에 반영했습니다."]
+    plain = ["S3에 데이터를 저장하는 방법은 다음과 같습니다.", "S3에 로그를 저장했던 경험이 있다면 도움이 됩니다.",
+             "데이터가 저장되었는지 확인하는 방법을 배워 보세요.", "Git 저장소(Repository)를 다뤄 보세요.",
+             "저장할 항목을 알려 주시면 됩니다.", "파일을 저장했을 때 버전을 남기세요."]
+    for text in claims:
+        assert agent_screen.SAVE_CLAIM.search(text), text
+        assert agent_screen.with_save_note(text).endswith(agent_screen.NOT_SAVED_NOTE)
+    for text in plain:
+        assert not agent_screen.SAVE_CLAIM.search(text), text
+        assert agent_screen.with_save_note(text) == text
+
+
+def test_agent_save_claim_gets_fixed_note_and_nothing_is_saved():
+    # 저장 낱말이 있는데 해석이 실패해 A 로 간 턴: A 가 "저장했어요"라고 해도 저장하지 않고 고정 안내를 붙인다
+    state = chat.Conversation()
+    claim = fake_result(answer="Docker 배포 경험을 프로필에 저장했어요.")
+    with patch.object(intake, "interpret", lambda *a, **k: (_ for _ in ()).throw(intake.ChatIntakeError("해석 실패"))),             patch.object(agent, "chat", return_value=claim),             patch.object(chat_profiles, "update_profile", side_effect=AssertionError("저장하면 안 됨")) as save,             patch.object(chat, "_save", side_effect=AssertionError("구조 0 저장 경로를 타면 안 됨")):
+        reply = send(state, "방금 말한 경험 저장해 줘")
+    assert reply.text == claim["answer"] + "\n\n" + agent_screen.NOT_SAVED_NOTE
+    assert not save.called
+    assert state.agent_history[-1]["content"] == reply.text  # 다음 턴에도 안내가 붙은 답을 넘긴다
+    with patch.object(agent, "chat", return_value=fake_result(answer="S3에 데이터를 저장하는 방법을 배워 보세요.")):
+        assert send(chat.Conversation(), PLAIN).text == "S3에 데이터를 저장하는 방법을 배워 보세요."
 
 
 def test_unknown_architecture_still_rejected():
