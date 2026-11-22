@@ -5,7 +5,8 @@ from unittest import mock
 
 from backend import api
 from backend.jobs import JOBS, job_file
-from backend.levels import job_subskills, level_guide, skill_levels, subskills_for, validate_levels
+from backend.levels import (chat_owned_skill_names, job_subskills, level_guide, required_level, skill_levels,
+                            subskills_for, validate_levels)
 
 
 class JobsTest(unittest.TestCase):
@@ -19,6 +20,14 @@ class JobsTest(unittest.TestCase):
         self.assertEqual(job_file("skill_areas.json", "ai_engineer"), "skill_areas_ai_engineer.json")
         with self.assertRaises(ValueError):
             job_file("skill_areas.json", "backend")
+
+    def test_skill_without_posting_evidence_requires_level_four_in_both_jobs(self):
+        name = "Example Unlisted Skill"
+        for job in JOBS:
+            with self.subTest(job=job):
+                self.assertEqual(required_level(name, job), (4, "uncertain"))
+                self.assertEqual(chat_owned_skill_names(job, {f"custom:{name}": 3}, []), [])
+                self.assertEqual(chat_owned_skill_names(job, {f"custom:{name}": 4}, []), [name])
 
     def test_every_job_has_its_own_data(self):
         for job in JOBS:

@@ -9,13 +9,13 @@ from backend import api, levels  # noqa: E402
 
 JOB = "cloud_engineer"
 OLD = ["Python", "Linux", "Git"]
-# 예전 목록과 같은 기술을 진단으로 넣은 값: Python→C5-2, Linux→C1-2, Git→C5-3
+# 예전 목록에 있던 세 기술을 각각 3단계로 진단한 입력
 NEW = {"C5-2": 3, "C1-2": 3, "C5-3": 3}
 
 
 class LevelTest(unittest.TestCase):
     def setUp(self):
-        # 기준 단계 파일과 상관없이 확인한다: 모든 기술 기준 3, 불확실
+        # 기준 단계 파일을 재생성해도 기본값으로 판정하는 경우를 확인한다
         patcher = mock.patch.object(levels, "required_levels", return_value={})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -47,26 +47,30 @@ class LevelTest(unittest.TestCase):
 
     def test_levels_input(self):
         rows = {r["skill"]: r for r in api.get_gap(JOB, {**NEW, "C1-4": 2})}
-        self.assertTrue(rows["Python"]["owned"])
+        self.assertFalse(rows["Python"]["owned"])
         self.assertEqual(rows["Python"]["user_level"], 3)
         self.assertEqual(rows["Docker"]["user_level"], 2)
         self.assertFalse(rows["Docker"]["owned"])
-        self.assertEqual(rows["Docker"]["required_level"], 3)
+        self.assertEqual(rows["Docker"]["required_level"], 4)
         self.assertEqual(rows["Docker"]["required_level_confidence"], "uncertain")
         self.assertGreater(rows["Docker"]["satisfaction"], 0)        # 우대 몫은 단계만큼 채운다
-        rows = {r["skill"]: r for r in api.get_gap(JOB, {"C5-2": 2})}
-        self.assertFalse(rows["Python"]["owned"])
+        rows = {r["skill"]: r for r in api.get_gap(JOB, {"C5-2": 4})}
+        self.assertTrue(rows["Python"]["owned"])
         # 영역 몫은 소수일 수 있다
         area = {r["area"]: r for r in api.get_area_gap(JOB, {"C1-4": 2})}["컴퓨팅·서버"]
         self.assertIn("Docker", area["missing_skills"])
         self.assertGreater(area["owned"], 0)
 
-    def test_required_level_file_is_used(self):
-        with mock.patch.object(levels, "required_levels",
-                               return_value={"Python": {"required_level": 4, "confidence": "certain"}}):
-            row = {r["skill"]: r for r in api.get_gap(JOB, NEW)}["Python"]
-        self.assertEqual((row["required_level"], row["required_level_confidence"]), (4, "certain"))
-        self.assertFalse(row["owned"])
+    def test_required_level_file_is_used_for_certain_rows_only(self):
+        thresholds = {"Python": {"required_level": 3, "confidence": "certain"},
+                      "Docker": {"required_level": 3, "confidence": "uncertain"}}
+        with mock.patch.object(levels, "required_levels", return_value=thresholds):
+            rows = {r["skill"]: r for r in api.get_gap(JOB, {**NEW, "C1-4": 3})}
+        python, docker = rows["Python"], rows["Docker"]
+        self.assertEqual((python["required_level"], python["required_level_confidence"], python["owned"]),
+                         (3, "certain", True))
+        self.assertEqual((docker["required_level"], docker["required_level_confidence"], docker["owned"]),
+                         (4, "uncertain", False))
 
     def test_invalid_levels_raise(self):
         for bad in ({"C5-2": 6}, {"C5-2": -1}, {"C5-2": 2.5}, {"C5-2": True}, {"없는-id": 1}):

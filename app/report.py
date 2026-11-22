@@ -129,7 +129,7 @@ def build_report(*, job_title: str, demand: dict, gap_rows: list[dict], area_row
                    [[_t(r["area"]), f"`{_bar(r['coverage'])}`", _pct(r["coverage"]), f"{r['owned']} / {r['demand']}",
                      _t(", ".join(r["missing_skills"]) or "없음")] for r in shown]))
         add("\n수요는 그 영역의 기술을 요구한 공고 건수의 합, 보유는 그중 내가 채운 몫입니다. "
-            "필수로 요구한 공고는 기준 단계를 넘으면, 우대로 요구한 공고는 내 단계/5만큼 채운 것으로 셉니다.\n")
+            "필수로 요구한 공고는 내 단계가 기준 단계 이상이면 전부, 우대로 요구한 공고는 내 단계/5만큼 채운 것으로 셉니다.\n")
     else:
         add("영역별 수요가 없습니다.\n")
 

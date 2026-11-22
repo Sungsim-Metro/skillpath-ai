@@ -28,7 +28,7 @@ from pipeline.aliases import normalize_skill
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 LEVELS = tuple(range(6))  # 0 해 본 적 없음, 1~5
 MAX_LEVEL = 5
-DEFAULT_REQUIRED_LEVEL = 3  # 공고 비교로 정하지 못한 기술의 기준 단계(팀 결정값, 근거 자료 없음)
+DEFAULT_REQUIRED_LEVEL = 4  # 공고 근거가 부족할 때 쓰는 보유 기준: 프로젝트에서 문제 해결
 ALL = "ALL"
 CUSTOM_PREFIX = "custom:"
 MAX_CUSTOM_NAME_LENGTH = 120
@@ -108,7 +108,7 @@ def required_level(skill: str, job_category: str = DEFAULT_JOB) -> tuple[int, st
     if row is None and thresholds:
         name_key = (normalize_skill(skill) or skill).casefold()
         row = next((v for name, v in thresholds.items() if name.casefold() == name_key), None)
-    if not row:
+    if not row or row["confidence"] == "uncertain":
         return DEFAULT_REQUIRED_LEVEL, "uncertain"
     return int(row["required_level"]), row["confidence"]
 

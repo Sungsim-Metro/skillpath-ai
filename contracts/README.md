@@ -183,7 +183,7 @@ Gap 행(`get_gap`)에 더한 필드:
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `user_level` | number | 내 단계 0~5(공통 기술은 소수일 수 있음) |
-| `required_level` | number | 기준 단계 1~5. `data/required_levels.json`에 없으면 3 |
+| `required_level` | number | 기준 단계 1~5. 직무별 기준 파일에 기술이 없거나 공고 근거가 부족하면 기본값 4를 쓴다 |
 | `required_level_confidence` | string | `certain`(공고 3건 이상으로 정함) 또는 `uncertain`(기본값) |
 | `satisfaction` | number | 충족도 0~1 = 필수 비중 × (내 단계 ≥ 기준 단계 ? 1 : 0) + 우대 비중 × 내 단계/5 |
 | `owned` | boolean | 내 단계 ≥ 기준 단계 |

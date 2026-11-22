@@ -360,13 +360,13 @@ class ChatScreenTest(unittest.TestCase):
             at.chat_input[0].set_value("내 상태를 정리해줘").run()
             self.assertEqual(handle.call_args.kwargs["sidebar_skills"], [])  # 진단 전 예시 값은 넘기지 않는다
             self.assertIsNone(handle.call_args.kwargs["sidebar_levels"])
-            self.diagnose(at, {"C1-4": 3, "C5-2": 2})
+            self.diagnose(at, {"C1-4": 4, "C5-2": 3})
             at.chat_input[0].set_value("다시 정리해줘").run()
-            # 컨테이너 3단계는 기준(3)을 넘어 Docker·Kubernetes 보유, 스크립트 2단계는 Python 미보유
+            # 컨테이너 4단계는 기본 보유 기준을 충족하고 스크립트 3단계는 부족하다.
             self.assertEqual(handle.call_args.kwargs["sidebar_skills"], ["Docker", "Kubernetes"])
-            self.assertEqual(handle.call_args.kwargs["sidebar_levels"], {"C1-4": 3, "C5-2": 2})
+            self.assertEqual(handle.call_args.kwargs["sidebar_levels"], {"C1-4": 4, "C5-2": 3})
         at.radio(key="view").set_value("gap").run()
-        self.assertEqual(at.session_state["levels"], {"C1-4": 3, "C5-2": 2})
+        self.assertEqual(at.session_state["levels"], {"C1-4": 4, "C5-2": 3})
         self.assertEqual(at.title[0].value, "부족 역량")
         self.assertFalse(at.exception)
 
