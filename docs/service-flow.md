@@ -30,67 +30,53 @@ flowchart TD
 
 ## 2. 시스템 구조
 
-공고가 왼쪽에서 들어와 오른쪽 화면에서 추천으로 나옵니다. 화살표의 ①~④는 구간 사이를 오가는 JSON 형식 번호입니다.
+2026-11-21에 지금 코드에 맞게 다시 그렸습니다. 위 묶음은 미리 한 번 돌리는 준비 단계, 아래 묶음은 상담 요청마다 도는 단계입니다. 화살표의 ①~④는 구간 사이를 오가는 JSON 형식 번호입니다.
 
 ```mermaid
 flowchart LR
-    subgraph SRC["데이터 · 종훈"]
-        posting["채용공고<br/>로켓펀치 · 사람인 대기<br/>사기업 공고만"]
-        ncs["NCS 능력단위"]
-        course["AWS 교육과정<br/>SkillBuilder 목록에서 선별<br/>과정명 · 링크 · 난이도"]
+    subgraph PREP["준비 단계 · 미리 한 번"]
+        direction LR
+        posting["채용공고 수집<br/>로켓펀치 API · 공개 데이터셋"] --> s3[("S3<br/>공고 JSON")]
+        s3 -- "① 공고" --> extract["기술 추출<br/>Bedrock Claude"]
+        extract --> verify["근거 검사 · 표준화<br/>코드 + 별칭 사전 + Titan 임베딩"]
+        verify -- "② 추출 결과" --> demand[("DynamoDB<br/>추출 결과 · 수요 집계")]
+        course["AWS 교육과정 216개<br/>Skill Builder"] --> kb["Knowledge Base<br/>S3 Vectors 의미 검색 + 키워드 순위"]
     end
 
-    s3[("S3<br/>API 응답 JSON<br/>요약 + 원본 링크")]
-    extract["기술 추출<br/>Lambda + Bedrock Claude"]
-    verify["근거 검증<br/>근거 문장이<br/>원문에 있나"]
-    normalize["표현 표준화<br/>별칭 사전 + Titan 임베딩"]
-    ddb[("DynamoDB<br/>추출 결과 · 수요 집계<br/>사용자가 저장한 프로필")]
-    gap["수요 집계 · Gap 계산<br/>3단 구분 가중치<br/>LLM 없이 코드로"]
-    search["교육과정 검색<br/>Knowledge Base<br/>S3 Vectors"]
-    reason["추천 이유 생성<br/>Bedrock Claude<br/>수치만 입력"]
-    agent["학습 상담 에이전트<br/>Bedrock Agent + Guardrails"]
-    app["Streamlit 화면"]
+    subgraph TURN["상담 한 번 · 요청마다"]
+        direction LR
+        app["Streamlit 화면<br/>상담 · 부족 역량 · 학습 추천"] --> guard["입력 검사<br/>코드 규칙 + Bedrock Guardrails"]
+        guard --> intake["발화 해석<br/>Bedrock Claude, JSON 검증"]
+        intake --> gap["Gap 계산<br/>코드로만 계산"]
+        gap --> reason["추천 이유 작성 · 검토<br/>Bedrock Claude, 코드로 최종 검사"]
+        reason -- "③ 추천" --> app
+    end
 
-    posting --> s3
-    s3 -- "① 공고" --> extract
-    extract --> verify
-    verify --> normalize
-    ncs --> normalize
-    normalize -- "② 추출 결과" --> ddb
-    ddb --> gap
-    gap -- "④ 수요 집계" --> app
-    app -- "보유 기술" --> gap
-    gap -- "부족 기술" --> reason
-    course --> search
-    search --> reason
-    reason -- "③ 추천" --> app
-    app -- "질문" --> agent
-    agent -. "도구 호출" .-> gap
-    agent -. "도구 호출" .-> search
+    demand -- "④ 수요 집계" --> gap
+    kb --> reason
+    app <--> profile[("DynamoDB<br/>프로필 · 대화 기록")]
 
-    classDef ai fill:#f1ecfd,stroke:#6b3fd4,color:#18202b
-    classDef store fill:#eaf3ee,stroke:#2f7a52,color:#18202b
-    classDef ui fill:#e9f1fc,stroke:#1f5fbf,color:#18202b
-    class extract,search,reason,agent ai
-    class s3,ddb store
-    class app ui
+    classDef ai fill:#e8f0fb,stroke:#1f5fbf,color:#16233b
+    classDef store fill:#fff1e3,stroke:#d9730d,color:#16233b
+    class extract,kb,guard,intake,reason ai
+    class s3,demand,profile store
 ```
 
 | 색 | 뜻 |
 | --- | --- |
-| 보라 | AI가 하는 일 (Bedrock) |
-| 초록 | 저장소 |
-| 파랑 | 화면 |
+| 파랑 | Amazon Bedrock을 부르는 단계 |
+| 주황 | 저장소 |
 | 색 없음 | 코드가 하는 일, 데이터 원천 |
 
-구간별 담당과 이슈는 [WBS](wbs.md)에, JSON 형식은 [`contracts/`](../contracts/README.md)에 있습니다.
+JSON 형식은 [`contracts/`](../contracts/README.md)에 있습니다.
 
 ### 구조에서 지키는 것
 
-1. **세기는 코드, 이해는 AI.** 보라색 칸만 Bedrock을 부릅니다. 빈도, 비율, Gap은 집계 코드가 계산하고 추천 이유는 그 숫자를 받아 쓰기만 합니다.
+1. **세기는 코드, 이해는 AI.** 파란 칸만 Bedrock을 부릅니다. 빈도, 비율, Gap은 집계 코드가 계산하고 추천 이유는 그 숫자를 받아 쓰기만 합니다.
 2. **근거 문장은 추출 단계에서만 씁니다.** 추출 직후 근거 문장이 공고 원문에 실제로 있는지 코드로 확인하고, 없으면 버리거나 "불확실"로 표시합니다.
-3. **S3에는 API 응답 JSON을 저장합니다.** 요약 정보와 원본 공고 링크가 들어 있고, 근거 검증·프롬프트 재실행·정확도 측정에 같은 데이터를 씁니다. 공고 웹페이지 원문 전체는 저장하지 않습니다. 원본은 수정될 수 있어 상세는 링크로 보냅니다(2026-11-12).
-4. **학습 상담 에이전트는 이미 만든 함수를 도구로 부르기만 합니다.** 수요 조회와 과정 검색 두 개이고, Guardrails가 주제 밖 질문을 막습니다.
+3. **S3에는 수집한 공고 JSON을 저장합니다.** 근거 검증·프롬프트 재실행·정확도 측정에 같은 데이터를 씁니다. 공고 웹페이지 원문 전체는 저장하지 않고 상세는 원본 링크로 보냅니다.
+4. **상담은 요청한 범위의 단계만 실행합니다.** 입력은 코드 규칙과 Bedrock Guardrails로 먼저 검사하고, 검사에 실패하면 그 요청은 끝냅니다. 부족 역량을 물으면 Gap까지, 교육과정을 요청한 경우에만 과정 검색과 추천 이유 검토를 실행합니다. 어떤 단계를 실행할지는 코드가 정합니다.
+5. **추천 이유는 화면에 나가기 전에 다시 검사합니다.** 별도 모델 호출로 초안을 검토하고, 코드가 공고 수요 수치와 과정의 학습 목표로 최종 근거를 검사해 통과한 과정만 보여 줍니다.
 
 ### 아직 정해지지 않은 것
 
