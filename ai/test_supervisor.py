@@ -163,8 +163,14 @@ class SupervisedLearningTest(unittest.TestCase):
     def test_gap_list_reference_uses_actual_display_order_and_checks_bounds(self):
         context = {"wishes": ["Docker"], "last_gap_skills": ["IAM", "S3"]}
         for text, expected in [("부족 기술 중 첫 번째 과정 추천해줘", ["IAM"]),
-                               ("그중 두 번째 강의 찾아줘", ["S3"])]:
-            self.assertEqual(self.supervisor.interpret_turn(text, context).targets, expected)
+                               ("그중 두 번째 강의 찾아줘", ["S3"]),
+                               ("그중 마지막 기술의 강의 찾아줘", ["S3"]),
+                               ("그중 마지막 걸로 강의 찾아줘", ["S3"]),
+                               ("마지막으로 AI 강의 보여줘", ["AI"]),
+                               ("마지막 거래가 끝나면 AI 강의 보여줘", ["AI"]),
+                               ("마지막으로 강의 보여줘", ["Docker"])]:
+            with self.subTest(text=text):
+                self.assertEqual(self.supervisor.interpret_turn(text, context).targets, expected)
         self.assertTrue(self.supervisor.interpret_turn("그중 세 번째 강의 찾아줘", context).question)
         self.assertTrue(self.supervisor.interpret_turn("첫 번째 기술 강의 추천해줘", {}).question)
         self.assertEqual(self.supervisor.interpret_turn("네", {"offered_gap": True}).turn.action, "gap")

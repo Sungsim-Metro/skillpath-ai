@@ -55,7 +55,9 @@ class RoleGapCourseTest(unittest.TestCase):
 
     def test_new_role_ordinal_uses_its_comparable_gaps(self):
         for skills, request, target in [({}, self.first_gap, "Python"), ({"Python": True}, self.first_gap, "LLM"),
-                                        ({}, self.second_gap, "LLM"), ({}, self.named_course, "AI")]:
+                                        ({}, self.second_gap, "LLM"), ({}, self.named_course, "AI"),
+                                        ({}, "마지막으로 AI 강의 보여줘", "AI"),
+                                        ({}, "마지막으로 부족 기술 중 두 번째 강의 보여줘", "LLM")]:
             with self.subTest(skills=skills, request=request):
                 state = self.after_cloud_gap()
                 state.skills.update(skills)
