@@ -758,6 +758,7 @@
   | helpful | 0.5 | 0.88 | 0.841 | −0.12 |
   | grounded | 0.38 | 0.62 | 0.173 | +1.38 |
 
+- **가드레일 연결 확인(개선용, 연결 확인 목적)**: 가드레일 개선용 33문항(막을 18, 통과할 15)을 구조 0·A·3 의 입구에 넣고(통과하면 답 생성 전에 멈춤, `--guard-wiring`) `check_input` 단독 결과와 비교했다. 단독·0·A·3 모두 미탐 0/18, 오탐 0/15, 검사 실패 0, 단독과 다른 문항 없음, 차단 안내 연결 불일치 없음, 모델 호출 0, ApplyGuardrail 구조마다 19(14문항은 코드 검사에서 먼저 막힘). 11/22 실제 모드 1회, 결과 파일(커밋 안 함) `outputs/eval/guard_wiring_dev_bedrock_20261122-190750.json`. 첫 실행은 로그인 토큰 만료로 Guardrails 검사가 모두 실패해 쓰지 않았다
 - **조건**: 답 모델은 `.env` 의 `BEDROCK_MODEL_ID`, 채점 모델은 `JUDGE_MODEL_ID`(Nova Pro, 답 모델과 다름), (구조, 문항)마다 새 프로세스, Lambda 끔. 한도 개발용 3번 모델 120·가드레일 16, 0번 50·16, A 80·14, 보지 않은 3번 120·14, 채점 전체 90(쓴 것 54·12, 24·12, 36·10, 35·12, 채점 50 + 18 = 68, 형식 최종 실패 0). 채점 토큰 103,986 + 31,141. 결과 파일(커밋 안 함) `outputs/eval/agent_compare_dev_bedrock_20261122-182423.json`(3)·`-182620.json`(0)·`-182910.json`(A), `agent_answers_dev_bedrock_merged_20261122-182935.json`, `agent_judge_dev_bedrock_20261122-183023.json`, `agent_compare_holdout_bedrock_20261122-183450.json`, `agent_judge_holdout_bedrock_20261122-183515.json`, `agent_judge_agreement_20261122-185253.json`, 사람 채점 양식 `data/raw/eval_human/agent_judge_human_holdout_20261122-183515.csv`
 - **한계**
   - 0·A의 보지 않은 문항 결과는 11/21 코드로, 3번은 11/22 코드로 돌렸다(실행 시점이 다름).

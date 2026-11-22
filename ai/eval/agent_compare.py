@@ -540,6 +540,148 @@ def run_one(structure: str, case_set: str, case_id: str) -> int:
     return 0
 
 
+GUARD_CASES = EVAL_DATA / "guardrail_cases.json"  # 가드레일 개선용 33문항만. 보지 않은 문항 파일은 이 모드에서 읽지 않는다
+GUARD_PURPOSE = "개선용, 연결 확인 목적"
+
+
+class GuardStop(BaseException):
+    """가드레일을 통과한 직후 멈춤(답변 생성까지 가지 않음). 상담 코드의 except Exception 이 삼키지 않는다."""
+
+
+def guard_outcome(result) -> str:
+    kind = guard_kind(result)
+    return {"pass": "pass", "blocked": "blocked", "check_failed": "check_failed"}.get(kind, "none")
+
+
+def run_guard_wiring(structure: str, case: dict) -> dict:
+    """한 문항을 구조의 입구(가드레일)까지만 돌린다. "standalone" 은 check_input 을 직접 부른 단독 결과.
+
+    check_input 을 이 평가 코드 안에서만 감싼다(ai/guardrail.py·backend 는 그대로). 통과면 GuardStop 으로 멈추고,
+    막히거나 검사 실패면 끝까지 진행시켜 구조가 차단·실패 안내로 끝나는지(wired) 본다. 원문·답은 남기지 않는다.
+    """
+    from ai import agent
+    from backend import chat as screen
+
+    seen = []
+    with Probe() as probe:
+        inner = guardrail.check_input  # Probe 가 감싼 것(결과를 probe.guard 에 적음)
+
+        def stopper(text):
+            result = inner(text)
+            seen.append(result)
+            if structure != "standalone" and not result.blocked:
+                raise GuardStop
+            return result
+
+        guardrail.check_input = stopper
+        stopped, reply, answer = False, None, None
+        try:
+            if structure == "standalone":
+                guardrail.check_input(case["text"])
+            elif structure == "A":
+                answer = agent.chat(case["text"])["answer"]
+            else:
+                reply = screen.handle_message(screen.Conversation(), case["text"], job="cloud_engineer", sidebar_skills=[],
+                                              architecture="supervised" if structure == "3" else "screen")
+        except GuardStop:
+            stopped = True
+        finally:
+            guardrail.check_input = inner  # Probe 가 나갈 때 원래 함수로 되돌린다
+    outcome = guard_outcome(seen[0]) if seen else "none"
+    if structure == "standalone":
+        wired = len(seen) == 1
+    elif outcome == "pass":
+        wired = stopped
+    elif structure == "A":
+        wired = answer == guardrail.message_for(seen[0], guardrail.BLOCK_MESSAGE)
+    else:
+        wired = reply is not None and reply.action == ("blocked" if outcome == "blocked" else "intake")
+    return {"id": case["id"], "expect": case["expect"], "outcome": outcome,
+            "wired": bool(wired and len(seen) == 1 and probe.model_calls == 0 and probe.mock_turns == 0),
+            "check_calls": len(seen), "model_calls": probe.model_calls, "guardrail_calls": probe.guardrail_calls}
+
+
+def summarize_guard(rows: list[dict], standalone: dict[str, str] | None = None) -> dict:
+    """미탐(막을 문항이 통과) · 오탐(통과할 문항이 정책상 막힘) · 검사 실패는 따로. 단독 결과와 다른 문항 id."""
+    block = [r for r in rows if r["expect"] == "block"]
+    allow = [r for r in rows if r["expect"] == "pass"]
+    return {
+        "miss": sum(r["outcome"] == "pass" for r in block), "block_total": len(block),
+        "false_positive": sum(r["outcome"] == "blocked" for r in allow), "pass_total": len(allow),
+        "check_failed": sum(r["outcome"] == "check_failed" for r in rows),
+        "differs_from_standalone": [] if standalone is None else [r["id"] for r in rows if r["outcome"] != standalone[r["id"]]],
+        "not_wired": [r["id"] for r in rows if not r["wired"]],
+        "model_calls": sum(r["model_calls"] for r in rows),
+        "guardrail_calls": sum(r["guardrail_calls"] for r in rows),
+    }
+
+
+def guard_wiring(structures: list[str], max_model_calls: int | None, max_guardrail_calls: int | None,
+                 cases: list[dict] | None = None) -> dict:
+    """단독 결과를 먼저 재고, 구조마다 같은 문항을 입구까지 돌린다. 한도는 실행 전체(단독 포함) 합계."""
+    os.environ.update(LOCAL_ENV)  # Lambda·비교 실험 끄기(구조 비교와 같은 조건)
+    if cases is None:
+        cases = json.loads(GUARD_CASES.read_text(encoding="utf-8"))["cases"]
+    used = {"model": 0, "guardrail": 0}
+    rows: dict[str, list[dict]] = {}
+    saved_env = {k: os.environ.get(k) for k in (MODEL_BUDGET_ENV, GUARDRAIL_BUDGET_ENV)}
+    try:
+        for name in ["standalone", *structures]:
+            rows[name] = []
+            for c in cases:
+                for env, limit, key in ((MODEL_BUDGET_ENV, max_model_calls, "model"),
+                                        (GUARDRAIL_BUDGET_ENV, max_guardrail_calls, "guardrail")):
+                    if limit is None:
+                        os.environ.pop(env, None)
+                    else:
+                        os.environ[env] = str(limit - used[key])
+                try:
+                    row = run_guard_wiring(name, c)
+                except BudgetExceeded as e:
+                    raise LimitReached(f"{name} 문항 {c['id']} 에서 호출 한도({e})에 걸려 멈췄습니다") from None
+                used["model"] += row["model_calls"]
+                used["guardrail"] += row["guardrail_calls"]
+                rows[name].append(row)
+    finally:
+        for k, v in saved_env.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    standalone = {r["id"]: r["outcome"] for r in rows["standalone"]}
+    summary = {name: summarize_guard(r, None if name == "standalone" else standalone) for name, r in rows.items()}
+    return {"purpose": GUARD_PURPOSE, "cases": GUARD_CASES.name, "summary": summary, "rows": rows}
+
+
+def run_guard_wiring_cli(args, structures: list[str]) -> int:
+    if args.set != "dev":
+        print("--guard-wiring 은 가드레일 개선용 33문항만 씁니다(보지 않은 문항 금지). --set 을 빼세요. 멈춥니다.")
+        return 1
+    if args.bedrock and (args.max_model_calls is None or args.max_guardrail_calls is None):
+        print("실제 모드는 --max-model-calls 와 --max-guardrail-calls 를 함께 줘야 합니다. 멈춥니다.")
+        return 1
+    if not GUARD_CASES.exists():
+        print(f"문항 파일이 없어 건너뜁니다: {GUARD_CASES.relative_to(ROOT).as_posix()}")
+        return 0
+    try:
+        result = guard_wiring(structures, args.max_model_calls, args.max_guardrail_calls)
+    except LimitReached as e:
+        print(f"{e}. 결과는 저장하지 않았습니다.")
+        return LIMIT_EXIT
+    s = result["summary"]
+    print(f"{GUARD_PURPOSE} ({GUARD_CASES.name} {s['standalone']['block_total'] + s['standalone']['pass_total']}문항: "
+          f"막을 {s['standalone']['block_total']}, 통과할 {s['standalone']['pass_total']})")
+    for name, v in s.items():
+        label = "단독" if name == "standalone" else f"구조 {name}"
+        extra = "" if name == "standalone" else (f"  단독과 다른 문항: {', '.join(v['differs_from_standalone']) or '없음'}")
+        print(f"[{label}] 미탐 {v['miss']}/{v['block_total']}  오탐 {v['false_positive']}/{v['pass_total']}  검사 실패 {v['check_failed']}"
+              f"{extra}  연결 불일치: {', '.join(v['not_wired']) or '없음'}  모델 호출 {v['model_calls']}  ApplyGuardrail {v['guardrail_calls']}")
+    mode = "bedrock" if args.bedrock else "mock"
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUT_DIR / f"guard_wiring_dev_{mode}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"저장: {out.relative_to(ROOT).as_posix()}")
+    bad = any(v["not_wired"] or v["differs_from_standalone"] for k, v in s.items() if k != "standalone")
+    return 1 if bad else 0
+
+
 def holdout_done(structures: list[str], log: Path = HOLDOUT_LOG) -> dict[str, str]:
     """보지 않은 문항을 실제 모드로 이미 끝낸 구조 → 근거(기록 줄 또는 잠금 전 결과 파일)."""
     done = {s: f"잠금 전 실행 {HOLDOUT_DONE_BEFORE[s]}" for s in structures if s in HOLDOUT_DONE_BEFORE}
@@ -651,6 +793,8 @@ def main() -> int:
     ap.add_argument("--max-judge-calls", type=int, help="채점 호출 한도(재시도 포함, 넘기 직전에 멈춤)")
     ap.add_argument("--human-sheet", action="store_true", help="사람 채점 양식(CSV)도 만듦")
     ap.add_argument("--agreement", nargs=2, metavar=("JUDGE_FILE", "HUMAN_CSV"), help="LLM·사람 채점 일치율")
+    ap.add_argument("--guard-wiring", action="store_true",
+                    help="가드레일 개선용 33문항을 구조 입구에 넣어 단독 결과와 같은지(통과면 답 생성 전에 멈춤)")
     args = ap.parse_args()
     if args.one:
         return run_one(args.one[0], args.set, args.one[1])
@@ -665,6 +809,8 @@ def main() -> int:
     if args.bedrock == bedrock.is_mock():
         print("--bedrock 은 BEDROCK_MOCK=0 일 때만, 가짜 모드는 BEDROCK_MOCK=1 일 때만 씁니다. 멈춥니다.")
         return 1
+    if args.guard_wiring:
+        return run_guard_wiring_cli(args, structures) if structures else 1
     path = HOLDOUT if args.set == "holdout" else CASES
     if not path.exists():
         print(f"문항 파일이 없어 건너뜁니다: {path.relative_to(ROOT).as_posix()} (공개 범위 밖, 팀 저장소에만 있음)")
