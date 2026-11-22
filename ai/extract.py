@@ -12,6 +12,8 @@ LLM 은 raw, normalized, type, evidence 만 낸다. posting_id, section, confide
       confidence 는 근거가 공고에 있고 사전에 있는 기술이면 high. 마지막에 pipeline.standardize 로 ncs_unit 을 채운다.
 - v2.1: 프롬프트만 다르고(종류 이름·괄호 별칭·'/' 나열 규칙, 정답지와 겹치지 않는 예시) 후처리는 v2 와 같다.
         #21 채점용 공고로 판단할 버전이다.
+- v3: v2.1 에 규칙 두 줄('네트워크'가 요구 지식·경험으로 나오면 Network, 구체 도구가 같은 문장에 있으면 IaC 같은 범주 이름은
+      따로 쓰지 않음)을 더한 시험용 버전. 후처리는 v2 와 같다. 기본값이 아니다(11/22).
 PROMPTS 에 없는 버전을 주면 ValueError 를 낸다.
 """
 from __future__ import annotations
@@ -22,11 +24,11 @@ import os
 
 from ai.bedrock import ConverseResult, converse_json
 from ai.evidence import evidence_in_text
-from ai.prompts import extract_v1, extract_v2, extract_v2_1
+from ai.prompts import extract_v1, extract_v2, extract_v2_1, extract_v3
 from ai.sections import EXCLUDED, find_section, weight
 from pipeline.aliases import normalize_skill
 
-PROMPTS = {"v1": extract_v1, "v2": extract_v2, "v2.1": extract_v2_1}  # v2.1 의 후처리는 v2 와 같다
+PROMPTS = {"v1": extract_v1, "v2": extract_v2, "v2.1": extract_v2_1, "v3": extract_v3}  # v2.1·v3 의 후처리는 v2 와 같다
 DEFAULT_PROMPT = "v1"
 PROMPT_VERSION = PROMPTS[DEFAULT_PROMPT].VERSION
 EXTRACTOR_VERSION = "extractor-v3"
