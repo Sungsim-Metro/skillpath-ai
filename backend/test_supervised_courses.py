@@ -38,6 +38,8 @@ def catalog(skill: str, **kwargs) -> list[dict]:
 class RoleGapCourseTest(unittest.TestCase):
     switched = "이제 AI 엔지니어가 목표예요. "
     first_gap = "AI 직무에서 부족한 기술 중 첫 번째 기술의 강의를 보여줘"
+    second_gap = "AI 기준 부족 기술 중 두 번째 강의를 보여줘."
+    named_course = "AI 관점에서 첫 번째로 AI 강의를 보여줘."
 
     def setUp(self):
         self.enterContext(patch.dict(os.environ, BEDROCK_MOCK="1", USAGE_LOG="off"))
@@ -52,12 +54,13 @@ class RoleGapCourseTest(unittest.TestCase):
         return state
 
     def test_new_role_ordinal_uses_its_comparable_gaps(self):
-        for skills, target in [({}, "Python"), ({"Python": True}, "LLM")]:
-            with self.subTest(skills=skills):
+        for skills, request, target in [({}, self.first_gap, "Python"), ({"Python": True}, self.first_gap, "LLM"),
+                                        ({}, self.second_gap, "LLM"), ({}, self.named_course, "AI")]:
+            with self.subTest(skills=skills, request=request):
                 state = self.after_cloud_gap()
                 state.skills.update(skills)
                 with patch.object(api, "get_recommendations", wraps=api.get_recommendations) as lookup:
-                    reply = self.send(state, self.switched + self.first_gap)
+                    reply = self.send(state, self.switched + request)
                 self.assertEqual(state.job, "ai_engineer")
                 self.assertEqual(lookup.call_args.args, ("ai_engineer", [target]), reply.text)
 
@@ -68,6 +71,8 @@ class RoleGapCourseTest(unittest.TestCase):
             (own_goal, "ai_engineer", "targets", ["AWS"], "ai_engineer", "Python"),
             (own_goal, None, "targets", ["AWS"], "ai_engineer", "Python"),
             (own_goal, "ai_engineer", "clarify", [], "ai_engineer", "Python"),
+            (self.switched + self.second_gap, "ai_engineer", "targets", ["AI"], "ai_engineer", "LLM"),
+            (self.switched + self.named_course, "ai_engineer", "gap", [], "ai_engineer", "AI"),
             ("친구가 AI 엔지니어가 목표예요. 부족 기술 중 첫 번째 강의를 보여줘",
              "ai_engineer", "targets", ["AWS"], JOB, "AWS"),
         ]

@@ -44,20 +44,24 @@ _USE = r"(?:사용|활용|이용)"
 _PAST_USE = rf"(?:{_USE}(?:한|했던|해\s*본)|쓴|다룬|써\s*본|다뤄\s*본)"
 _USED = rf"(?:{_USE}(?:했|해\s*봤)|썼|써\s*봤|다뤘)"
 _ENDING = r"(?:어요|습니다|어|다|고|지만)?"
+_SPEAKER = r"(?:제가|저는|저도|나는|내가|나도)"
+_OTHER = chat.THIRD_PARTY.pattern
+_OTHER_COPULA = r"(?:팀원|팀장|동료|친구|선배|다른\s*사람)(?:이에요|예요|입니다|이야|야)"
+_PAST_SUBJECT = rf"{_PAST_USE}\s*(?:게|건|것(?:이|은)?)"
 _DIRECT_USE = re.compile(
-    rf"(?P<subject>.+?)\s*(?:직접\s*)?(?:(?P<denied>"
+    rf"(?P<subject>.+?)\s*(?:직접\s*)?(?:(?P<disowned>"
+    rf"{_PAST_SUBJECT}\s*{_SPEAKER}\s*아니라\s*{_OTHER_COPULA}|"
+    rf"{_SPEAKER}\s*{_PAST_SUBJECT}\s*아니라\s*{_OTHER}\s*{_USED}{_ENDING})|(?P<denied>"
     rf"{_PAST_USE}\s*(?:적|경험)(?:이|은|는)?\s*없{_ENDING}|"
-    rf"{_PAST_USE}\s*(?:게|건|것(?:이|은)?)\s*(?:아니에요|아닙니다|아니야|아니다)|"
+    rf"{_PAST_SUBJECT}\s*(?:아니에요|아닙니다|아니야|아니다)|"
     rf"(?:안|못)\s*{_USED}{_ENDING}|(?:{_USE}하|쓰|다루)지\s*(?:않았|못했){_ENDING})|"
     rf"{_USED}{_ENDING}|{_PAST_USE}\s*(?:거예요|겁니다|거야))"
 )
-_SPEAKER = r"(?:제가|저는|저도|나는|내가|나도)"
-_OTHER = chat.THIRD_PARTY.pattern
 _USE_ACTOR = re.compile(
     rf"(?P<reassigned>{_SPEAKER}\s*(?:아니라|아닌)\s*{_OTHER})|(?P<other>{_OTHER})|(?P<self>{_SPEAKER})"
 )
-_CORRECTION = re.compile(r"정정|바로잡|잘못\s*(?:말|알려)")
-_CORRECTION_INTRO = r"(?:(?:정정할게요|바로잡을게요)[,\s]+)?"
+_CORRECTION = r"(?:정정(?:할게요|합니다)|바로잡을게요|잘못\s*(?:말했|알려드렸)어요)"
+_CORRECTION_INTRO = rf"(?:{_CORRECTION}[,\s]+)?"
 
 _INTAKE = """위 규칙으로 만든 모든 Turn 필드를 turn 안에 넣고 아래 5개 키만 가진 JSON 객체를 반환한다.
 {"turn":{...},"add_wishes":[],"remove_wishes":[],"targets":[],"course_scope":"none"}
@@ -280,23 +284,31 @@ def _course_question_turn(message: str, proposed: chat.Turn) -> chat.Turn:
     grounded = set()
     known = chat._items("skills", proposed.remove_skills)
     owned = set(chat.owned_clauses(message, statements_only=True))
+    pending_correction = False
     start = 0
     for end in chat._CLAUSES.finditer(message + "."):
         clause = message[start:end.start()].strip(" ,")
         start = end.end()
+        if not clause:
+            continue
+        follows_correction = pending_correction
+        pending_correction = bool(re.fullmatch(_CORRECTION, clause)) and not re.search(r"[?？]", end[0])
         use = _DIRECT_USE.fullmatch(clause)
         if not use or re.search(r"[?？]", end[0]):
             continue
         subject = re.sub(r"^" + _CORRECTION_INTRO, "", use["subject"])
+        follows_correction = follows_correction or subject != use["subject"]
         actor = _USE_ACTOR.search(subject)
         if actor:
             subject = (subject[:actor.start()] + subject[actor.end():]).strip()
         # 목적어 전체가 기존 기술 이름이어야 한다. 'Docker로 Git을 배포'라는 작업의 부정은 기술 부정이 아니다.
         subject = re.sub(r"(?:은|는|이|가|을|를|도|만)$", "", subject)
         names = chat._items("skills", re.split(r"\s*(?:와|과|하고|,|\s+및\s+)\s*", subject))
-        if actor and actor.lastgroup in ("other", "reassigned"):
-            if (names <= known and not use["denied"]
-                    and (actor.lastgroup == "reassigned" or _CORRECTION.search(message, 0, end.start()))):
+        if use["disowned"]:
+            if actor is None and names <= known:
+                grounded.update(names)
+        elif actor and actor.lastgroup in ("other", "reassigned"):
+            if names <= known and not use["denied"] and (actor.lastgroup == "reassigned" or follows_correction):
                 grounded.update(names)
         elif actor or clause in owned:
             if use["denied"]:
@@ -333,7 +345,9 @@ def switched_course_reference(message: str, context: dict, turn: chat.Turn) -> t
     rank = _course_rank(scope)
     if rank is None:
         return None
-    topics = chat.explicit_course_skills(re.sub(r"(?:AI|클라우드)\s*(?:엔지니어|직무)", "", scope, flags=re.I))
+    topic_scope = re.sub(r"(?<![A-Za-z0-9가-힣])(?:AI|클라우드)\s*(?:엔지니어|직무|기준|관점|쪽으로)",
+                         " ", scope, flags=re.I)
+    topics = chat.explicit_course_skills(topic_scope)
     if topics:
         return "targets", topics, None
     if chat.requests_gap_courses(scope):

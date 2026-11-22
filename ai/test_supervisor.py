@@ -109,7 +109,9 @@ class SupervisedLearningTest(unittest.TestCase):
         for correction in ("정정할게요. Docker는 팀원이 사용했어요.", "Docker는 사용해 본 적 없어요.",
                            "Docker는 제가 쓴 게 아니에요.", "정정할게요. Docker는 팀원이 사용한 거예요.",
                            "정정할게요. Docker는 제가 아니라 팀원이 사용했어요.",
-                           "정정할게요, 도커는 제가 아니라 팀원이 사용했어요."):
+                           "정정할게요, 도커는 제가 아니라 팀원이 사용했어요.",
+                           "Docker를 사용한 건 제가 아니라 팀원이에요.",
+                           "Docker는 제가 쓴 게 아니라 팀원이 썼어요."):
             with self.subTest(correction=correction):
                 plan = self.supervisor.interpret_turn(correction + " 그 기술의 강의 보여줘.", context)
                 self.assertTrue(plan.question)
@@ -117,6 +119,19 @@ class SupervisedLearningTest(unittest.TestCase):
                                                       remove_experiences=context["experiences"]))
                 self.assertEqual(plan.wishes, context["wishes"])
                 self.assertEqual(plan.targets, [])
+
+    def test_a_correction_intro_does_not_apply_to_a_later_teammate_statement(self):
+        context = {"skills": ["Docker", "Git"], "experiences": ["제가 Docker로 배포했어요", "제가 Git을 썼어요"],
+                   "wishes": ["Linux", "Kubernetes"]}
+        for statement, expected in (
+            ("정정할게요. Docker는 제가 썼어요. 팀원이 Docker를 썼어요.", chat.Turn()),
+            ("정정할게요. Git은 쓴 적 없어요. 팀원이 Docker를 썼어요.",
+             chat.Turn(remove_skills=["Git"], remove_experiences=["제가 Git을 썼어요"])),
+        ):
+            with self.subTest(statement=statement):
+                plan = self.supervisor.interpret_turn(statement + " 그 기술의 강의 보여줘.", context)
+                self.assertTrue(plan.question)
+                self.assertEqual(plan.turn, expected)
 
     def test_mock_withdraws_an_exact_experience_without_withdrawing_a_skill(self):
         context = {"skills": ["Docker"], "experiences": ["제가 야간 장애에 대응했어요", "제가 Docker를 썼어요"],
